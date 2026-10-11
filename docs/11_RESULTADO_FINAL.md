@@ -7,7 +7,7 @@
 |---|---|
 | 1. Gerador original preservado | **Sim.** Cópia imutável com SHA-256; build só aplica 6 patches rastreáveis e falha se o original mudar. |
 | 2. Funciona fora do Claude | **Sim, localmente** (servidor de teste). Recurso de IA continua desligado fora do Claude, como no original. |
-| 3. Código em repositório privado institucional | **Parcial.** Repositório **Git local** criado com histórico (5 commits). **Não** foi enviado ao GitHub (sem CLI e sem autenticação). |
+| 3. Código em repositório privado institucional | **Parcial.** Repositório **Git local** criado com histórico de commits. **Não** foi enviado ao GitHub (sem CLI e sem autenticação). |
 | 4. Frontend publicado na web | **Não.** |
 | 5. Banco conectado | **Parcial.** Esquema + RLS prontos e testados em PostgreSQL real; **sem projeto Supabase real**. |
 | 6. Autenticação | **Implementada e testada em simulação fiel** (login, recuperação, bloqueio de sem perfil/desativado). Não validada no Supabase real. |

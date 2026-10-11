@@ -10,3 +10,9 @@ supabase/.temp/
 supabase/.branches/
 playwright-report/
 test-results/
+
+# dados reais de clientes nunca vão para o Git
+clientes_NGA*.json
+clientes_NGA*.xlsx
+*Astrea*.pdf
+backups/
