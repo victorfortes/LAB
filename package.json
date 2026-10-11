@@ -6,13 +6,16 @@
   "scripts": {
     "build": "python3 scripts/build.py",
     "dev": "python3 scripts/dev_server.py",
-    "test:db": "node --test tests/db/rls.test.mjs",
+    "test:db": "node --test tests/db/rls.test.mjs tests/db/backup.test.mjs",
     "test:e2e": "playwright test",
-    "test": "npm run test:db"
+    "test": "npm run test:db",
+    "backup": "node scripts/backup.mjs"
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.2.17",
-    "@playwright/test": "1.49.1"
+    "@playwright/test": "1.49.1",
+    "pixelmatch": "6.0.0",
+    "pngjs": "7.0.0"
   },
   "dependencies": {
     "@supabase/supabase-js": "2.46.1"

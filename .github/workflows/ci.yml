@@ -1,0 +1,29 @@
+name: ci
+on:
+  push: { branches: [main] }
+  pull_request:
+permissions: { contents: read }
+jobs:
+  testes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - name: Banco (RLS, versões, auditoria, backup/restauração) com PostgreSQL real (PGlite)
+        run: npm run test:db
+      - name: Navegador para os testes de interface
+        run: npx playwright install --with-deps chromium
+      - name: Build + testes ponta a ponta (login, permissões, persistência, equivalência com o original)
+        run: npm run test:e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with: { name: playwright-report, path: playwright-report/, retention-days: 7 }
+  segredos:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Recusa chave secreta ou token (JWT) gravado no repositório
+        run: |
+          if grep -rEn --exclude-dir={node_modules,.git,.tools,dist,original,playwright-report,test-results} "sb_secret_[A-Za-z0-9_]{20,}|eyJ[A-Za-z0-9_-]{30,}\.[A-Za-z0-9_-]{30,}\." . ; then echo "possível segredo encontrado"; exit 1; fi
