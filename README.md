@@ -1,22 +1,26 @@
-# Welcome to your Lovable project
+# Gerador de Relatórios NGA
 
-This project was built with [Lovable](https://lovable.dev).
+Projeto independente destinado à migração integral de uma aplicação
+originalmente existente como Artifact do Claude.
 
-## Build with Lovable
+## Estado atual
 
-Open your project in the [Lovable editor](https://lovable.dev) and keep building.
+Estrutura inicial mínima. Nenhuma funcionalidade de geração de relatórios foi
+implementada — o código-fonte original será fornecido posteriormente e a
+migração funcional acontecerá nessa etapa.
 
-- **Ship faster**: describe what you want to build and Lovable handles the code.
-- **Stay in sync**: connect the project to GitHub and every change made in Lovable is committed straight to your repository.
-- **Full ownership**: this code is yours. Push to your repository and your changes sync back into Lovable, ready for your next prompt.
+## Arquitetura prevista
 
-## Development
+- **React + TypeScript** (TanStack Start, Tailwind CSS)
+- **Supabase (Lovable Cloud)** — integração preparada, ainda não habilitada:
+  - Autenticação individual
+  - Armazenamento privado de relatórios
+- **Versionamento no GitHub** — via integração nativa do Lovable
+- **Arquitetura modular** — preparada para futura integração ao NGA Nexus
 
-Prefer working locally? You need Node.js and npm — [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating).
+## Desenvolvimento
 
 ```sh
-git clone <this-repository-url>
-cd <repository-name>
 npm i
 npm run dev
 ```
