@@ -26,3 +26,10 @@ input:focus,select:focus{outline:2px solid var(--ouro);outline-offset:1px}
 .tabela{width:100%;border-collapse:collapse;font-size:13px}.tabela th{font:600 10px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--ouro);text-align:left;padding:8px;border-bottom:1px solid rgba(255,255,255,.14)}
 .tabela td{padding:9px 8px;border-bottom:1px solid rgba(255,255,255,.07);vertical-align:middle}.tabela select{margin:0;padding:6px 8px;font-size:12px}
 @media(max-width:700px){.linha{grid-template-columns:1fr}.tabela{font-size:12px}}
+
+.lote{display:grid;gap:10px;margin-bottom:14px}.lote label{margin:0;text-transform:none;letter-spacing:0;font:600 13px var(--sans);color:var(--texto)}.lote small{color:var(--mudo);font-weight:400}
+textarea{width:100%;padding:11px 12px;border-radius:8px;border:1px solid rgba(255,255,255,.14);background:#0d1a27;color:#fff;font:13px var(--mono);resize:vertical}
+.lote .primario{margin:0;width:auto;justify-self:start;padding:10px 20px}
+.resultado{border:1px solid rgba(194,150,92,.35);border-radius:10px;padding:14px;margin-bottom:16px;background:rgba(194,150,92,.06)}
+.resultado .link{margin:10px 0 0}.senha{font:600 13px var(--mono);color:#ffe2a8;user-select:all}
+.mini{background:none;border:1px solid rgba(255,255,255,.2);color:var(--texto);border-radius:6px;padding:4px 9px;font:600 11px var(--sans);cursor:pointer}.mini:disabled{opacity:.4;cursor:default}

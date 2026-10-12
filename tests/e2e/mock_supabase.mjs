@@ -19,7 +19,7 @@ export async function iniciar({ porta = 0, usuarios, dist = path.join(raiz, 'dis
   const contas = new Map();   // email -> {id, senha}
   for (const u of usuarios) {
     const id = crypto.randomUUID();
-    contas.set(u.email, { id, senha: u.senha });
+    contas.set(u.email, { id, senha: u.senha, meta: u.meta || {} });
     await db.query('insert into auth.users (id,email) values ($1,$2)', [id, u.email]);
     if (u.papel) await db.query('insert into perfis (user_id,email,nome,papel,ativo) values ($1,$2,$3,$4,$5)', [id, u.email, u.nome || u.email, u.papel, u.ativo !== false]);
   }
@@ -28,7 +28,7 @@ export async function iniciar({ porta = 0, usuarios, dist = path.join(raiz, 'dis
     const c = contas.get(email), exp = Math.floor(Date.now() / 1000) + 3600;
     const t = `${b64({ alg: 'HS256', typ: 'JWT' })}.${b64({ sub: c.id, email, role: 'authenticated', aud: 'authenticated', exp })}.mock`;
     tokens.set(t, { id: c.id, email });
-    return { access_token: t, token_type: 'bearer', expires_in: 3600, expires_at: exp, refresh_token: 'r_' + crypto.randomUUID(), user: { id: c.id, email, aud: 'authenticated', role: 'authenticated', app_metadata: {}, user_metadata: {}, created_at: new Date().toISOString() } };
+    return { access_token: t, token_type: 'bearer', expires_in: 3600, expires_at: exp, refresh_token: 'r_' + crypto.randomUUID(), user: { id: c.id, email, aud: 'authenticated', role: 'authenticated', app_metadata: {}, user_metadata: c.meta || {}, created_at: new Date().toISOString() } };
   };
 
   // cabeçalhos de segurança do projeto (web/_headers), para validar a CSP de verdade
@@ -65,6 +65,40 @@ export async function iniciar({ porta = 0, usuarios, dist = path.join(raiz, 'dis
         if (u.searchParams.get('grant_type') === 'password' && c && c.senha === b.password) return json(200, emitir(b.email));
         if (u.searchParams.get('grant_type') === 'refresh_token') { const ult = [...tokens.values()].pop(); if (ult) return json(200, emitir(ult.email)); }
         return json(400, { error: 'invalid_grant', error_description: 'Invalid login credentials' });
+      }
+      if (u.pathname === '/auth/v1/user' && req.method === 'PUT') {   // supabase.auth.updateUser (troca de senha / metadados)
+        const t = (req.headers.authorization || '').replace('Bearer ', ''); const q = tokens.get(t); if (!q) return json(401, { msg: 'invalid' });
+        const b = JSON.parse(corpoBruto || '{}'); const c = contas.get(q.email);
+        if (b.password) { if (String(b.password).length < 12) return json(422, { msg: 'weak' }); c.senha = b.password; }
+        if (b.data) c.meta = { ...(c.meta || {}), ...b.data };
+        return json(200, { id: c.id, email: q.email, aud: 'authenticated', user_metadata: c.meta });
+      }
+      // imita a Edge Function supabase/functions/gerenciar-usuarios (mesmo contrato)
+      if (u.pathname === '/functions/v1/gerenciar-usuarios' && req.method === 'POST') {
+        const t = (req.headers.authorization || '').replace('Bearer ', ''); const q = tokens.get(t); if (!q) return json(401, { erro: 'nao_autenticado' });
+        const eu = (await db.query('select papel, ativo from perfis where user_id=$1', [q.id])).rows[0];
+        if (!eu || !eu.ativo || eu.papel !== 'admin') return json(403, { erro: 'sem_permissao' });
+        const b = JSON.parse(corpoBruto || '{}'); const gen = () => 'T' + crypto.randomBytes(9).toString('base64url').replace(/[-_]/g, 'x') + '7';
+        if (b.acao === 'criar') {
+          const saida = [];
+          for (const x of (b.usuarios || []).slice(0, 50)) {
+            const email = String(x.email || '').trim().toLowerCase(), nome = String(x.nome || '').trim();
+            if (!nome || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email) || !['admin', 'advogado', 'visualizador'].includes(x.papel)) { saida.push({ email, nome, papel: x.papel, resultado: 'dados_invalidos' }); continue; }
+            if (contas.has(email)) { saida.push({ email, nome, papel: x.papel, resultado: 'ja_existe' }); continue; }
+            const id = crypto.randomUUID(), senha = gen(); contas.set(email, { id, senha, meta: { nome, trocar_senha: true } });
+            await db.query('insert into auth.users (id,email) values ($1,$2)', [id, email]);
+            await db.query('insert into perfis (user_id,email,nome,papel,ativo) values ($1,$2,$3,$4,true)', [id, email, nome, x.papel]);
+            saida.push({ email, nome, papel: x.papel, resultado: 'criado', senha_temporaria: senha });
+          }
+          return json(200, { ok: true, usuarios: saida });
+        }
+        if (b.acao === 'redefinir') {
+          const c = contas.get(String(b.email || '').toLowerCase()); if (!c) return json(404, { erro: 'nao_encontrado' });
+          if (c.id === q.id) return json(400, { erro: 'use_trocar_senha' });
+          c.senha = gen(); c.meta = { ...(c.meta || {}), trocar_senha: true };
+          return json(200, { ok: true, email: b.email, senha_temporaria: c.senha });
+        }
+        return json(400, { erro: 'acao_invalida' });
       }
       if (u.pathname === '/auth/v1/user') { const t = (req.headers.authorization || '').replace('Bearer ', ''); const q = tokens.get(t); return q ? json(200, { id: q.id, email: q.email, aud: 'authenticated' }) : json(401, { msg: 'invalid' }); }
       if (u.pathname === '/auth/v1/logout') { res.writeHead(204); return res.end(); }

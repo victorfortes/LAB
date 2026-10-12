@@ -36,6 +36,9 @@
   }
 
   /* ---------------------------------------------------------------- entrada */
+  // senha temporária entregue pelo administrador: a pessoa precisa trocá-la antes de usar o sistema
+  function trocaObrigatoria(sessao) { return !!(sessao && sessao.user && sessao.user.user_metadata && sessao.user.user_metadata.trocar_senha === true); }
+
   async function entrar(sessao) {
     var r = await sb.from('perfis').select('user_id,email,nome,papel,ativo').eq('user_id', sessao.user.id).maybeSingle();
     perfil = r.data;
@@ -67,6 +70,7 @@
       if (ev === 'SIGNED_OUT' && perfil) { perfil = null; mostrar('form-login'); }
     });
     var s = (await sb.auth.getSession()).data.session;
+    if (s && trocaObrigatoria(s)) { emRecuperacao = true; $('nova-titulo').textContent = 'Defina sua senha de acesso'; mostrar('form-nova-senha'); return; }
     if (convite && s) { emRecuperacao = true; $('nova-titulo').textContent = /type=invite/.test(hashInicial) ? 'Defina sua senha de acesso' : 'Defina sua nova senha'; history.replaceState(null, '', location.pathname); mostrar('form-nova-senha'); return; }
     if (s) await entrar(s); else mostrar('form-login');
   }
@@ -86,6 +90,7 @@
       return;
     }
     falhas = 0; $('login-senha').value = '';
+    if (trocaObrigatoria(r.data.session)) { emRecuperacao = true; $('nova-titulo').textContent = 'Defina sua senha de acesso'; mostrar('form-nova-senha'); return; }
     await entrar(r.data.session);
   });
 
@@ -101,12 +106,13 @@
     var a = $('nova-senha').value, b = $('nova-senha2').value;
     if (a.length < 12) { msg($('nova-erro'), 'Use ao menos 12 caracteres.'); return; }
     if (a !== b) { msg($('nova-erro'), 'As senhas não coincidem.'); return; }
-    var r = await sb.auth.updateUser({ password: a });
+    var r = await sb.auth.updateUser({ password: a, data: { trocar_senha: false } });
     if (r.error) { msg($('nova-erro'), 'Não foi possível salvar a senha. Peça um novo link ao administrador.'); return; }
     emRecuperacao = false; $('nova-senha').value = ''; $('nova-senha2').value = '';
     await entrar((await sb.auth.getSession()).data.session);
   });
   $('bloqueio-sair').addEventListener('click', sair);
+  $('nova-sair').addEventListener('click', sair);
 
   /* ------------------------------------------- ponte com o gerador (iframe) */
   window.addEventListener('message', async function (ev) {
@@ -163,6 +169,8 @@
       ativo.addEventListener('change', async function () { await alterar(p, { ativo: ativo.value === 'true' }); });
       c2.appendChild(ativo); tr.appendChild(c2);
       tr.appendChild(td(quando(p.ultimo_acesso)));
+      var c3 = document.createElement('td'), bt = document.createElement('button'); bt.type = 'button'; bt.className = 'mini'; bt.textContent = 'Nova senha'; bt.disabled = eu; bt.title = eu ? 'Troque a sua senha pelo link "Esqueci minha senha"' : 'Gera uma senha temporária';
+      bt.addEventListener('click', function () { novaSenha(p); }); c3.appendChild(bt); tr.appendChild(c3);
       tb.appendChild(tr);
     });
   }
@@ -171,15 +179,54 @@
     msg($('admin-msg'), r.error || !r.data.length ? 'Alteração recusada: ' + (r.error ? r.error.message : 'sem permissão.') : 'Alteração salva.');
     await listarUsuarios();
   }
-  $('form-convite').addEventListener('submit', async function (e) {
+  /* ---- criação em lote (Edge Function gerenciar-usuarios; sem e-mail) ---- */
+  var MAPA_PERFIL = { admin: 'admin', administrador: 'admin', adm: 'admin', advogado: 'advogado', advogada: 'advogado', operador: 'advogado',
+    visualizador: 'visualizador', visualizadora: 'visualizador', consulta: 'visualizador', leitor: 'visualizador' };
+  function lerLote(texto) {
+    return String(texto || '').split(/\r?\n/).map(function (l) { return l.trim(); }).filter(Boolean).map(function (l) {
+      var p = l.split(/[;,\t]/).map(function (c) { return c.trim(); });
+      return { nome: p[0] || '', email: (p[1] || '').toLowerCase(), papel: MAPA_PERFIL[(p[2] || 'visualizador').toLowerCase()] || (p[2] || '') };
+    });
+  }
+  var ultimoLote = [];
+  function mostrarResultado(linhas) {
+    ultimoLote = linhas;
+    var tb = $('tb-resultado'); tb.textContent = '';
+    var ROT = { criado: 'Criado', ja_existe: 'Já existe', dados_invalidos: 'Dados inválidos', falhou: 'Falhou', perfil_falhou: 'Falhou (perfil)' };
+    linhas.forEach(function (u) {
+      var tr = document.createElement('tr');
+      tr.appendChild(td(u.nome)); tr.appendChild(td(u.email)); tr.appendChild(td(ROTULO[u.papel] || u.papel)); tr.appendChild(td(ROT[u.resultado] || u.resultado));
+      var c = document.createElement('td'); if (u.senha_temporaria) { var sp = document.createElement('span'); sp.className = 'senha'; sp.textContent = u.senha_temporaria; c.appendChild(sp); } tr.appendChild(c);
+      tb.appendChild(tr);
+    });
+    $('resultado-lote').hidden = false;
+  }
+  $('form-lote').addEventListener('submit', async function (e) {
     e.preventDefault();
-    var nome = $('conv-nome').value.trim(), email = $('conv-email').value.trim().toLowerCase(), papel = $('conv-papel').value;
-    if (!nome || !email) { msg($('admin-msg'), 'Informe nome e e-mail.'); return; }
-    var r = await sb.functions.invoke('convidar-usuario', { body: { nome: nome, email: email, papel: papel } });
-    if (r.error) { msg($('admin-msg'), 'Não foi possível convidar. Confira o e-mail e tente de novo.'); return; }
-    msg($('admin-msg'), 'Convite enviado para ' + email + '.'); $('conv-nome').value = ''; $('conv-email').value = '';
+    var usuarios = lerLote($('lote-texto').value);
+    if (!usuarios.length) { msg($('admin-msg'), 'Digite ao menos um usuário (Nome, e-mail, perfil).'); return; }
+    if (usuarios.length > 50) { msg($('admin-msg'), 'No máximo 50 usuários por vez.'); return; }
+    var b = e.target.querySelector('button'); b.disabled = true;
+    var r = await sb.functions.invoke('gerenciar-usuarios', { body: { acao: 'criar', usuarios: usuarios } });
+    b.disabled = false;
+    if (r.error || !r.data || !r.data.usuarios) { msg($('admin-msg'), 'Não foi possível criar os usuários. A função de administração pode não estar implantada ou você não é administrador.'); return; }
+    var ok = r.data.usuarios.filter(function (u) { return u.resultado === 'criado'; }).length;
+    msg($('admin-msg'), ok + ' de ' + r.data.usuarios.length + ' usuário(s) criado(s).');
+    mostrarResultado(r.data.usuarios);
+    if (ok) $('lote-texto').value = '';
     await listarUsuarios();
   });
+  $('lote-copiar').addEventListener('click', function () {
+    var t = ultimoLote.filter(function (u) { return u.senha_temporaria; }).map(function (u) { return u.email + '\t' + u.senha_temporaria; }).join('\n');
+    if (t && navigator.clipboard) navigator.clipboard.writeText(t).then(function () { msg($('admin-msg'), 'Lista copiada. Cole num lugar seguro e apague depois de entregar.'); });
+  });
+  async function novaSenha(p) {
+    var r = await sb.functions.invoke('gerenciar-usuarios', { body: { acao: 'redefinir', email: p.email } });
+    if (r.error || !r.data || !r.data.senha_temporaria) { msg($('admin-msg'), 'Não foi possível gerar a senha temporária.'); return; }
+    msg($('admin-msg'), 'Nova senha temporária gerada para ' + p.email + '. Ela só aparece agora.');
+    mostrarResultado([{ nome: p.nome, email: p.email, papel: p.papel, resultado: 'criado', senha_temporaria: r.data.senha_temporaria }]);
+  }
+
   async function listarAuditoria() {
     var r = await sb.from('auditoria').select('em,email,acao,colecao,doc_id').order('em', { ascending: false }).limit(200);
     var tb = $('tb-auditoria'); tb.textContent = '';
