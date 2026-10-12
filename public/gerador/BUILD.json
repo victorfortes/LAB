@@ -1,6 +1,6 @@
 {
  "original_sha256": "2d6fab8aa87d4233aa7e3564009dd89adb520108737c30ee4c9dae06b085d8a9",
- "pagina_gerador_sha256": "13793abefc7616a372f1cea4efa8ab6ff39c1fdaf0308eb1256485886b3fb616",
+ "pagina_gerador_sha256": "3de72779f152fd2c5eea17656d06b27cb0b2ba47cba896d07dcc396d294b0c60",
  "patches": [
   {
    "patch": "P1-fontes-locais",
@@ -41,6 +41,26 @@
   {
    "patch": "P11-contagem-selecao",
    "motivo": "Sincroniza seleção coletiva, contagem e disponibilidade de PDF."
+  },
+  {
+   "patch": "P12-andamentos-competencia",
+   "motivo": "Prévia e PDF usam apenas históricos registrados no mês configurado, antes do limite por processo."
+  },
+  {
+   "patch": "P13-andamentos-periodo-visivel",
+   "motivo": "Mostra o mês efetivamente usado pela prévia e sinaliza competência ausente."
+  },
+  {
+   "patch": "P14-revisional-beta-admin",
+   "motivo": "Revisional beta aparece apenas para administrador identificado pela casca, sem ler papel do armazenamento local."
+  },
+  {
+   "patch": "P15-revisional-rotulo-beta",
+   "motivo": "Identifica a análise revisional como beta."
+  },
+  {
+   "patch": "P16-revisional-clique-admin",
+   "motivo": "Revalida a exibição do revisional no clique pela identidade da casca."
   },
   {
    "patch": "P7-csp-meta",

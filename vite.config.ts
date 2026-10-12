@@ -15,7 +15,7 @@ export default defineConfig({
       apply: "serve",
       configureServer(server) {
         // TanStack intercepts HTML requests before Vite's public middleware.
-        // Only these generated documents bypass SSR during local preview.
+         // Generated shell assets also bypass SSR, matching production static hosting.
         server.middlewares.use(async (req, res, next) => {
           const pathname = (req.url || "").split("?")[0] || "";
           const documents: Record<string, string> = {
@@ -24,11 +24,21 @@ export default defineConfig({
             "/gerador/app/gerador.html": "gerador/app/gerador.html",
           };
           const document = documents[pathname];
-          if (!document || !["GET", "HEAD"].includes(req.method || "")) return next();
+           const assetTypes: Record<string, string> = {
+             ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8",
+             ".json": "application/json", ".png": "image/png", ".woff2": "font/woff2",
+           };
+           const assetType = assetTypes[path.extname(pathname)];
+           const asset = pathname.startsWith("/gerador/") && assetType ? pathname.slice(1) : undefined;
+           const relative = document || asset;
+           if (!relative || !["GET", "HEAD"].includes(req.method || "")) return next();
+           const base = path.resolve(server.config.publicDir, "gerador");
+           const file = path.resolve(server.config.publicDir, relative);
+           if (!file.startsWith(base + path.sep)) return next();
           try {
-            const html = await readFile(path.resolve(server.config.publicDir, document));
+             const html = await readFile(file);
             res.statusCode = 200;
-            res.setHeader("Content-Type", "text/html; charset=utf-8");
+             res.setHeader("Content-Type", document ? "text/html; charset=utf-8" : assetType || "application/octet-stream");
             res.end(req.method === "HEAD" ? undefined : html);
           } catch { next(); }
         });

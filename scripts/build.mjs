@@ -67,6 +67,7 @@ for (const f of readdirSync(path.join(RAIZ, 'web', 'shell'))) {
   else copyFileSync(path.join(RAIZ, 'web', 'shell', f), path.join(DIST, f));
 }
 mkdirSync(path.join(DIST, 'vendor'));
+copyFileSync(path.join(RAIZ, 'src', 'assets', 'nga-logo.png'), path.join(DIST, 'logo.png'));
 copyFileSync(path.join(RAIZ, 'web', 'vendor', 'supabase.js'), path.join(DIST, 'vendor', 'supabase.js'));
 writeFileSync(path.join(DIST, 'config.js'), 'window.NGA_SHELL_CONFIG = ' + JSON.stringify({ url, key: chave, inatividadeMin: 30 }) + ';\n');
 writeFileSync(path.join(DIST, 'BUILD.json'), JSON.stringify({ original_sha256: sha(original), pagina_gerador_sha256: sha(Buffer.from(pagina)), patches: rel }, null, 1));

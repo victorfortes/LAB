@@ -1,6 +1,9 @@
 /* Melhorias de entrada: preservam os valores e o motor do Artifact original. */
 (function () {
   'use strict';
+  window.NGA_ADMIN_ATUAL = function () {
+    try { return window.parent !== window && window.parent.NGA_SHELL_ADMIN === true; } catch (e) { return false; }
+  };
   var normalizar = function (s) { return String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase(); };
   var listaClientes = [], seletor, busca, area;
   function filtrarClientes(atual) {
