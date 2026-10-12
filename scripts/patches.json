@@ -34,5 +34,29 @@
   "motivo": "SEGURANÇA: o gerador só funciona dentro da casca autenticada; aberto direto, volta para a entrada.",
   "de": "<title>Relatórios Jurídicos, NGA</title>",
   "para": "<title>Relatórios Jurídicos, NGA</title>\n<script>if (window.parent === window) { location.replace(\"../index.html\"); }</script>"
+ },
+ {
+  "id": "P8-experiencia-e-icone",
+  "motivo": "Entradas mais intuitivas sem alterar o motor de PDF; ícone NGA.",
+  "de": "<link rel=\"stylesheet\" href=\"fonts/fonts.css\">",
+  "para": "<link rel=\"stylesheet\" href=\"fonts/fonts.css\">\n<link rel=\"stylesheet\" href=\"../experiencia.css\">\n<link rel=\"icon\" type=\"image/png\" href=\"/favicon.png\">\n<script src=\"../experiencia.js\"></script>"
+ },
+ {
+  "id": "P9-filtro-clientes",
+  "motivo": "Busca por nome e separação Cível/Empresarial preservam o cliente selecionado.",
+  "de": "      astreaClienteSelect.value = atual;",
+  "para": "      astreaClienteSelect.value = atual;\n      window.NGA_FILTRAR_CLIENTES(lista, atual);"
+ },
+ {
+  "id": "P10-selecao-andamentos",
+  "motivo": "Checkbox coletivo com estado parcial e seleção em lote.",
+  "de": "    $(\"an-gerar\").addEventListener(\"click\", gerarPDF);",
+  "para": "    var selecao = document.createElement(\"div\"); selecao.className = \"nga-andamentos-selecao\";\n    selecao.innerHTML = '<label><input type=\"checkbox\" id=\"an-todos\"> Selecionar todos</label>';\n    $(\"an-tabela\").before(selecao);\n    $(\"an-todos\").addEventListener(\"change\", function () {\n      var marcado = this.checked;\n      S.lista.forEach(function (l) { if (marcado) delete S.desmarcados[l.id]; else S.desmarcados[l.id] = 1; });\n      sec.querySelectorAll(\"[data-an]\").forEach(function (c) { c.checked = marcado; });\n      atualizaContagem();\n    });\n    $(\"an-gerar\").addEventListener(\"click\", gerarPDF);"
+ },
+ {
+  "id": "P11-contagem-selecao",
+  "motivo": "Sincroniza seleção coletiva, contagem e disponibilidade de PDF.",
+  "de": "   function atualizaContagem() { var n = selecionadas().length; $(\"an-gerar\").disabled = !n; $(\"an-info\").textContent = \" · \" + n + \" andamento(s) no relatório\"; }",
+  "para": "   function atualizaContagem() {\n     var n = selecionadas().length; $(\"an-gerar\").disabled = !n; $(\"an-info\").textContent = \" · \" + n + \" andamento(s) no relatório\";\n     var todos = $(\"an-todos\"); if (todos) { todos.disabled = !S.lista.length; todos.checked = !!n && n === S.lista.length; todos.indeterminate = n > 0 && n < S.lista.length; }\n   }"
  }
 ]
