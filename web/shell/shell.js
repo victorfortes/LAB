@@ -142,7 +142,7 @@
   function quando(v) { return v ? new Date(v).toLocaleString('pt-BR') : '—'; }
 
   async function abrirAdmin() { $('admin').hidden = false; await listarUsuarios(); }
-  $('admin-fechar').addEventListener('click', function () { $('admin').hidden = true; });
+  $('admin-fechar').addEventListener('click', function () { ocultarSenhas(); $('admin').hidden = true; });
   document.querySelectorAll('.aba').forEach(function (b) {
     b.addEventListener('click', function () {
       document.querySelectorAll('.aba').forEach(function (x) { x.classList.toggle('ativa', x === b); });
@@ -189,6 +189,47 @@
     });
   }
   var ultimoLote = [];
+  var criandoUsuarios = false;
+  function ocultarSenhas() {
+    ultimoLote = []; $('tb-resultado').textContent = ''; $('resultado-lote').hidden = true;
+  }
+  $('resultado-limpar').addEventListener('click', ocultarSenhas);
+  async function criarUsuarios(usuarios) {
+    if (criandoUsuarios) return null;
+    criandoUsuarios = true;
+    var botoes = [$('usuario-criar'), $('form-lote').querySelector('button')];
+    botoes.forEach(function (b) { b.disabled = true; });
+    ocultarSenhas(); msg($('admin-msg'), 'Criando usuário(s)...');
+    try {
+      var r = await sb.functions.invoke('gerenciar-usuarios', { body: { acao: 'criar', usuarios: usuarios } });
+      if (r.error || !r.data || !Array.isArray(r.data.usuarios)) {
+        var status = r.error && r.error.context && r.error.context.status;
+        msg($('admin-msg'), status === 403 ? 'Seu acesso não permite administrar usuários.' : status === 401 ? 'Sua sessão expirou. Entre novamente.' : 'Não foi possível concluir o cadastro. Verifique a conexão; se persistir, o serviço de administração precisa ser verificado.');
+        return null;
+      }
+      mostrarResultado(r.data.usuarios);
+      await listarUsuarios();
+      return r.data.usuarios;
+    } catch (e) {
+      msg($('admin-msg'), 'Não foi possível confirmar o cadastro. Verifique a lista de usuários antes de tentar novamente.');
+      return null;
+    } finally {
+      criandoUsuarios = false; botoes.forEach(function (b) { b.disabled = false; });
+    }
+  }
+  $('form-usuario').addEventListener('submit', async function (e) {
+    e.preventDefault(); msg($('usuario-erro'), '');
+    var nome = $('usuario-nome').value.trim(), email = $('usuario-email').value.trim().toLowerCase(), papel = $('usuario-papel').value;
+    if (!nome || nome.length > 120) { msg($('usuario-erro'), 'Informe o nome completo (até 120 caracteres).'); $('usuario-nome').focus(); return; }
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { msg($('usuario-erro'), 'Informe um e-mail válido.'); $('usuario-email').focus(); return; }
+    if (papel === 'admin' && !window.confirm('Conceder acesso de administrador a ' + nome + '? Essa pessoa poderá gerenciar usuários e acessos.')) return;
+    var linhas = await criarUsuarios([{ nome: nome, email: email, papel: papel }]);
+    if (!linhas || !linhas.length) return;
+    var resultado = linhas[0].resultado;
+    if (resultado === 'criado') { e.target.reset(); msg($('admin-msg'), 'Usuário criado. Entregue a senha temporária à pessoa cadastrada.'); }
+    else if (resultado === 'ja_existe') msg($('admin-msg'), 'Este e-mail já está cadastrado. Use “Nova senha” na lista se a pessoa precisar recuperar o acesso.');
+    else msg($('admin-msg'), 'Cadastro não concluído. Confira o resultado abaixo antes de tentar novamente.');
+  });
   function mostrarResultado(linhas) {
     ultimoLote = linhas;
     var tb = $('tb-resultado'); tb.textContent = '';
@@ -206,21 +247,19 @@
     var usuarios = lerLote($('lote-texto').value);
     if (!usuarios.length) { msg($('admin-msg'), 'Digite ao menos um usuário (Nome, e-mail, perfil).'); return; }
     if (usuarios.length > 50) { msg($('admin-msg'), 'No máximo 50 usuários por vez.'); return; }
-    var b = e.target.querySelector('button'); b.disabled = true;
-    var r = await sb.functions.invoke('gerenciar-usuarios', { body: { acao: 'criar', usuarios: usuarios } });
-    b.disabled = false;
-    if (r.error || !r.data || !r.data.usuarios) { msg($('admin-msg'), 'Não foi possível criar os usuários. A função de administração pode não estar implantada ou você não é administrador.'); return; }
-    var ok = r.data.usuarios.filter(function (u) { return u.resultado === 'criado'; }).length;
-    msg($('admin-msg'), ok + ' de ' + r.data.usuarios.length + ' usuário(s) criado(s).');
-    mostrarResultado(r.data.usuarios);
+    var emails = usuarios.map(function (u) { return u.email; });
+    if (new Set(emails).size !== emails.length) { msg($('admin-msg'), 'Há e-mails repetidos na lista. Remova as duplicatas antes de cadastrar.'); return; }
+    var linhas = await criarUsuarios(usuarios); if (!linhas) return;
+    var ok = linhas.filter(function (u) { return u.resultado === 'criado'; }).length;
+    msg($('admin-msg'), ok + ' de ' + linhas.length + ' usuário(s) criado(s).');
     if (ok) $('lote-texto').value = '';
-    await listarUsuarios();
   });
   $('lote-copiar').addEventListener('click', function () {
     var t = ultimoLote.filter(function (u) { return u.senha_temporaria; }).map(function (u) { return u.email + '\t' + u.senha_temporaria; }).join('\n');
-    if (t && navigator.clipboard) navigator.clipboard.writeText(t).then(function () { msg($('admin-msg'), 'Lista copiada. Cole num lugar seguro e apague depois de entregar.'); });
+    if (t && navigator.clipboard) navigator.clipboard.writeText(t).then(function () { msg($('admin-msg'), 'Lista copiada. Cole num lugar seguro e apague depois de entregar.'); }).catch(function () { msg($('admin-msg'), 'Não foi possível copiar. Selecione a senha para copiá-la manualmente.'); });
   });
   async function novaSenha(p) {
+    if (!window.confirm('Gerar nova senha para ' + p.nome + '? A senha anterior deixará de funcionar.')) return;
     var r = await sb.functions.invoke('gerenciar-usuarios', { body: { acao: 'redefinir', email: p.email } });
     if (r.error || !r.data || !r.data.senha_temporaria) { msg($('admin-msg'), 'Não foi possível gerar a senha temporária.'); return; }
     msg($('admin-msg'), 'Nova senha temporária gerada para ' + p.email + '. Ela só aparece agora.');
