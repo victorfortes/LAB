@@ -31,3 +31,5 @@
 - Serve only the three known generated HTML documents before TanStack SSR in the Vite development middleware; this makes preview match static production hosting without introducing Worker filesystem access.
 - Copy the official office logo through the generator build into the shell output; this keeps login branding reproducible in production and isolated test hosting.
 - Keep individual and batch user creation on the same existing authenticated administration contract, with shared pending/error handling and transient password results; this avoids divergent account creation flows and residual credentials on screen.
+- Filter latest-update candidates by a valid registration date within the report month before sorting and limiting; preview and PDF share this collection so old registrations cannot leak into either output.
+- Determine beta-mode visibility from the shell's fetched authenticated profile, never browser storage; this is presentation gating only, and database authorization remains enforced by RLS.
