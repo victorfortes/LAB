@@ -4,7 +4,7 @@ export const Route = createFileRoute("/")({
   // O gerador (casca de login + motor original) é servido como site estático em /gerador/ (public/gerador, gerado por
   // scripts/build.mjs). A raiz do projeto apenas encaminha para lá.
   beforeLoad: () => {
-    throw redirect({ href: "/gerador/" });
+    throw redirect({ href: "/gerador/index.html" });
   },
   head: () => ({
     meta: [
@@ -36,7 +36,7 @@ function Index() {
         </h1>
         <p className="mt-3 text-sm text-muted-foreground">
           Abrindo o sistema…{" "}
-          <a className="underline" href="/gerador/">
+          <a className="underline" href="/gerador/index.html">
             Se não abrir, clique aqui.
           </a>
         </p>

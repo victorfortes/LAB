@@ -32,7 +32,7 @@ test('usuário sem perfil e usuário desativado ficam bloqueados', async ({ page
 
 test('gerador aberto diretamente (fora da casca) volta para a entrada', async ({ page }) => {
   await page.goto(BASE + 'app/gerador.html');
-  await expect(page).toHaveURL(/127\.0\.0\.1:8788\/gerador\/$/);
+  await expect(page).toHaveURL(/127\.0\.0\.1:8788\/gerador\/index\.html$/);
   await expect(page.locator('#form-login')).toBeVisible();
 });
 

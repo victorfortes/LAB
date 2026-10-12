@@ -33,6 +33,6 @@
   "id": "P6-so-dentro-da-casca",
   "motivo": "SEGURANÇA: o gerador só funciona dentro da casca autenticada; aberto direto, volta para a entrada.",
   "de": "<title>Relatórios Jurídicos, NGA</title>",
-  "para": "<title>Relatórios Jurídicos, NGA</title>\n<script>if (window.parent === window) { location.replace(\"../\"); }</script>"
+  "para": "<title>Relatórios Jurídicos, NGA</title>\n<script>if (window.parent === window) { location.replace(\"../index.html\"); }</script>"
  }
 ]
