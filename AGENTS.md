@@ -28,7 +28,7 @@
 - Não alterar o motor de PDF (jsPDF/pdf.js dentro do original) sem evidência de defeito reproduzível.
 - Rota `/` (`src/routes/index.tsx`) apenas redireciona para `/gerador/`. Rotas React protegidas futuras ficam em `src/routes/_authenticated/`; o gerador faz seu próprio login (Supabase Auth) na casca.
 - Keep input-only enhancements in the copied shell assets and exact-match Artifact patches; this preserves the immutable original and PDF engine while allowing regression tests of intentional UI differences.
-- Serve only the three known generated HTML documents before TanStack SSR in the Vite development middleware; this makes preview match static production hosting without introducing Worker filesystem access.
+- Serve the three known generated HTML documents and typed static assets confined to the generated directory before TanStack SSR in development; this makes preview match production static hosting without introducing Worker filesystem access or arbitrary file reads.
 - Copy the official office logo through the generator build into the shell output; this keeps login branding reproducible in production and isolated test hosting.
 - Keep individual and batch user creation on the same existing authenticated administration contract, with shared pending/error handling and transient password results; this avoids divergent account creation flows and residual credentials on screen.
 - Filter latest-update candidates by a valid registration date within the report month before sorting and limiting; preview and PDF share this collection so old registrations cannot leak into either output.
