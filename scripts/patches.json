@@ -56,7 +56,37 @@
  {
   "id": "P11-contagem-selecao",
   "motivo": "Sincroniza seleção coletiva, contagem e disponibilidade de PDF.",
-   "de": "  function atualizaContagem() { var n = selecionadas().length; $(\"an-gerar\").disabled = !n; $(\"an-info\").textContent = \" · \" + n + \" andamento(s) no relatório\"; }",
+  "de": "  function atualizaContagem() { var n = selecionadas().length; $(\"an-gerar\").disabled = !n; $(\"an-info\").textContent = \" · \" + n + \" andamento(s) no relatório\"; }",
   "para": "   function atualizaContagem() {\n     var n = selecionadas().length; $(\"an-gerar\").disabled = !n; $(\"an-info\").textContent = \" · \" + n + \" andamento(s) no relatório\";\n     var todos = $(\"an-todos\"); if (todos) { todos.disabled = !S.lista.length; todos.checked = !!n && n === S.lista.length; todos.indeterminate = n > 0 && n < S.lista.length; }\n   }"
+ },
+ {
+  "id": "P12-andamentos-competencia",
+  "motivo": "Prévia e PDF usam apenas históricos registrados no mês configurado, antes do limite por processo.",
+  "de": "    var porProc = {}; todas.forEach(function (a, i) { if (ehManual(a)) (porProc[a.numero_processo] = porProc[a.numero_processo] || []).push({ a: a, i: i }); });",
+  "para": "    var periodo = /^(\\d{4})-(0[1-9]|1[0-2])$/.exec(estado.periodoISO || \"\");\n    var inicio = periodo ? Date.UTC(+periodo[1], +periodo[2] - 1, 1) : null;\n    var fim = periodo ? Date.UTC(+periodo[1], +periodo[2], 1) : null;\n    var porProc = {}; todas.forEach(function (a, i) {\n      var reg = tsBR(a.data), valida = new Date(reg);\n      var partes = /^(\\d{2})\\/(\\d{2})\\/(\\d{4})$/.exec(a.data || \"\");\n      var dataValida = partes && valida.getUTCDate() === +partes[1] && valida.getUTCMonth() + 1 === +partes[2] && valida.getUTCFullYear() === +partes[3];\n      if (periodo && dataValida && reg >= inicio && reg < fim && ehManual(a)) (porProc[a.numero_processo] = porProc[a.numero_processo] || []).push({ a: a, i: i });\n    });"
+ },
+ {
+  "id": "P13-andamentos-periodo-visivel",
+  "motivo": "Mostra o mês efetivamente usado pela prévia e sinaliza competência ausente.",
+  "de": "    $(\"an-cliente\").textContent = e.cliente || \"\";",
+  "para": "    $(\"an-cliente\").textContent = (e.cliente || \"\") + (e.periodoISO ? \" · \" + e.periodoISO.slice(5, 7) + \"/\" + e.periodoISO.slice(0, 4) : \"\");\n    var periodoValido = /^\\d{4}-(0[1-9]|1[0-2])$/.test(e.periodoISO || \"\");\n    $(\"an-alert\").hidden = periodoValido;\n    $(\"an-alert\").textContent = periodoValido ? \"\" : \"Configure o mês de referência do relatório para listar os andamentos.\";"
+ },
+ {
+  "id": "P14-revisional-beta-admin",
+  "motivo": "Revisional beta aparece apenas para administrador identificado pela casca, sem ler papel do armazenamento local.",
+  "de": "    var sw = $(\"mode-switch\"); if (!sw || sw.querySelector('[data-mode=\"revisional\"]')) return;",
+  "para": "    var sw = $(\"mode-switch\"); if (!window.NGA_ADMIN_ATUAL() || !sw || sw.querySelector('[data-mode=\"revisional\"]')) return;"
+ },
+ {
+  "id": "P15-revisional-rotulo-beta",
+  "motivo": "Identifica a análise revisional como beta.",
+  "de": "b.textContent = \"Análise revisional (contrato bancário)\";",
+  "para": "b.textContent = \"Análise revisional (contrato bancário) · Beta\";"
+ },
+ {
+  "id": "P16-revisional-clique-admin",
+  "motivo": "Revalida a exibição do revisional no clique pela identidade da casca.",
+  "de": "      $(\"panel-revisional\").hidden = false; renderPainel();",
+  "para": "      if (!window.NGA_ADMIN_ATUAL()) return;\n      $(\"panel-revisional\").hidden = false; renderPainel();"
  }
 ]
