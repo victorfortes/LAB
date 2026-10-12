@@ -5,8 +5,36 @@
 //     React/TanStack dedupe, error logger plugins, and sandbox detection (port/host/strictPort).
 // You can pass additional config via defineConfig({ vite: { ... }, etc... }) if needed.
 import { defineConfig } from "@lovable.dev/vite-tanstack-config";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 
 export default defineConfig({
+  vite: {
+    plugins: [{
+      name: "nga-static-html-preview",
+      apply: "serve",
+      configureServer(server) {
+        // TanStack intercepts HTML requests before Vite's public middleware.
+        // Only these generated documents bypass SSR during local preview.
+        server.middlewares.use(async (req, res, next) => {
+          const pathname = (req.url || "").split("?")[0] || "";
+          const documents: Record<string, string> = {
+            "/gerador/": "gerador/index.html",
+            "/gerador/index.html": "gerador/index.html",
+            "/gerador/app/gerador.html": "gerador/app/gerador.html",
+          };
+          const document = documents[pathname];
+          if (!document || !["GET", "HEAD"].includes(req.method || "")) return next();
+          try {
+            const html = await readFile(path.resolve(server.config.publicDir, document));
+            res.statusCode = 200;
+            res.setHeader("Content-Type", "text/html; charset=utf-8");
+            res.end(req.method === "HEAD" ? undefined : html);
+          } catch { next(); }
+        });
+      },
+    }],
+  },
   tanstackStart: {
     // Redirect TanStack Start's bundled server entry to src/server.ts (our SSR error wrapper).
     // nitro/vite builds from this

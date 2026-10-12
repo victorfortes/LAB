@@ -29,6 +29,9 @@ for (const [nome, view] of [['painel', 'painel'], ['novo-relatorio', 'novo'], ['
     try {
       for (const ctx of [pO, fM]) await ctx.evaluate(async () => { await window.__NGA.Clientes.novo('CLIENTE EQUIVALENCIA S.A.', { tipo: 'rj', templateTimeline: 'rj' }); });
       await irPara(pO, view); await irPara(fM, view);
+       // A busca por área/nome é uma mudança intencional, coberta em experiencia.spec.mjs.
+       // Compare aqui o restante da tela nas mesmas posições do Artifact preservado.
+       if (view === 'novo') await fM.evaluate(() => document.querySelector('.nga-cliente-filtros')?.remove());
       await pO.waitForTimeout(1200); await pM.waitForTimeout(1200);
       const mascaraO = [pO.locator('.pill'), pO.locator('#topbar-user-email'), pO.locator('.clock, [id*=relogio], [class*=relogio]')];
       const mascaraM = [pM.frameLocator('#gerador').locator('.pill'), pM.frameLocator('#gerador').locator('#topbar-user-email'), pM.frameLocator('#gerador').locator('.clock, [id*=relogio], [class*=relogio]')];

@@ -1,6 +1,6 @@
 {
  "original_sha256": "2d6fab8aa87d4233aa7e3564009dd89adb520108737c30ee4c9dae06b085d8a9",
- "pagina_gerador_sha256": "888e9f24f7d31a3de314adb9e527d60905854c6e7b59345dfca023e5d5c2de0e",
+ "pagina_gerador_sha256": "13793abefc7616a372f1cea4efa8ab6ff39c1fdaf0308eb1256485886b3fb616",
  "patches": [
   {
    "patch": "P1-fontes-locais",
@@ -25,6 +25,22 @@
   {
    "patch": "P6-so-dentro-da-casca",
    "motivo": "SEGURANÇA: o gerador só funciona dentro da casca autenticada; aberto direto, volta para a entrada."
+  },
+  {
+   "patch": "P8-experiencia-e-icone",
+   "motivo": "Entradas mais intuitivas sem alterar o motor de PDF; ícone NGA."
+  },
+  {
+   "patch": "P9-filtro-clientes",
+   "motivo": "Busca por nome e separação Cível/Empresarial preservam o cliente selecionado."
+  },
+  {
+   "patch": "P10-selecao-andamentos",
+   "motivo": "Checkbox coletivo com estado parcial e seleção em lote."
+  },
+  {
+   "patch": "P11-contagem-selecao",
+   "motivo": "Sincroniza seleção coletiva, contagem e disponibilidade de PDF."
   },
   {
    "patch": "P7-csp-meta",
