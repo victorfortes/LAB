@@ -57,5 +57,11 @@ supabase secrets set SITE_URL=https://SEU-SITE.pages.dev
 - [ ] Executar `node scripts/backup.mjs` e restaurar num projeto de teste (`10_MANUTENCAO.md`).
 - [ ] Desligar o cadastro público confirmado: tentar `signUp` direto na API deve falhar.
 
-## 5. Lovable
-Não usado na hospedagem do gerador. Motivo (documentação oficial do Lovable, consultada em 11/10/2026): *"You can only export from Lovable to GitHub"* e *"When you connect a project, Lovable creates a new GitHub repository"*. Ou seja, **não importa repositório existente** e recriar o gerador por prompts violaria a exigência de fidelidade. A integração com o NGA Nexus segue por `07_INTEGRACAO_NEXUS.md`.
+## 5. Lovable (fluxo adotado: código-fonte COMPLETO, não só o `dist`)
+Fatos verificados (documentação oficial e conta): o Lovable **só exporta** para o GitHub e **cria um repositório novo** ao conectar; não importa repositório existente. O projeto *Report Weaver* existe no Lovable Pro, mas **não estava ligado a nenhum repositório** em 12/10/2026.
+Estrutura preparada para que o Lovable sincronize **todo o código-fonte editável**:
+- O repositório inteiro (`original/`, `web/`, `scripts/`, `supabase/`, `tests/`, `docs/`) é o conteúdo do repositório sincronizado; **não** se publica só `dist/`.
+- `package.json` (`build` = `node scripts/build.mjs`) e `vite.config.js` (`vite build` dispara o mesmo build) deixam o fluxo do Lovable gerar o `dist/` completo. Variáveis `SUPABASE_URL` e `SUPABASE_ANON_KEY` devem ser definidas no Lovable (Segredos de build / variáveis do projeto): são **públicas** (a chave é a `anon`).
+- Sem cabeçalhos HTTP no Lovable: a CSP vai por `<meta>` e a casca tem proteção de moldura por JavaScript (testados).
+Passos: (1) no Report Weaver, *Settings > Git > GitHub* e autorizar (cria o repositório do Lovable); (2) `git remote add lovable <url do repositório criado>` e `git push lovable main --force-with-lease` (o Lovable importa os commits que chegam à branch sincronizada); (3) publicar no Lovable; (4) rodar a checklist da seção 4 na URL `*.lovable.app`.
+**Se o Lovable não aceitar essa estrutura** (por exemplo, não rodar `vite build` apontando para a raiz do repositório), a alternativa é o **Cloudflare Pages** (seção 3), sem descartar o projeto Lovable.

@@ -38,7 +38,7 @@ os controles implementados, o que foi **testado de verdade** e os **riscos resid
 
 ## LGPD e sigilo profissional (checklist, não é parecer jurídico)
 - Papéis: o escritório é **controlador**; Supabase (e Cloudflare) são **operadores**: formalizar o DPA de cada um.
-- **Região do banco:** criar o projeto em São Paulo (`sa-east-1`) para reduzir transferência internacional.
+- **Região do banco:** o projeto atual (`nga-gerador-relatorios`) está em **`us-east-1` (EUA)**, não em São Paulo. Isso é transferência internacional de dados (LGPD, art. 33) e, para dados sob sigilo profissional, costuma exigir salvaguardas contratuais (DPA/cláusulas-padrão). **Alternativa antes de colocar dados reais:** criar um projeto novo em `sa-east-1`, reaplicar as migrações (o banco ainda está vazio) e trocar só `SUPABASE_URL`/`SUPABASE_ANON_KEY`. Sem custo no plano gratuito (limite de 2 projetos ativos). Ver `11_RESULTADO_FINAL.md`.
 - **Finalidade e minimização:** o sistema guarda o que já constava nos relatórios; não guarda CPF, contas, cheques (decisão já adotada no cadastro de clientes).
 - **Acesso por necessidade:** perfis `visualizador` e `advogado`; revisar a lista de usuários ativos trimestralmente (aba Administração).
 - **Direitos do titular e retenção:** definir prazo (sugestão: 5 anos) e procedimento de exclusão (`10_MANUTENCAO.md`).

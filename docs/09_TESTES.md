@@ -6,8 +6,8 @@ Comandos: `npm run test:db` e `npm run test:e2e` (o segundo faz o build e sobe o
 ## Resultado
 | Suíte | Testes | Resultado |
 |---|---|---|
-| Banco (`tests/db`): RLS, gatilhos, versões, auditoria, backup/restauração | 14 | **14 passaram** |
-| Interface ponta a ponta (`tests/e2e`): autenticação (7), autorização (5), persistência (3), equivalência com o original (8) | 23 | **23 passaram** (1 deles só roda com um PDF real do Astrea, executado) |
+| Banco (`tests/db`): RLS, gatilhos, versões, auditoria, privilégios mínimos, backup/restauração, script de RLS de produção | 16 | **16 passaram** |
+| Interface ponta a ponta (`tests/e2e`): autenticação (8), autorização (5), persistência (3), equivalência com o original (8) | 24 | **24 passaram** com cabeçalhos HTTP (Cloudflare). Sem cabeçalhos (caso do Lovable), a CSP por `<meta>` basta: 22 + o teste de cabeçalhos pulado de propósito; ver laudo abaixo |
 
 ## Como o ambiente de teste funciona (e o que ele NÃO prova)
 `tests/e2e/mock_supabase.mjs` serve o `dist/` com os cabeçalhos reais (`web/_headers`, inclusive a CSP) e imita a API do Supabase
@@ -54,3 +54,19 @@ Mensagem igual para senha errada e e-mail inexistente; recuperação de senha re
 | Roteiro funcional completo (todos os botões) no ambiente migrado | Cobertura por construção (código idêntico) + QA27 anterior; reexecutar no publicado (P-1) |
 | Teste de carga / vários usuários simultâneos | Fora do escopo; documentar limite do plano |
 | Varredura dinâmica de vulnerabilidades (DAST), teste de invasão | Não realizado |
+
+## Atualização de 12/10/2026
+
+### RLS no **banco Supabase real** (`supabase/tests/rls_producao.sql`)
+Script que cria 5 pessoas-fantasma dentro de um sub-bloco que é desfeito (savepoint), roda 33 asserções por papel e devolve o relatório como resultado normal.
+Executado no projeto `nga-gerador-relatorios`: **"RELATORIO RLS | testes: 33 | falhas: 0"**. Conferido depois: 0 usuários em `auth.users` e 0 linhas nas 4 tabelas (nenhum resíduo).
+O mesmo script roda no PostgreSQL local (`tests/db/rls_producao.test.mjs`) e **detecta** as falhas quando a migração de privilégios mínimos é removida (5 falhas).
+Chamadas reais à API com a chave pública `anon`: leitura/gravação de `documentos, perfis, auditoria, documentos_versoes` = **401 (permission denied)**; funções `registrar_acesso` e `papel_atual` = **401** (antes da migração 0002, `registrar_acesso` respondia 204: corrigido).
+
+### Laudo revisional: investigação da diferença de pixels
+Em 3 de 12 execuções o render do laudo (15 págs) divergiu entre original e migrado (4.870; 6.566; 77.633 px de 16,9 milhões), **sempre com bytes do PDF idênticos**.
+Controle acrescentado: renderizar os **mesmos bytes** duas vezes no mesmo navegador. Resultado em 6 repetições: o controle divergiu **exatamente nos mesmos valores** (77.633 e 4.870), em 3 delas; original×migrado foi 0 em 4 de 6.
+**Conclusão:** a variação é do renderizador do navegador (pdf.js/canvas nos gráficos), não do PDF nem do motor de geração. **Nenhuma alteração foi feita no motor de PDF.** O teste agora exige render idêntico apenas quando os bytes diferem; com bytes idênticos registra um aviso com o controle.
+
+### Pacote Lovable
+`npm run build` (Node) e `vite build` geram o mesmo `dist/` que o build Python (paridade byte a byte verificada). Suíte e2e executada contra esse `dist` simulando hospedagem sem cabeçalhos HTTP.
