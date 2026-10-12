@@ -48,6 +48,12 @@
 | F-036 | Diagnóstico | Botão Diagnóstico da exportação | CÓD · QA27 |
 | F-037 | Layout | Responsividade (celular/tablet), identidade NGA, fontes | CÓD · EQ visual · QA27 (mobile) |
 | F-038 | IA | Redação de parágrafo e leitura assistida (só dentro do Claude) | Desligado fora do Claude, **como já era no original** (P-3) |
+| F-039 | Novo relatório | **Acréscimo (P8-P9):** filtro de clientes por nome e por área (Cível/Empresarial), sem trocar silenciosamente o cliente já escolhido | E2E `experiencia.spec` |
+| F-040 | Últimos andamentos | **Acréscimo (P10-P11):** "selecionar todos" com estado parcial e contagem sincronizada | E2E `experiencia.spec` |
+| F-041 | Campos de data | **Acréscimo:** barras inseridas automaticamente (dd/mm e dd/mm/aaaa) | E2E `experiencia.spec` |
+| F-042 | Últimos andamentos | **Mudança de regra (P12-P13), pedida em 12/10/2026 e implementada pela IA do Lovable:** só entram históricos manuais **registrados dentro do mês de referência** (data de registro válida), aplicado antes do limite por processo e igual na prévia e no PDF; sem mês configurado a lista fica vazia e avisa. Antes: o último histórico de cada processo, de qualquer mês. | E2E `revisao-outubro.spec` |
+| F-043 | Análise revisional | **Mudança (P14-P16):** rótulo "Beta" e visível **só para administradores** (decisão na interface, pelo perfil que a casca obtém; a autorização continua no banco) | E2E `revisao-outubro.spec` |
+| F-044 | Administração | Criação de usuário individual e em lote com senha temporária, confirmação ao conceder admin, senhas ocultadas ao fechar | E2E `usuarios.spec` |
 
 ## Limites desta matriz (honestidade)
 - A equivalência **automatizada** cobre telas (5), PDFs (laudo 15 págs, projeto 12 págs) e, opcionalmente, o Quantitativo com Astrea real. Os demais recursos têm **garantia por construção (código idêntico)** e foram exercitados manualmente (QA27) **antes** da migração, **não** reexecutados um a um no ambiente publicado (que ainda não existe). Pendência **P-1** em `11_RESULTADO_FINAL.md`: rodar o roteiro completo no ambiente publicado.
