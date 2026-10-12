@@ -74,7 +74,7 @@ test('ícone NGA na casca e no gerador', async ({ page }) => {
   await entrar(page, 'admin@teste.local');
   const fr = await geradorPronto(page);
   await expect(page.locator('link[rel="icon"]')).toHaveAttribute('href', '/favicon.png');
-  await expect(page.locator('#form-login .marca img')).toHaveAttribute('src', 'logo.png');
-  expect((await page.request.get('/gerador/logo.png')).ok()).toBe(true);
+  await expect(page.locator('#form-login .marca img')).toHaveAttribute('src', 'logo-escritorio.png');
+  expect((await page.request.get('/gerador/logo-escritorio.png')).ok()).toBe(true);
   await expect(fr.locator('link[rel="icon"]')).toHaveAttribute('href', '/favicon.png');
 });
