@@ -1,0 +1,7 @@
+.nga-cliente-filtros{display:grid;grid-template-columns:minmax(150px,1fr) minmax(200px,2fr);gap:12px;margin-bottom:12px}
+.nga-cliente-filtros label{min-width:0}
+.nga-clientes-contagem{grid-column:1/-1;margin:0;font-size:12px;color:var(--muted)}
+.nga-andamentos-selecao{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:14px}
+.nga-andamentos-selecao label{display:flex;align-items:center;gap:8px;margin:0;font-size:13px;color:var(--ink)}
+.nga-andamentos-selecao input{width:18px;height:18px;margin:0;accent-color:var(--gold)}
+@media(max-width:600px){.nga-cliente-filtros{grid-template-columns:minmax(0,1fr)}}
