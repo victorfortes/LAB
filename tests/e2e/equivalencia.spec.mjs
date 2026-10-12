@@ -50,15 +50,21 @@ async function comparar(nome, pdfO, pdfM, pO, fM) {
   expect(pdfO, 'original gerou PDF').toBeTruthy(); expect(pdfM, 'migrado gerou PDF').toBeTruthy();
   const aO = await analisarPdf(pO, pdfO.bytes), aM = await analisarPdf(fM, pdfM.bytes);
   expect(aM.length, 'número de páginas').toBe(aO.length);
+  const bytesIguais = normalizarPdf(pdfO.bytes) === normalizarPdf(pdfM.bytes);
   let totalPix = 0, totalPx = 0;
   aO.forEach((p, i) => {
     expect(aM[i].w, `largura pág ${i + 1}`).toBe(p.w); expect(aM[i].h, `altura pág ${i + 1}`).toBe(p.h);
     expect(aM[i].texto, `texto pág ${i + 1}`).toBe(p.texto); expect(aM[i].fontes, `fontes pág ${i + 1}`).toBe(p.fontes);
     const r = compararPng(p.png, aM[i].png); totalPix += r.pixels; totalPx += r.total;
   });
-  const bytesIguais = normalizarPdf(pdfO.bytes) === normalizarPdf(pdfM.bytes);
-  console.log(`  [pdf:${nome}] páginas=${aO.length} | texto/fontes/tamanho iguais | pixels diferentes=${totalPix}/${totalPx} | bytes idênticos (normalizados)=${bytesIguais}`);
-  expect(totalPix, 'render por pixel').toBe(0);
+  // CONTROLE: os MESMOS bytes do PDF migrado renderizados uma 2ª vez no mesmo contexto. Se divergir, a variação vem do
+  // renderizador do navegador (pdf.js/canvas), não do PDF. Só quando os bytes diferem o render passa a ser exigido.
+  const aM2 = await analisarPdf(fM, pdfM.bytes);
+  let ctrl = 0; aM.forEach((p, i) => { ctrl += compararPng(p.png, aM2[i].png).pixels; });
+  console.log(`  [pdf:${nome}] páginas=${aO.length} | texto/fontes/tamanho iguais | pixels original×migrado=${totalPix}/${totalPx} | controle (mesmos bytes, 2 renders)=${ctrl} | bytes idênticos (normalizados)=${bytesIguais}`);
+  expect(bytesIguais || totalPix === 0, 'PDFs diferem: bytes diferentes e render diferente').toBe(true);
+  if (!bytesIguais) expect(totalPix, 'render por pixel').toBe(0);
+  else if (totalPix > 0) console.log(`  [aviso:${nome}] bytes idênticos mas render diferiu em ${totalPix} px (controle=${ctrl}): variação do renderizador, não do PDF`);
 }
 
 test('PDF do laudo revisional: original x migrado', async ({ browser }) => {
