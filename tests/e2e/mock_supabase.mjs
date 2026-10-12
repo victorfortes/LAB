@@ -12,7 +12,7 @@ const raiz = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.woff2': 'font/woff2', '.png': 'image/png' };
 const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
 
-export async function iniciar({ porta = 0, usuarios, dist = path.join(raiz, 'dist') } = {}) {
+export async function iniciar({ porta = 0, usuarios, dist = path.join(raiz, 'dist-test') } = {}) {
   const db = new PGlite();
   await db.exec(readFileSync(path.join(raiz, 'tests/db/supabase_stub.sql'), 'utf8'));
   for (const f of readdirSync(path.join(raiz, 'supabase/migrations')).sort()) await db.exec(readFileSync(path.join(raiz, 'supabase/migrations', f), 'utf8'));
@@ -32,8 +32,8 @@ export async function iniciar({ porta = 0, usuarios, dist = path.join(raiz, 'dis
   };
 
   // cabeçalhos de segurança do projeto (web/_headers), para validar a CSP de verdade
-  const regras = readFileSync(path.join(raiz, 'web/_headers'), 'utf8').split('\n'); let globais = {}, atual = null;
-  for (const ln of regras) { if (/^\S/.test(ln)) { atual = ln.trim(); } else if (ln.trim() && atual === '/*') { const i = ln.indexOf(':'); globais[ln.slice(0, i).trim()] = ln.slice(i + 1).trim(); } }
+  const regras = readFileSync(path.join(raiz, 'public/_headers'), 'utf8').split('\n'); let globais = {}, atual = null;
+  for (const ln of regras) { if (/^\S/.test(ln)) { atual = ln.trim(); } else if (ln.trim() && atual === '/gerador/*') { const i = ln.indexOf(':'); globais[ln.slice(0, i).trim()] = ln.slice(i + 1).trim(); } }
   delete globais['Strict-Transport-Security'];
   if (process.env.NGA_SEM_CABECALHOS === '1') globais = {};   // simula hospedagem sem cabeçalhos HTTP (ex.: Lovable): só valem os <meta>
 

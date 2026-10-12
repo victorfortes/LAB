@@ -1,6 +1,7 @@
 export const SENHA = 'Senha-de-teste-123';
+export const BASE = '/gerador/';   // o gerador (casca) é servido sob /gerador/ (public/gerador no projeto do Lovable)
 export async function entrar(page, email, senha = SENHA) {
-  await page.goto('/');
+  await page.goto(BASE);
   await page.waitForSelector('#form-login:not([hidden])');
   await page.fill('#login-email', email);
   await page.fill('#login-senha', senha);
@@ -40,7 +41,7 @@ export const ORIGINAL = path.join(raizProjeto, 'original/artifact-HksuUVxXv21ftK
 export async function abrirOriginal(page, context) {
   // O original pede as fontes ao Google; no teste elas vêm dos MESMOS arquivos que o migrado hospeda (web/app/fonts),
   // para a comparação visual não depender de rede nem de timing de carga de fontes.
-  const css = readFileSync(path.join(raizProjeto, 'web/app/fonts/fonts.css'), 'utf8').replace(/url\(([0-9a-f]+\.woff2)\)/g, 'url(http://127.0.0.1:8788/app/fonts/$1)');
+  const css = readFileSync(path.join(raizProjeto, 'web/app/fonts/fonts.css'), 'utf8').replace(/url\(([0-9a-f]+\.woff2)\)/g, 'url(http://127.0.0.1:8788/gerador/app/fonts/$1)');
   await context.route('**://fonts.googleapis.com/**', (route) => route.fulfill({ status: 200, contentType: 'text/css; charset=utf-8', body: css }));
   await context.route('**://fonts.gstatic.com/**', (route) => route.abort());
   await context.route('**/__original.html', (route) => route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: readFileSync(ORIGINAL, 'utf8') }));

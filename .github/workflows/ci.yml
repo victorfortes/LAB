@@ -9,17 +9,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version: 22, cache: npm }
+        with: { node-version: 22 }
+      - name: public/gerador está atualizado (gerado pelo build a partir de original/ + patches)
+        run: |
+          node scripts/build.mjs
+          git diff --exit-code -- public/gerador || (echo 'public/gerador desatualizado: rode node scripts/build.mjs e commite'; exit 1)
       - run: npm ci
+        working-directory: tests
       - name: Banco (RLS, versões, auditoria, backup/restauração) com PostgreSQL real (PGlite)
         run: npm run test:db
+        working-directory: tests
       - name: Navegador para os testes de interface
         run: npx playwright install --with-deps chromium
+        working-directory: tests
       - name: Build + testes ponta a ponta (login, permissões, persistência, equivalência com o original)
         run: npm run test:e2e
+        working-directory: tests
       - uses: actions/upload-artifact@v4
         if: failure()
-        with: { name: playwright-report, path: playwright-report/, retention-days: 7 }
+        with: { name: playwright-report, path: tests/playwright-report/, retention-days: 7 }
   segredos:
     runs-on: ubuntu-latest
     steps:

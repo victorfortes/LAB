@@ -1,0 +1,34 @@
+{
+ "original_sha256": "2d6fab8aa87d4233aa7e3564009dd89adb520108737c30ee4c9dae06b085d8a9",
+ "pagina_gerador_sha256": "9d2ef3c6699301397754d03dc4ad2bd3e81598e90dc94b30b0990a557c0a193e",
+ "patches": [
+  {
+   "patch": "P1-fontes-locais",
+   "motivo": "Fontes hospedadas no próprio site (sem chamar o Google a cada acesso). Mesmas famílias e pesos."
+  },
+  {
+   "patch": "P2-sem-conta-padrao",
+   "motivo": "SEGURANÇA: remove a conta de administrador padrão (admin@nga.adv.br) com senha fixa no código."
+  },
+  {
+   "patch": "P3-config-da-casca",
+   "motivo": "O módulo 'nuvem' do original lê a configuração do Supabase da página que o hospeda (a casca)."
+  },
+  {
+   "patch": "P4-sair-pela-casca",
+   "motivo": "Sair encerra a sessão do Supabase na casca (o original só recarregava a página)."
+  },
+  {
+   "patch": "P5-usuarios-pela-casca",
+   "motivo": "O botão Usuários abre a administração real (Supabase) na casca, não a lista local do navegador."
+  },
+  {
+   "patch": "P6-so-dentro-da-casca",
+   "motivo": "SEGURANÇA: o gerador só funciona dentro da casca autenticada; aberto direto, volta para a entrada."
+  },
+  {
+   "patch": "P7-csp-meta",
+   "motivo": "Política de segurança de conteúdo também por <meta> (hospedagem sem cabeçalhos HTTP)."
+  }
+ ]
+}

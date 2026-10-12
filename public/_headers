@@ -1,4 +1,4 @@
-/*
+/gerador/*
   X-Content-Type-Options: nosniff
   Referrer-Policy: no-referrer
   X-Frame-Options: SAMEORIGIN
@@ -6,9 +6,9 @@
   Strict-Transport-Security: max-age=31536000; includeSubDomains
   Cross-Origin-Opener-Policy: same-origin
   Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; frame-src 'self' blob: data:; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'self'; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.bcb.gov.br https://dadosabertos.bcb.gov.br https://cdnjs.cloudflare.com blob: data:
-/config.js
+/gerador/config.js
   Cache-Control: no-store
-/index.html
+/gerador/index.html
   Cache-Control: no-cache
-/app/gerador.html
+/gerador/app/gerador.html
   Cache-Control: no-cache

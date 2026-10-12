@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; frame-src 'self' blob: data:; object-src 'none'; base-uri 'none'; form-action 'self'; connect-src 'self' https://nrusskaipkhjfjdepjhi.supabase.co wss://nrusskaipkhjfjdepjhi.supabase.co https://api.bcb.gov.br https://dadosabertos.bcb.gov.br https://cdnjs.cloudflare.com blob: data:">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Relatórios Jurídicos, NGA</title>
+<link rel="stylesheet" href="app/fonts/fonts.css">
+<link rel="stylesheet" href="shell.css">
+</head>
+<body>
+<main id="entrada" class="entrada" hidden>
+  <form id="form-login" class="cartao" autocomplete="on" novalidate>
+    <div class="marca">NGA<small>ADV</small></div>
+    <h1>Acesso ao Sistema</h1>
+    <p class="sub">Relatórios Jurídicos Cível &amp; Empresarial</p>
+    <p id="login-erro" class="erro" role="alert" hidden></p>
+    <label>E-mail institucional<input id="login-email" type="email" autocomplete="username" required></label>
+    <label>Senha<input id="login-senha" type="password" autocomplete="current-password" required></label>
+    <button id="login-entrar" class="primario" type="submit">Entrar no Sistema</button>
+    <button id="login-esqueci" class="link" type="button">Esqueci minha senha</button>
+    <p class="rodape">Uso interno do escritório. Os acessos são individuais e registrados.</p>
+  </form>
+  <form id="form-nova-senha" class="cartao" autocomplete="off" novalidate hidden>
+    <div class="marca">NGA<small>ADV</small></div>
+    <h1 id="nova-titulo">Defina sua senha</h1>
+    <p id="nova-erro" class="erro" role="alert" hidden></p>
+    <label>Nova senha (mínimo 12 caracteres)<input id="nova-senha" type="password" autocomplete="new-password" minlength="12" required></label>
+    <label>Repita a senha<input id="nova-senha2" type="password" autocomplete="new-password" minlength="12" required></label>
+    <button class="primario" type="submit">Salvar senha e entrar</button>
+  </form>
+  <section id="bloqueio" class="cartao" hidden>
+    <div class="marca">NGA<small>ADV</small></div>
+    <h1>Acesso não autorizado</h1>
+    <p id="bloqueio-msg" class="sub"></p>
+    <button id="bloqueio-sair" class="primario" type="button">Sair</button>
+  </section>
+  <section id="config-faltando" class="cartao" hidden>
+    <h1>Configuração pendente</h1>
+    <p class="sub">O endereço do banco (SUPABASE_URL) e a chave pública (SUPABASE_ANON_KEY) ainda não foram definidos para este ambiente. Veja docs/06_IMPLANTACAO.md.</p>
+  </section>
+</main>
+
+<iframe id="gerador" title="Gerador de Relatórios Jurídicos NGA" hidden></iframe>
+
+<section id="admin" class="admin" hidden aria-label="Administração">
+  <header>
+    <h2>Administração do escritório</h2>
+    <button id="admin-fechar" class="link" type="button">Voltar ao gerador</button>
+  </header>
+  <div class="corpo">
+    <nav class="abas" role="tablist">
+      <button class="aba ativa" data-aba="usuarios" role="tab">Usuários</button>
+      <button class="aba" data-aba="auditoria" role="tab">Registro de auditoria</button>
+    </nav>
+    <div id="aba-usuarios">
+      <form id="form-convite" class="linha" novalidate>
+        <input id="conv-nome" placeholder="Nome" autocomplete="off" required>
+        <input id="conv-email" type="email" placeholder="E-mail" autocomplete="off" required>
+        <select id="conv-papel">
+          <option value="advogado">Advogado</option>
+          <option value="visualizador">Visualizador</option>
+          <option value="admin">Administrador</option>
+        </select>
+        <button class="primario" type="submit">Convidar</button>
+      </form>
+      <p id="admin-msg" class="aviso" role="status" hidden></p>
+      <table class="tabela"><thead><tr><th>Nome</th><th>E-mail</th><th>Perfil</th><th>Situação</th><th>Último acesso</th></tr></thead>
+        <tbody id="tb-usuarios"></tbody></table>
+    </div>
+    <div id="aba-auditoria" hidden>
+      <table class="tabela"><thead><tr><th>Quando</th><th>Quem</th><th>Ação</th><th>Onde</th></tr></thead>
+        <tbody id="tb-auditoria"></tbody></table>
+    </div>
+  </div>
+</section>
+
+<script src="config.js"></script>
+<script src="vendor/supabase.js"></script>
+<script src="shell.js"></script>
+</body>
+</html>

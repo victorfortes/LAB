@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 
 const RAIZ = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ORIGINAL = path.join(RAIZ, 'original', 'artifact-HksuUVxXv21ftK5iF5sFG7-v27.html');
-const DIST = path.join(RAIZ, 'dist');
+const DIST = process.env.NGA_OUT ? path.resolve(RAIZ, process.env.NGA_OUT) : path.join(RAIZ, 'public', 'gerador');   // produção: public/gerador (versionado); testes: NGA_OUT
 const sha = (b) => crypto.createHash('sha256').update(b).digest('hex');
 const falha = (m) => { console.error('ERRO: ' + m); process.exit(1); };
 
@@ -67,8 +67,7 @@ for (const f of readdirSync(path.join(RAIZ, 'web', 'shell'))) {
   else copyFileSync(path.join(RAIZ, 'web', 'shell', f), path.join(DIST, f));
 }
 mkdirSync(path.join(DIST, 'vendor'));
-copyFileSync(path.join(RAIZ, 'node_modules/@supabase/supabase-js/dist/umd/supabase.js'), path.join(DIST, 'vendor', 'supabase.js'));
+copyFileSync(path.join(RAIZ, 'web', 'vendor', 'supabase.js'), path.join(DIST, 'vendor', 'supabase.js'));
 writeFileSync(path.join(DIST, 'config.js'), 'window.NGA_SHELL_CONFIG = ' + JSON.stringify({ url, key: chave, inatividadeMin: 30 }) + ';\n');
-copyFileSync(path.join(RAIZ, 'web', '_headers'), path.join(DIST, '_headers'));
 writeFileSync(path.join(DIST, 'BUILD.json'), JSON.stringify({ original_sha256: sha(original), pagina_gerador_sha256: sha(Buffer.from(pagina)), patches: rel }, null, 1));
-console.log(`OK dist/ pronto · gerador ${Math.floor(Buffer.byteLength(pagina) / 1024)} KiB · ${rel.length} patches · Supabase ${url && chave ? 'configurado' : 'NÃO configurado (modo de teste)'}`);
+console.log(`OK ${path.relative(RAIZ, DIST)}/ pronto · gerador ${Math.floor(Buffer.byteLength(pagina) / 1024)} KiB · ${rel.length} patches · Supabase ${url && chave ? 'configurado' : 'NÃO configurado (modo de teste)'}`);
