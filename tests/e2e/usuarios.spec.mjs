@@ -5,6 +5,7 @@ import { entrar, geradorPronto, sair, sql } from './helpers.mjs';
 test('admin cria usuários em lote; a pessoa entra com a senha temporária, é obrigada a trocá-la e fica com o perfil certo', async ({ page, request }) => {
   await entrar(page, 'admin@teste.local'); const fr = await geradorPronto(page);
   await fr.locator('#topbar-btn-gerenciar').click();
+  await page.locator('.cadastro-lote summary').click();
   await page.fill('#lote-texto', 'Maria Teste, maria.lote@teste.local, advogado\nJoão Teste, joao.lote@teste.local, consulta\nSem Perfil, semperfil.lote@teste.local\nInvalido, nao-e-email, admin');
   await page.click('#form-lote button');
   await expect(page.locator('#admin-msg')).toHaveText(/3 de 4 usuário\(s\) criado\(s\)/);
@@ -20,6 +21,7 @@ test('admin cria usuários em lote; a pessoa entra com a senha temporária, é o
   await page.fill('#lote-texto', 'Maria Teste, maria.lote@teste.local, advogado'); await page.click('#form-lote button');
   await expect(page.locator('#tb-resultado tr').first()).toContainText('Já existe');
   // nova senha temporária (e a anterior deixa de valer)
+  page.once('dialog', dialog => dialog.accept());
   await page.locator('#tb-usuarios tr', { hasText: 'joao.lote@teste.local' }).locator('button.mini').click();
   await expect(page.locator('#admin-msg')).toHaveText(/Nova senha temporária gerada/);
   await page.locator('#admin-fechar').click(); await sair(page, fr);
@@ -48,4 +50,26 @@ test('quem não é administrador não consegue criar usuários nem gerar senhas 
   }
   expect((await request.post('/functions/v1/gerenciar-usuarios', { data: { acao: 'criar', usuarios: [] } })).status()).toBe(401);
   const n = await sql(request, "select count(*)::int n from perfis where email like 'x.%'"); expect(n[0].n).toBe(0);
+});
+
+test('cadastro individual valida dados, identifica duplicados e apaga senhas ao fechar', async ({ page }) => {
+  await entrar(page, 'admin@teste.local'); const fr = await geradorPronto(page);
+  await fr.locator('#topbar-btn-gerenciar').click();
+  await page.locator('#usuario-criar').click();
+  await expect(page.locator('#usuario-erro')).toContainText('nome completo');
+  await page.fill('#usuario-nome', 'Pessoa Cadastro');
+  await page.fill('#usuario-email', 'invalido'); await page.locator('#usuario-criar').click();
+  await expect(page.locator('#usuario-erro')).toContainText('e-mail válido');
+  await page.fill('#usuario-email', 'pessoa.individual@teste.local');
+  await page.selectOption('#usuario-papel', 'advogado'); await page.locator('#usuario-criar').click();
+  await expect(page.locator('#admin-msg')).toContainText('Usuário criado');
+  await expect(page.locator('#tb-resultado .senha')).toHaveCount(1);
+  await page.locator('#resultado-limpar').click();
+  await expect(page.locator('#resultado-lote')).toBeHidden();
+  await expect(page.locator('#tb-resultado .senha')).toHaveCount(0);
+  await page.fill('#usuario-nome', 'Pessoa Cadastro'); await page.fill('#usuario-email', 'pessoa.individual@teste.local');
+  await page.locator('#usuario-criar').click();
+  await expect(page.locator('#admin-msg')).toContainText('já está cadastrado');
+  await page.locator('#admin-fechar').click();
+  await expect(page.locator('#tb-resultado tr')).toHaveCount(0);
 });
