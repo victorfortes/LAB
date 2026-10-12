@@ -13,6 +13,7 @@
   var falhas = 0;
 
   window.NGA_SHELL_CFG = { url: cfg.url, key: cfg.key };
+  Object.defineProperty(window, 'NGA_SHELL_ADMIN', { get: function () { return !!(perfil && perfil.ativo && perfil.papel === 'admin' && !emRecuperacao); } });
 
   function mostrar(qual) {
     ['form-login', 'form-nova-senha', 'bloqueio', 'config-faltando'].forEach(function (id) { $(id).hidden = id !== qual; });

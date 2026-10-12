@@ -31,7 +31,12 @@ for (const [nome, view] of [['painel', 'painel'], ['novo-relatorio', 'novo'], ['
       await irPara(pO, view); await irPara(fM, view);
        // A busca por área/nome é uma mudança intencional, coberta em experiencia.spec.mjs.
        // Compare aqui o restante da tela nas mesmas posições do Artifact preservado.
-       if (view === 'novo') await fM.evaluate(() => document.querySelector('.nga-cliente-filtros')?.remove());
+       if (view === 'novo') await fM.evaluate(() => {
+         document.querySelector('.nga-cliente-filtros')?.remove();
+         // Rótulo Beta é outra diferença intencional, testada em revisao-outubro.spec.mjs.
+         const b = document.querySelector('[data-mode="revisional"]');
+         if (b) b.textContent = 'Análise revisional (contrato bancário)';
+       });
       await pO.waitForTimeout(1200); await pM.waitForTimeout(1200);
       const mascaraO = [pO.locator('.pill'), pO.locator('#topbar-user-email'), pO.locator('.clock, [id*=relogio], [class*=relogio]')];
       const mascaraM = [pM.frameLocator('#gerador').locator('.pill'), pM.frameLocator('#gerador').locator('#topbar-user-email'), pM.frameLocator('#gerador').locator('.clock, [id*=relogio], [class*=relogio]')];
