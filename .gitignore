@@ -51,3 +51,4 @@ backups/
 validacao_fortress_*.csv
 dist-test/
 tests/node_modules/
+tests/e2e/zz_*
