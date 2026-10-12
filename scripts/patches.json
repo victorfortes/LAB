@@ -56,7 +56,7 @@
  {
   "id": "P11-contagem-selecao",
   "motivo": "Sincroniza seleção coletiva, contagem e disponibilidade de PDF.",
-  "de": "   function atualizaContagem() { var n = selecionadas().length; $(\"an-gerar\").disabled = !n; $(\"an-info\").textContent = \" · \" + n + \" andamento(s) no relatório\"; }",
+   "de": "  function atualizaContagem() { var n = selecionadas().length; $(\"an-gerar\").disabled = !n; $(\"an-info\").textContent = \" · \" + n + \" andamento(s) no relatório\"; }",
   "para": "   function atualizaContagem() {\n     var n = selecionadas().length; $(\"an-gerar\").disabled = !n; $(\"an-info\").textContent = \" · \" + n + \" andamento(s) no relatório\";\n     var todos = $(\"an-todos\"); if (todos) { todos.disabled = !S.lista.length; todos.checked = !!n && n === S.lista.length; todos.indeterminate = n > 0 && n < S.lista.length; }\n   }"
  }
 ]
