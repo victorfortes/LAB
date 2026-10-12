@@ -44,7 +44,14 @@ if (existsSync(path.join(RAIZ, '.env'))) for (const ln of readFileSync(path.join
   const k = ln.split('=')[0], v = ln.slice(k.length + 1).trim();
   if ((k === 'SUPABASE_URL' || k === 'SUPABASE_ANON_KEY') && !env[k]) env[k] = v;
 }
+const cfgPublica = path.join(RAIZ, 'config', 'supabase.public.json');
+if ((!env.SUPABASE_URL || !env.SUPABASE_ANON_KEY) && existsSync(cfgPublica)) {
+  const j = JSON.parse(readFileSync(cfgPublica, 'utf8')); env.SUPABASE_URL ||= j.url; env.SUPABASE_ANON_KEY ||= j.anonKey;
+}
 const url = (env.SUPABASE_URL || '').trim(), chave = (env.SUPABASE_ANON_KEY || '').trim();
+if (chave.startsWith('eyJ')) {   // JWT: o papel dentro dele tem de ser "anon"
+  try { const pl = JSON.parse(Buffer.from(chave.split('.')[1], 'base64url').toString()); if (pl.role !== 'anon') falha('a chave informada tem papel "' + pl.role + '", não "anon".'); } catch (e) { falha('chave JWT ilegível.'); }
+}
 if (chave.includes('service_role') || chave.startsWith('sb_secret_')) falha('SUPABASE_ANON_KEY parece ser a chave SECRETA. Use só a chave pública (anon).');
 const meta = cspMeta(url);
 if (conta(pagina, '<head>') !== 1) falha('<head> não único');

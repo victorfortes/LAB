@@ -53,6 +53,8 @@ def main():
     if not url0 and (RAIZ / ".env").exists():
         for ln in (RAIZ / ".env").read_text().splitlines():
             if ln.startswith("SUPABASE_URL="): url0 = ln.split("=", 1)[1].strip()
+    if not url0 and (RAIZ / "config" / "supabase.public.json").exists():
+        url0 = json.loads((RAIZ / "config" / "supabase.public.json").read_text(encoding="utf-8"))["url"]
     meta = csp_meta(url0)
     assert pagina.count("<head>") == 1
     pagina = pagina.replace("<head>", "<head>\n" + meta, 1)
@@ -80,6 +82,13 @@ def main():
         for ln in env.read_text().splitlines():
             if ln.startswith("SUPABASE_URL="): url = ln.split("=", 1)[1].strip()
             if ln.startswith("SUPABASE_ANON_KEY="): chave = ln.split("=", 1)[1].strip()
+    cfgp = RAIZ / "config" / "supabase.public.json"
+    if (not (url and chave)) and cfgp.exists():
+        j = json.loads(cfgp.read_text(encoding="utf-8")); url = url or j["url"]; chave = chave or j["anonKey"]
+    if chave.startswith("eyJ"):
+        import base64
+        pl = json.loads(base64.urlsafe_b64decode(chave.split(".")[1] + "=" * (-len(chave.split(".")[1]) % 4)))
+        if pl.get("role") != "anon": sys.exit('ERRO: a chave tem papel "%s", nao "anon".' % pl.get("role"))
     if "service_role" in chave or chave.startswith("sb_secret_"):
         sys.exit("ERRO: SUPABASE_ANON_KEY parece ser a chave SECRETA. Use só a chave pública (anon).")
     (DIST / "config.js").write_text("window.NGA_SHELL_CONFIG = " + json.dumps({"url": url, "key": chave, "inatividadeMin": 30}, separators=(",", ":")) + ";\n")

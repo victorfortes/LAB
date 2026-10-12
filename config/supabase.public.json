@@ -1,0 +1,5 @@
+{
+  "_aviso": "Valores PUBLICOS (a chave anon foi feita para ficar no navegador; quem protege os dados e o RLS). NUNCA colocar a chave service_role/secret aqui.",
+  "url": "https://nrusskaipkhjfjdepjhi.supabase.co",
+  "anonKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5ydXNza2FpcGtoamZqZGVwamhpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE3NTkwNzQsImV4cCI6MjEwNzMzNTA3NH0.micw626h_UhyLbzIF2mEp8hEfsPN1wayu1HsdnLsA5I"
+}
