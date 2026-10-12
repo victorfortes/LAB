@@ -29,7 +29,7 @@ test('clientes: busca sem acentos, áreas e seleção preservada', async ({ page
 test('andamentos: todos, nenhum, seleção parcial e lista vazia', async ({ page }) => {
   await entrar(page, 'admin@teste.local');
   const fr = await geradorPronto(page);
-  await fr.evaluate(() => window.NGA_ANDAMENTOS.abrir({ cliente: 'Cliente QA', processos: [{ numero_processo: '0001' }, { numero_processo: '0002' }], atividadesBrutas: ['0001', '0002'].map(numero => ({ numero_processo: numero, tipo: 'Histórico manual', data: '12/10/2026', descricao: 'No dia 10/10/2026, decisão proferida.' })) }));
+  await fr.evaluate(() => { window.NGA_CTX.irPara('novo'); window.NGA_ANDAMENTOS.abrir({ cliente: 'Cliente QA', processos: [{ numero_processo: '0001' }, { numero_processo: '0002' }], atividadesBrutas: ['0001', '0002'].map(numero => ({ numero_processo: numero, tipo: 'Histórico manual', data: '12/10/2026', descricao: 'No dia 10/10/2026, decisão proferida.' })) }); });
   const todos = fr.locator('#an-todos');
   await expect(todos).toBeChecked();
   await todos.uncheck();
