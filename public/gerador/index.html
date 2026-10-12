@@ -13,7 +13,7 @@
 <body>
 <main id="entrada" class="entrada" hidden>
   <form id="form-login" class="cartao" autocomplete="on" novalidate>
-    <div class="marca">NGA<small>ADV</small></div>
+    <div class="marca"><img src="logo.png" alt="NGA Advocacia" width="96" height="96"></div>
     <h1>Acesso ao Sistema</h1>
     <p class="sub">Relatórios Jurídicos Cível &amp; Empresarial</p>
     <p id="login-erro" class="erro" role="alert" hidden></p>
@@ -24,7 +24,7 @@
     <p class="rodape">Uso interno do escritório. Os acessos são individuais e registrados.</p>
   </form>
   <form id="form-nova-senha" class="cartao" autocomplete="off" novalidate hidden>
-    <div class="marca">NGA<small>ADV</small></div>
+    <div class="marca"><img src="logo.png" alt="NGA Advocacia" width="96" height="96"></div>
     <h1 id="nova-titulo">Defina sua senha</h1>
     <p id="nova-erro" class="erro" role="alert" hidden></p>
     <label>Nova senha (mínimo 12 caracteres)<input id="nova-senha" type="password" autocomplete="new-password" minlength="12" required></label>
@@ -33,7 +33,7 @@
     <button id="nova-sair" class="link" type="button">Sair</button>
   </form>
   <section id="bloqueio" class="cartao" hidden>
-    <div class="marca">NGA<small>ADV</small></div>
+    <div class="marca"><img src="logo.png" alt="NGA Advocacia" width="96" height="96"></div>
     <h1>Acesso não autorizado</h1>
     <p id="bloqueio-msg" class="sub"></p>
     <button id="bloqueio-sair" class="primario" type="button">Sair</button>
@@ -57,19 +57,33 @@
       <button class="aba" data-aba="auditoria" role="tab">Registro de auditoria</button>
     </nav>
     <div id="aba-usuarios">
+      <form id="form-usuario" class="cadastro" novalidate>
+        <h3>Novo usuário</h3>
+        <div class="campos-usuario">
+          <label for="usuario-nome">Nome completo<input id="usuario-nome" autocomplete="name" maxlength="120" required></label>
+          <label for="usuario-email">E-mail institucional<input id="usuario-email" type="email" autocomplete="email" required></label>
+          <label for="usuario-papel">Perfil<select id="usuario-papel"><option value="visualizador">Visualizador</option><option value="advogado">Advogado</option><option value="admin">Administrador</option></select></label>
+        </div>
+        <p id="usuario-erro" class="erro" role="alert" hidden></p>
+        <button id="usuario-criar" class="primario" type="submit">Criar usuário</button>
+      </form>
+      <details class="cadastro-lote">
+        <summary>Adicionar vários usuários</summary>
       <form id="form-lote" class="lote" novalidate>
         <label for="lote-texto">Criar usuários em lote <small>(um por linha: <b>Nome, e-mail, perfil</b>; perfil = admin, advogado ou visualizador; se faltar, vale visualizador)</small></label>
         <textarea id="lote-texto" rows="5" spellcheck="false" autocomplete="off" placeholder="Maria Silva, maria@escritorio.com.br, advogado&#10;João Souza, joao@escritorio.com.br, visualizador"></textarea>
         <button class="primario" type="submit">Criar usuários</button>
       </form>
+      </details>
       <section id="resultado-lote" class="resultado" hidden aria-live="polite">
         <p class="aviso">As senhas temporárias aparecem <b>só agora</b>. Entregue cada uma à pessoa; no primeiro acesso o sistema obriga a trocá-la.</p>
         <table class="tabela"><thead><tr><th>Nome</th><th>E-mail</th><th>Perfil</th><th>Resultado</th><th>Senha temporária</th></tr></thead><tbody id="tb-resultado"></tbody></table>
         <button id="lote-copiar" class="link" type="button">Copiar lista (e-mail e senha)</button>
+        <button id="resultado-limpar" class="link" type="button">Ocultar senhas</button>
       </section>
       <p id="admin-msg" class="aviso" role="status" hidden></p>
-      <table class="tabela"><thead><tr><th>Nome</th><th>E-mail</th><th>Perfil</th><th>Situação</th><th>Último acesso</th><th></th></tr></thead>
-        <tbody id="tb-usuarios"></tbody></table>
+      <div class="tabela-scroll"><table class="tabela"><thead><tr><th>Nome</th><th>E-mail</th><th>Perfil</th><th>Situação</th><th>Último acesso</th><th></th></tr></thead>
+        <tbody id="tb-usuarios"></tbody></table></div>
     </div>
     <div id="aba-auditoria" hidden>
       <table class="tabela"><thead><tr><th>Quando</th><th>Quem</th><th>Ação</th><th>Onde</th></tr></thead>

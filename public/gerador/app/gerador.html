@@ -13128,12 +13128,13 @@ GeradorRelatorioPDF.prototype._capaCredor = function (doc, dados) {
 
   /* ------------------------------------------------------------ integração com o seletor de modo */
   function integrar() {
-    var sw = $("mode-switch"); if (!sw || sw.querySelector('[data-mode="revisional"]')) return;
-    var b = document.createElement("button"); b.type = "button"; b.className = "mode-btn"; b.dataset.mode = "revisional"; b.textContent = "Análise revisional (contrato bancário)"; sw.appendChild(b);
+    var sw = $("mode-switch"); if (!window.NGA_ADMIN_ATUAL() || !sw || sw.querySelector('[data-mode="revisional"]')) return;
+    var b = document.createElement("button"); b.type = "button"; b.className = "mode-btn"; b.dataset.mode = "revisional"; b.textContent = "Análise revisional (contrato bancário) · Beta"; sw.appendChild(b);
     b.addEventListener("click", function () {
       Array.prototype.forEach.call(sw.querySelectorAll(".mode-btn"), function (x) { x.classList.toggle("active", x === b); });
       ["panel-astrea", "panel-negociacao", "panel-projeto"].forEach(function (id) { var e = $(id); if (e) e.hidden = true; });
       ["revisao", "results", "livre"].forEach(function (id) { var e = $(id); if (e) e.hidden = true; });
+      if (!window.NGA_ADMIN_ATUAL()) return;
       $("panel-revisional").hidden = false; renderPainel();
       var rot = ["Enviar o contrato (opcional)", "Conferir os dados e a série do Bacen", "Analisar e gerar o laudo"];
       Array.prototype.forEach.call(document.querySelectorAll("[data-step]"), function (li) { var sp = li.querySelector("span"), i = Number(li.dataset.step) - 1; if (sp && rot[i]) sp.textContent = rot[i]; });
@@ -13445,7 +13446,15 @@ window.NGA_AVISO_RITMO = function (id, ev) {
 
   function coletar(estado, opt) {
     var procs = estado.processos || [], todas = estado.atividadesBrutas || estado.atividadesClassificadas || [];
-    var porProc = {}; todas.forEach(function (a, i) { if (ehManual(a)) (porProc[a.numero_processo] = porProc[a.numero_processo] || []).push({ a: a, i: i }); });
+    var periodo = /^(\d{4})-(0[1-9]|1[0-2])$/.exec(estado.periodoISO || "");
+    var inicio = periodo ? Date.UTC(+periodo[1], +periodo[2] - 1, 1) : null;
+    var fim = periodo ? Date.UTC(+periodo[1], +periodo[2], 1) : null;
+    var porProc = {}; todas.forEach(function (a, i) {
+      var reg = tsBR(a.data), valida = new Date(reg);
+      var partes = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(a.data || "");
+      var dataValida = partes && valida.getUTCDate() === +partes[1] && valida.getUTCMonth() + 1 === +partes[2] && valida.getUTCFullYear() === +partes[3];
+      if (periodo && dataValida && reg >= inicio && reg < fim && ehManual(a)) (porProc[a.numero_processo] = porProc[a.numero_processo] || []).push({ a: a, i: i });
+    });
     var lista = [], sem = [], djen = 0;
     procs.forEach(function (p) {
       var cands = (porProc[p.numero_processo] || []).filter(function (x) {
@@ -13505,7 +13514,10 @@ window.NGA_AVISO_RITMO = function (id, ev) {
     var e = S.estado; if (!e) return;
     var r = coletar(e, opcoes()); S.lista = r.lista; S.sem = r.sem; S.excluidosDjen = r.djen;
     var total = (e.processos || []).length, com = total - r.sem.length;
-    $("an-cliente").textContent = e.cliente || "";
+    $("an-cliente").textContent = (e.cliente || "") + (e.periodoISO ? " · " + e.periodoISO.slice(5, 7) + "/" + e.periodoISO.slice(0, 4) : "");
+    var periodoValido = /^\d{4}-(0[1-9]|1[0-2])$/.test(e.periodoISO || "");
+    $("an-alert").hidden = periodoValido;
+    $("an-alert").textContent = periodoValido ? "" : "Configure o mês de referência do relatório para listar os andamentos.";
     $("an-resumo").innerHTML = "<b>" + com + " de " + total + " processo(s)</b> têm histórico manual de andamento; <b>" + r.sem.length + "</b> não têm." +
       (r.djen ? " " + r.djen + " registro(s) de histórico manual eram cópias de publicação do DJEN e foram desconsiderados." : "") +
       (opcoes().soNoDia ? ' Considerados só os registros que começam com "No dia"; desmarque a opção para incluir outros históricos manuais narrados.' : "");
