@@ -17,7 +17,7 @@ export default defineConfig({
         // TanStack intercepts HTML requests before Vite's public middleware.
         // Only these generated documents bypass SSR during local preview.
         server.middlewares.use(async (req, res, next) => {
-          const pathname = (req.url || "").split("?")[0];
+          const pathname = (req.url || "").split("?")[0] || "";
           const documents: Record<string, string> = {
             "/gerador/": "gerador/index.html",
             "/gerador/index.html": "gerador/index.html",
