@@ -28,3 +28,4 @@
 - Não alterar o motor de PDF (jsPDF/pdf.js dentro do original) sem evidência de defeito reproduzível.
 - Rota `/` (`src/routes/index.tsx`) apenas redireciona para `/gerador/`. Rotas React protegidas futuras ficam em `src/routes/_authenticated/`; o gerador faz seu próprio login (Supabase Auth) na casca.
 - Keep input-only enhancements in the copied shell assets and exact-match Artifact patches; this preserves the immutable original and PDF engine while allowing regression tests of intentional UI differences.
+- Serve only the three known generated HTML documents before TanStack SSR in the Vite development middleware; this makes preview match static production hosting without introducing Worker filesystem access.
