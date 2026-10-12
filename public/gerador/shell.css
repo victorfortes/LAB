@@ -6,7 +6,6 @@ html,body{height:100%;margin:0;background:var(--azul2);color:var(--texto);font-f
 .entrada{min-height:100%;display:flex;align-items:center;justify-content:center;padding:20px;background:radial-gradient(circle at 50% 30%,#142435 0%,#0b1622 100%)}
 .cartao{width:100%;max-width:440px;background:var(--azul);border:1px solid rgba(194,150,92,.35);border-radius:12px;padding:28px;box-shadow:0 20px 40px rgba(0,0,0,.6)}
 .marca{font:500 34px var(--serif);letter-spacing:.04em;text-align:center}.marca small{font:600 10px var(--sans);color:var(--ouro);margin-left:4px;letter-spacing:.14em}
-.marca-logo{display:block;margin:0 auto 6px;height:56px;width:auto}
 h1{font:500 22px var(--serif);text-align:center;margin:10px 0 2px}.sub{color:var(--mudo);font-size:12px;text-align:center;margin:0 0 18px}
 label{display:block;font:600 10px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--ouro);margin-top:14px}
 input,select{display:block;width:100%;margin-top:6px;padding:11px 12px;border-radius:8px;border:1px solid rgba(255,255,255,.14);background:#0d1a27;color:#fff;font:14px var(--sans)}

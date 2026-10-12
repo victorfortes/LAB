@@ -48,7 +48,5 @@ falar com uma tabela `documentos` do Supabase, recebendo o token da página que 
 | P4 | "Sair" encerra a sessão Supabase na casca |
 | P5 | "Usuários" abre a administração real |
 | P6 | Aberto fora da casca, o gerador redireciona para o login |
-| P7 | CSP também por `<meta>` (hospedagem sem cabeçalhos HTTP) |
-| P8 a P11 | **Melhorias de entrada pedidas pelo escritório (feitas pela IA do Lovable em 12/10/2026 e revisadas)**: filtro de clientes por nome e área, "selecionar todos" nos últimos andamentos, barras automáticas em datas, ícone da aba. Não tocam no motor de PDF (equivalência de PDF mantida). Código em `web/shell/experiencia.js` |
 
 `dist/BUILD.json` registra o SHA-256 do original, da página resultante e os patches aplicados em cada build.

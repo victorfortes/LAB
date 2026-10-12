@@ -48,9 +48,6 @@
 | F-036 | Diagnóstico | Botão Diagnóstico da exportação | CÓD · QA27 |
 | F-037 | Layout | Responsividade (celular/tablet), identidade NGA, fontes | CÓD · EQ visual · QA27 (mobile) |
 | F-038 | IA | Redação de parágrafo e leitura assistida (só dentro do Claude) | Desligado fora do Claude, **como já era no original** (P-3) |
-| F-039 | Novo relatório | **Acréscimo (P8-P9):** filtro de clientes por nome e por área (Cível/Empresarial), sem trocar silenciosamente o cliente já escolhido | E2E `experiencia.spec` |
-| F-040 | Últimos andamentos | **Acréscimo (P10-P11):** "selecionar todos" com estado parcial e contagem sincronizada | E2E `experiencia.spec` |
-| F-041 | Campos de data | **Acréscimo:** barras inseridas automaticamente (dd/mm e dd/mm/aaaa) | E2E `experiencia.spec` |
 
 ## Limites desta matriz (honestidade)
 - A equivalência **automatizada** cobre telas (5), PDFs (laudo 15 págs, projeto 12 págs) e, opcionalmente, o Quantitativo com Astrea real. Os demais recursos têm **garantia por construção (código idêntico)** e foram exercitados manualmente (QA27) **antes** da migração, **não** reexecutados um a um no ambiente publicado (que ainda não existe). Pendência **P-1** em `11_RESULTADO_FINAL.md`: rodar o roteiro completo no ambiente publicado.

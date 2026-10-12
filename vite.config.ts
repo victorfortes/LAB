@@ -14,38 +14,22 @@ export default defineConfig({
       name: "nga-static-html-preview",
       apply: "serve",
       configureServer(server) {
-        // TanStack intercepta requisições antes do middleware público do Vite.
-        // A prévia local espelha a hospedagem estática: serve tudo que existe em public/gerador.
-        const MIME: Record<string, string> = {
-          ".html": "text/html; charset=utf-8",
-          ".css": "text/css; charset=utf-8",
-          ".js": "text/javascript; charset=utf-8",
-          ".json": "application/json; charset=utf-8",
-          ".png": "image/png",
-          ".jpg": "image/jpeg",
-          ".jpeg": "image/jpeg",
-          ".svg": "image/svg+xml",
-          ".woff": "font/woff",
-          ".woff2": "font/woff2",
-          ".ttf": "font/ttf",
-          ".otf": "font/otf",
-          ".ico": "image/x-icon",
-          ".map": "application/json; charset=utf-8",
-        };
+        // TanStack intercepts HTML requests before Vite's public middleware.
+        // Only these generated documents bypass SSR during local preview.
         server.middlewares.use(async (req, res, next) => {
           const pathname = (req.url || "").split("?")[0] || "";
-          if (!pathname.startsWith("/gerador") || !["GET", "HEAD"].includes(req.method || "")) return next();
-          const rel = decodeURIComponent(pathname)
-            .replace(/^\/gerador\/?/, "")
-            .replace(/^$/, "index.html")
-            .replace(/\/$/, "/index.html");
+          const documents: Record<string, string> = {
+            "/gerador/": "gerador/index.html",
+            "/gerador/index.html": "gerador/index.html",
+            "/gerador/app/gerador.html": "gerador/app/gerador.html",
+          };
+          const document = documents[pathname];
+          if (!document || !["GET", "HEAD"].includes(req.method || "")) return next();
           try {
-            const file = path.resolve(server.config.publicDir, "gerador", rel);
-            if (!file.startsWith(path.resolve(server.config.publicDir, "gerador") + path.sep)) return next();
-            const data = await readFile(file);
+            const html = await readFile(path.resolve(server.config.publicDir, document));
             res.statusCode = 200;
-            res.setHeader("Content-Type", MIME[path.extname(file).toLowerCase()] || "application/octet-stream");
-            res.end(req.method === "HEAD" ? undefined : data);
+            res.setHeader("Content-Type", "text/html; charset=utf-8");
+            res.end(req.method === "HEAD" ? undefined : html);
           } catch { next(); }
         });
       },
