@@ -148,3 +148,16 @@ test('pedaços de PDF (coleção pdfs): advogado grava, só administrador exclui
   assert.equal((await como(U.admin, `select 1 from auditoria where colecao='pdfs'`)).rows.length, 0);
   await como(U.admin, `update documentos set removido=true where colecao='pdfs' and id='em_1__0'`);
 });
+
+test('menor privilégio (com os padrões do Supabase): anon sem funções, authenticated sem TRUNCATE nem funções de gatilho', async () => {
+  assert.match(await falha(null, 'select registrar_acesso()'), /permission denied/i);
+  assert.match(await falha(null, 'select papel_atual()'), /permission denied/i);
+  assert.match(await falha(U.adv, 'truncate documentos'), /permission denied/i);
+  assert.match(await falha(U.adv, 'truncate perfis'), /permission denied/i);
+  assert.match(await falha(U.adv, 'select documentos_antes()'), /permission denied/i);
+  assert.match(await falha(U.adv, `insert into documentos_versoes (colecao,id,versao,dados) values ('clientes','z',1,'{}')`), /permission denied|row-level security/i);
+  // continua funcionando para quem pode: gatilhos disparam e as duas funções de uso respondem
+  await como(U.adv, ...ins('clientes', 'priv_ok', { a: 1 }));
+  await como(U.adv, `update documentos set dados='{"a":2}' where id='priv_ok'`);
+  assert.ok((await como(U.adv, 'select papel_atual() p')).rows[0].p === 'advogado');
+});

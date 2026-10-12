@@ -59,10 +59,19 @@ test('login válido abre o gerador original com o papel certo; sair apaga os dad
 });
 
 test('CSP e cabeçalhos de segurança presentes', async ({ page }) => {
+  test.skip(process.env.NGA_SEM_CABECALHOS === '1', 'hospedagem sem cabeçalhos HTTP: vale a CSP por <meta> (teste abaixo)');
   const r = await page.request.get('/');
   const h = r.headers();
   expect(h['content-security-policy']).toContain("object-src 'none'");
   expect(h['x-content-type-options']).toBe('nosniff');
   expect(h['x-frame-options']).toBe('SAMEORIGIN');
   expect(h['referrer-policy']).toBe('no-referrer');
+});
+
+test('CSP por <meta> presente na casca e no gerador (vale sem cabeçalhos HTTP)', async ({ page }) => {
+  for (const url of ['/', '/app/gerador.html']) {
+    const html = await (await page.request.get(url)).text();
+    expect(html).toContain('http-equiv="Content-Security-Policy"');
+    expect(html).toContain("object-src 'none'");
+  }
 });

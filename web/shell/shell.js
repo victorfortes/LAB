@@ -3,6 +3,8 @@
    Todas as permissões de verdade são aplicadas pelo banco (RLS); a tela só reflete o que o banco permite. */
 (function () {
   'use strict';
+  // anti-clickjacking (sem X-Frame-Options em hospedagens sem cabeçalhos HTTP): a casca nunca roda dentro de outra página
+  try { if (window.top !== window.self) { window.top.location = window.self.location; } } catch (e) { document.documentElement.innerHTML = ''; }
   var cfg = window.NGA_SHELL_CONFIG || {};
   var $ = function (id) { return document.getElementById(id); };
   var MAPA = { admin: 'admin', advogado: 'operador', visualizador: 'leitor' };   // papel do banco -> nível do gerador original

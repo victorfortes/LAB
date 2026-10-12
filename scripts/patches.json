@@ -1,0 +1,38 @@
+[
+ {
+  "id": "P1-fontes-locais",
+  "motivo": "Fontes hospedadas no próprio site (sem chamar o Google a cada acesso). Mesmas famílias e pesos.",
+  "de": "<link rel=\"preconnect\" href=\"https://fonts.googleapis.com\"><link rel=\"preconnect\" href=\"https://fonts.gstatic.com\" crossorigin>\n<link href=\"https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap\" rel=\"stylesheet\">",
+  "para": "<link rel=\"stylesheet\" href=\"fonts/fonts.css\">"
+ },
+ {
+  "id": "P2-sem-conta-padrao",
+  "motivo": "SEGURANÇA: remove a conta de administrador padrão (admin@nga.adv.br) com senha fixa no código.",
+  "de": "    if (!lista.some(function (u) { return String(u.email).toLowerCase() === \"admin@nga.adv.br\"; })) {\n      lista.unshift({ email: \"admin@nga.adv.br\", hash: await sha256(\"nga2026\"), role: \"admin\", criadoEm: new Date().toLocaleDateString(\"pt-BR\") });\n      salvarUsuarios(lista);\n    }\n",
+  "para": "    // (conta padrão removida na migração: o acesso agora é por usuário individual no Supabase)\n"
+ },
+ {
+  "id": "P3-config-da-casca",
+  "motivo": "O módulo 'nuvem' do original lê a configuração do Supabase da página que o hospeda (a casca).",
+  "de": "var cfg = window.NGA_NUVEM_CFG || null;",
+  "para": "var cfg = window.NGA_NUVEM_CFG || (function () { try { return window.parent !== window ? window.parent.NGA_SHELL_CFG : null; } catch (e) { return null; } })();"
+ },
+ {
+  "id": "P4-sair-pela-casca",
+  "motivo": "Sair encerra a sessão do Supabase na casca (o original só recarregava a página).",
+  "de": "    logout: function() {\n",
+  "para": "    logout: function() {\n      if (window.parent !== window) { window.parent.postMessage({ nga: \"logout\" }, location.origin); return; }\n"
+ },
+ {
+  "id": "P5-usuarios-pela-casca",
+  "motivo": "O botão Usuários abre a administração real (Supabase) na casca, não a lista local do navegador.",
+  "de": "ligar(\"topbar-btn-gerenciar\", \"click\", function () { window.NGA_AUTH.abrirGerenciador(); });",
+  "para": "ligar(\"topbar-btn-gerenciar\", \"click\", function () { if (window.parent !== window) window.parent.postMessage({ nga: \"admin\" }, location.origin); else window.NGA_AUTH.abrirGerenciador(); });"
+ },
+ {
+  "id": "P6-so-dentro-da-casca",
+  "motivo": "SEGURANÇA: o gerador só funciona dentro da casca autenticada; aberto direto, volta para a entrada.",
+  "de": "<title>Relatórios Jurídicos, NGA</title>",
+  "para": "<title>Relatórios Jurídicos, NGA</title>\n<script>if (window.parent === window) { location.replace(\"../\"); }</script>"
+ }
+]
