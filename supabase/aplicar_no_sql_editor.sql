@@ -265,3 +265,8 @@ alter default privileges in schema public revoke all on sequences from anon, aut
 -- ===== Verificação (somente leitura): rode depois e confira o resultado =====
 select tablename, rowsecurity as rls_ativo from pg_tables where schemaname='public' and tablename in ('perfis','documentos','documentos_versoes','auditoria') order by 1;
 select count(*) as politicas from pg_policies where schemaname='public';
+
+-- ===== Serviço de administração (migracao 0003) =====
+grant usage on schema public to service_role;
+grant select, insert, update on public.perfis to service_role;
+grant insert on public.auditoria to service_role;
