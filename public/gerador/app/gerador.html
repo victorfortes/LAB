@@ -2164,6 +2164,10 @@ var NUCLEO = (function () {
       p:[/\bPLANO\s+DE\s+RECUPERACAO\b/,/\bPRJ\b/,/\bPLANO\s+ALTERNATIVO\b/,/\bADITIVO\s+AO\s+PLANO\b/] },
     { nat:"Assembleia de credores", fn:"EVENTO", peso:5, area:"insolvencia", forca:10,
       p:[/\bASSEMBLEIA\s+GERAL\s+DE\s+CREDORES\b/,/\bAGC\b/,/\bASSEMBLEIA\s+DE\s+CREDORES\b/] },
+    { nat:"Reunião do comitê de credores", fn:"EVENTO", peso:5, area:"ambas", forca:11,
+      p:[/^COMITE\s+DE\s+CREDORES\b/,/\bREUNIAO\s+(?:DO\s+)?COMITE\b/] },
+    { nat:"Comunicação ao comitê / credores", fn:"ENTREGA", peso:3, area:"ambas", forca:13,
+      p:[/\bMEMBROS\s+DO\s+COMITE\b/,/\bCONVOCACAO\b.*\b(?:REUNIAO|CREDORES|COMITE)\b/,/\bPAUTA\b.*\bREUNIAO\b/] },
     { nat:"Pedido de restituição", fn:"ENTREGA", peso:4, area:"insolvencia", forca:9,
       p:[/\bPEDIDO\s+DE\s+RESTITUICAO\b/,/\bRESTITUICAO\s+DE\s+(?:VALORES|BENS)\b/] },
     { nat:"Acompanhamento de RJ / falência", fn:"ACOMPANHAMENTO", peso:2, area:"insolvencia", forca:6,
@@ -2363,7 +2367,7 @@ var NUCLEO = (function () {
       desfecho = ehPrazo ? "INDETERMINADO" : null;
       // o que foi feito manda; se for genérico demais ("mov 97", "protocolo realizado"), o nome do prazo completa
       var generico = real.feito.length < 18 || /^(?:MOV\s*\d+|PROTOCOLO\s+REALIZADO\.?|FEITO\.?|OK\.?)$/.test(real.feito);
-      t = generico ? (real.feito + " " + real.prazo) : real.feito;
+      t = /^EVENTO/.test(tipoN) ? (real.prazo + " " + real.feito) : (generico ? (real.feito + " " + real.prazo) : real.feito);
     } else if (tipoN === "PRAZO REALIZADO") {
       desfecho = "INDETERMINADO"; // prazo cumprido sem o "Realizado:" não diz o que foi feito
     }
@@ -3590,7 +3594,7 @@ if (typeof module !== "undefined") {
     var p = 0;
     if (a.funcao === "DECISAO") p += 55;
     else if (a.funcao === "ENTREGA") p += 35 + (a.esforco || 1) * 6;
-    else if (a.funcao === "EVENTO") p += 45;
+    else if (a.funcao === "EVENTO") p += 45 + (a.esforco || 1) * 6;
     else if (a.funcao === "ACOMPANHAMENTO") p -= 15;
     else if (a.funcao === "GESTAO") p -= 25;
     if (a.extra && a.extra.resultado) p += 12;
@@ -3604,6 +3608,38 @@ if (typeof module !== "undefined") {
   // explicitamente ("No dia DD/MM/AAAA, ..."). Sem essa narração, usamos a
   // data do registro no Astrea, nunca inventamos uma data.
   function dataParaExibicao(a) { return a.data_efetiva || a.data_narrada || a.data; }
+  // Texto de exibição: tira saudação e fecho de e-mail copiado no histórico, para o relatório mostrar o que foi feito.
+  function resumoExibicao(txt, tipo) {
+    var bruto = String(txt || ""), t = bruto.replace(/\s+/g, " ").trim();
+    if (/^EVENTO/.test(norm(tipo))) { var ev = /^(.+?)\s+-\s+Realizado:/i.exec(t); if (ev) return ev[1] + " (realizado)"; }
+    t = t.replace(/^Prezad[oa]s?(?:\([oa]s?\))?\s+Senhor[a-z]*(?:\([oa]s?\))?\s+[^,]{0,90},\s*/i, "");
+    t = t.replace(/\s*(?:Permanecemos|Seguimos|Ficamos)\s+à\s+disposição[^.]*\.?\s*(?:At\.?te\.?|Atenciosamente\.?)?\s*$/i, "");
+    t = t.replace(/\s*(?:At\.?te\.?|Atenciosamente\.?)\s*$/i, "");
+    if (t.length > 170) {   // corta no fim de uma frase (até 170 caracteres, o que cabe nas 3 linhas do cartão), sem deixar o texto pela metade
+      var corte = 0, rs = /[.!?]\s+/g, mm;
+      while ((mm = rs.exec(t)) && mm.index + 1 <= 170) corte = mm.index + 1;
+      t = corte ? t.slice(0, corte) : t.slice(0, 167).replace(/\s+\S*$/, "") + "…";
+    }
+    return t || bruto;
+  }
+  // Reunião ou ato futuro agendado no próprio histórico ("fica agendada... Data e horário: 02 de dezembro de 2026, às 14h00").
+  // Vira candidato a próximo passo na revisão; nada entra no PDF sem confirmação.
+  function agendamentosDoTexto(atividades, hoje) {
+    var MES = { JANEIRO: 1, FEVEREIRO: 2, MARCO: 3, ABRIL: 4, MAIO: 5, JUNHO: 6, JULHO: 7, AGOSTO: 8, SETEMBRO: 9, OUTUBRO: 10, NOVEMBRO: 11, DEZEMBRO: 12 };
+    var ref = hoje || new Date(), base = Date.UTC(ref.getUTCFullYear(), ref.getUTCMonth(), ref.getUTCDate()), out = [], vistos = {};
+    (atividades || []).forEach(function (a) {
+      var t = norm(a.descricao).replace(/\s+/g, " ");
+      var re = /(?:DATA\s+E\s+HORARIO|AGENDAD[OA]\w*)[^.]{0,120}?\b(\d{1,2})\s+DE\s+(JANEIRO|FEVEREIRO|MARCO|ABRIL|MAIO|JUNHO|JULHO|AGOSTO|SETEMBRO|OUTUBRO|NOVEMBRO|DEZEMBRO)\s+DE\s+(\d{4})(?:\s*,?\s*AS\s+(\d{1,2})\s*H\s*(\d{2})?)?/, m = re.exec(t);
+      if (!m) return;
+      var d = +m[1], mo = MES[m[2]], y = +m[3];
+      if (Date.UTC(y, mo - 1, d) < base) return;
+      var data = ("0" + d).slice(-2) + "/" + ("0" + mo).slice(-2) + "/" + y, hora = m[4] ? (" às " + m[4] + "h" + (m[5] || "00")) : "";
+      var quem = /COMITE/.test(t) ? "Reunião do Comitê de Credores" : "Reunião", k = data + "|" + quem;
+      if (vistos[k]) return; vistos[k] = 1;
+      out.push({ descricao: quem + " agendada" + hora + " (conforme registro de " + (a.data || "data não informada") + ")", data: data, responsavel: "", numero_processo: a.numero_processo });
+    });
+    return out;
+  }
 
   // ------------------------------------------------------- acontecimentos
   // Seleciona fatos MATERIAIS do período, garantindo que TODO processo com
@@ -3619,7 +3655,7 @@ if (typeof module !== "undefined") {
       if (temMarcoTag) peso += 100;
       if (temEntregaTag) peso += 60;
       return {
-        idx: idx, data: dataParaExibicao(a), dataRegistro: a.data, descricao: a.descricao, tipo: a.tipo,
+        idx: idx, data: dataParaExibicao(a), dataRegistro: a.data, descricao: resumoExibicao(a.descricao, a.tipo), tipo: a.tipo,
         numero_processo: a.numero_processo, peso: peso,
         funcao: a.funcao, natureza: a.natureza, esforco: a.esforco, confianca: a.confianca,
         origem: { tipo: "atividade", data: a.data, processo: a.numero_processo },
@@ -3629,6 +3665,9 @@ if (typeof module !== "undefined") {
       var dx = dataBRtoDate(x.data), dy = dataBRtoDate(y.data);
       return (dy ? dy.getTime() : 0) - (dx ? dx.getTime() : 0);
     };
+    var temOutro = {};
+    candidatos.forEach(function (c) { if (c.natureza !== "Prazo com desfecho a confirmar") temOutro[c.numero_processo || ""] = 1; });
+    candidatos = candidatos.filter(function (c) { return c.natureza !== "Prazo com desfecho a confirmar" || !temOutro[c.numero_processo || ""]; });
     candidatos.sort(function (x, y) { return (y.peso - x.peso) || porData(x, y); });
 
     // 1ª passada: garante 1 representante por processo (o melhor candidato
@@ -3670,9 +3709,9 @@ if (typeof module !== "undefined") {
     atividades.forEach(function (a, idx) {
       var tags = Etiquetas ? Etiquetas.extrair(a.descricao) : [];
       var explicita = tags.some(function (t) { return t.tipo === "ENTREGA"; });
-      if (explicita || ehEntrega(a)) {
+      if (explicita || (ehEntrega(a) && a.natureza !== "Prazo com desfecho a confirmar")) {
         entregas.push({
-          idx: idx, data: dataParaExibicao(a), descricao: a.descricao,
+          idx: idx, data: dataParaExibicao(a), descricao: resumoExibicao(a.descricao, a.tipo),
           numero_processo: a.numero_processo, explicita: explicita,
           natureza: a.natureza, esforco: a.esforco,
           origem: { tipo: "atividade", data: a.data, processo: a.numero_processo },
@@ -3777,7 +3816,7 @@ if (typeof module !== "undefined") {
       acontecimentos: selecionarAcontecimentos(atividades, Etiquetas),
       entregas: selecionarEntregas(atividades, Etiquetas),
       marcos: detectarMarcos(atividades, template, Etiquetas),
-      proximosPassos: classificarProximosPassos(tarefasFuturas, opts.hoje),
+      proximosPassos: classificarProximosPassos(tarefasFuturas.concat(agendamentosDoTexto(atividades, opts.hoje)), opts.hoje),
       comparativo: compararComAnterior(indicadores, opts.anterior),
     };
   }
@@ -6471,14 +6510,14 @@ GeradorRelatorioPDF.prototype._capaCredor = function (doc, dados) {
     document.getElementById("rev-fase").value = oe.faseAtual || "";
     document.getElementById("rev-ultimo").value = oe.ultimoMarco || "";
     document.getElementById("rev-proximo").value = oe.proximoMarco || "";
-    document.getElementById("rev-providencia").value = "";
+    document.getElementById("rev-providencia").value = (function () { var ps = (b.proximosPassos || []).filter(function (p) { return p.faixa !== "vencida" && p.faixa !== "sem_data"; }); return ps.length ? ps[0].acao + (ps[0].data ? " (" + ps[0].data + ")" : "") : ""; })();
 
     // Marcos, apenas informativos (vêm do cadastro). Editar datas => no cadastro do cliente.
     var temTemplate = b.marcos && b.marcos.length;
     document.getElementById("rev-marcos-group").style.display = temTemplate ? "" : "none";
     if (temTemplate) {
       document.getElementById("rev-marcos").innerHTML =
-        '<p style="font-size:12px;color:var(--muted);margin:-4px 0 10px">As datas dos marcos vêm do cadastro do cliente. Para ajustar, edite o cliente. Cada data é conferida com o Astrea: o que não tem registro identificável sai "a confirmar" no PDF. A fase atual segue o cadastro e não é comprovada pelo Astrea. Situação atual:</p>' +
+        '<p style="font-size:12px;color:var(--muted);margin:-4px 0 10px">As datas dos marcos vêm do cadastro do cliente. Para ajustar, edite o cliente. Cada data é conferida com o Astrea apenas como aviso: no PDF vale a data do cadastro. A fase atual segue o cadastro e não é comprovada pelo Astrea. Situação atual:</p>' +
         b.marcos.filter(function (m) { return m.status !== "pendente"; }).map(function (m) {
           return window.NGA_VERIFICAR.itemRevisao(m, escapeHtml, STATUS_MARCO_ROTULO);
         }).join("");
@@ -13937,7 +13976,7 @@ window.NGA_AVISO_RITMO = function (id, ev) {
     },
     re: {
       ADESAO: function (f) { return /\bADESA\w*|\bADESOES\b/.test(f.n); },
-      AJUIZAMENTO: function (f) { return /PEDIDO DE HOMOLOGACAO|AJUIZAD\w*.*RECUPERACAO EXTRAJUDICIAL/.test(f.n); },
+      AJUIZAMENTO: function (f) { return (f.ficha && /RECUPERACAO EXTRAJUDICIAL/.test(nrm((f.acao || "") + " " + (f.juizo || "")))) || /PEDIDO DE HOMOLOGACAO|AJUIZAD\w*.*RECUPERACAO EXTRAJUDICIAL/.test(f.n); },
       IMPUGNACOES: function (f) { return /IMPUGNAC\w*/.test(f.n); },
       HOMOLOGACAO: function (f) { return /HOMOLOG\w*.*PLANO|HOMOLOGAC\w*/.test(f.n); },
       ENCERRAMENTO: function (f) { return /SENTENCA DE ENCERRAMENTO|ENCERRAMENTO/.test(f.n); },
@@ -14000,7 +14039,7 @@ window.NGA_AVISO_RITMO = function (id, ev) {
       if (!m.data) return;
       var v = verificar(m.chave, m.data, modelo, base);
       m.verificacao = v;
-      if (v.situacao !== "confirmado") { m.data_cadastro = m.data; m.data = null; m.data_a_confirmar = true; }
+      if (v.situacao !== "confirmado") { m.data_cadastro = m.data; m.divergencia = v.situacao; }
     });
     return marcos;
   }
@@ -14008,8 +14047,8 @@ window.NGA_AVISO_RITMO = function (id, ev) {
   function itemRevisao(m, esc, ROT) {
     var cor = m.status === "concluido" ? "#3f8f6b" : "#be8e57", v = m.verificacao, extra = "";
     if (v && v.situacao === "confirmado") { var e = v.evidencias[0]; extra = '<p class="rv-ver ok">Comprovado no Astrea: ' + esc(e.fonte) + (e.inferido ? " (ano deduzido da data do lançamento)" : "") + ': "' + esc(e.texto) + '"</p>'; }
-    else if (v && v.situacao === "divergente") extra = '<p class="rv-ver aviso">Divergente: o cadastro informa ' + esc(m.data_cadastro) + "; o Astrea registra " + esc(v.evidencias.map(function (x) { return x.data + " (" + x.fonte + ")"; }).join("; ")) + '. No PDF a data sai como "a confirmar".</p>';
-    else if (v && v.situacao === "sem_confirmacao") extra = '<p class="rv-ver aviso">Sem comprovação no Astrea: o cadastro informa ' + esc(m.data_cadastro) + '. No PDF a data sai como "a confirmar".</p>';
+    else if (v && v.situacao === "divergente") extra = '<p class="rv-ver aviso">Divergente: o cadastro informa ' + esc(m.data_cadastro) + "; o Astrea registra " + esc(v.evidencias.map(function (x) { return x.data + " (" + x.fonte + ")"; }).join("; ")) + '. No PDF vale a data do cadastro; se o Astrea estiver certo, corrija o cadastro do cliente.</p>';
+    else if (v && v.situacao === "sem_confirmacao") extra = '<p class="rv-ver aviso">Sem registro identificável no Astrea: vale a data informada no cadastro (' + esc(m.data_cadastro) + ').</p>';
     var chk = m.data_a_confirmar ? '<label class="rv-ver-chk"><input type="checkbox" data-marco-conf="' + esc(m.chave) + '"> Usar a data do cadastro mesmo assim (informação própria do escritório, não comprovada no Astrea)</label>' : "";
     return '<div class="review-item" style="align-items:center"><span style="width:9px;height:9px;border-radius:50%;background:' + cor + ';flex:none"></span><div class="ri-body"><b>' + esc(m.rotulo) + "</b><p>" + ROT[m.status] + "</p>" + extra + chk + '</div><span class="ri-date">' + esc(m.data || (m.status === "atual" ? "em curso" : (m.data_a_confirmar ? "a confirmar" : ""))) + "</span></div>";
   }

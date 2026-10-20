@@ -1,6 +1,6 @@
 {
  "original_sha256": "2d6fab8aa87d4233aa7e3564009dd89adb520108737c30ee4c9dae06b085d8a9",
- "pagina_gerador_sha256": "a55a091ae5daa000494919dd9f2b39599c69a09fc23845a2a13f0bc95558e019",
+ "pagina_gerador_sha256": "853f6e14d26e82c2e9dfac35062d373be99f89d4329909a25221ed947f47cd66",
  "patches": [
   {
    "patch": "P1-fontes-locais",
@@ -61,6 +61,66 @@
   {
    "patch": "P16-revisional-clique-admin",
    "motivo": "Revalida a exibição do revisional no clique pela identidade da casca."
+  },
+  {
+   "patch": "P17-marcos-cadastro-prevalece",
+   "motivo": "A data do marco informada no cadastro do cliente passa a valer no PDF; a conferência com o Astrea vira apenas aviso na revisão (antes, o que o Astrea não comprovava saía 'a confirmar')."
+  },
+  {
+   "patch": "P17b-aviso-divergente",
+   "motivo": "Texto do aviso de data divergente: vale a data do cadastro."
+  },
+  {
+   "patch": "P17c-aviso-sem-registro",
+   "motivo": "Texto do aviso de data sem registro no Astrea: vale a data do cadastro."
+  },
+  {
+   "patch": "P17d-intro-marcos",
+   "motivo": "Explica na revisão que a conferência com o Astrea é só aviso."
+  },
+  {
+   "patch": "P17e-ajuizamento-re-ficha",
+   "motivo": "Na recuperação extrajudicial, a distribuição da ficha do processo também serve de prova do ajuizamento."
+  },
+  {
+   "patch": "P18a-evento-usa-titulo",
+   "motivo": "Em evento realizado, o título do evento (ex.: 'Comitê de Credores da NB') entra na classificação; antes só o texto depois de 'Realizado:'."
+  },
+  {
+   "patch": "P18b-naturezas-comite",
+   "motivo": "Reunião do comitê de credores (evento) e comunicação ao comitê/credores (convocação, ata, termos) passam a ter natureza própria, em vez de cair em 'Outros' ou 'Acordo / transação'."
+  },
+  {
+   "patch": "P19-resumo-exibicao-e-agenda",
+   "motivo": "Funções auxiliares da camada de inteligência: texto de exibição sem saudação de e-mail e leitura de reunião agendada no histórico."
+  },
+  {
+   "patch": "P19b-acontecimentos-resumo",
+   "motivo": "Acontecimentos candidatos mostram o texto sem saudação/fecho de e-mail."
+  },
+  {
+   "patch": "P19c-entregas-resumo",
+   "motivo": "Entregas candidatas mostram o texto sem saudação/fecho de e-mail."
+  },
+  {
+   "patch": "P20-proximos-passos-agenda",
+   "motivo": "Próximos passos também sugerem reuniões já agendadas no histórico do mês."
+  },
+  {
+   "patch": "P21-peso-evento",
+   "motivo": "Eventos (reunião, audiência, assembleia) pesam pelo esforço, como as entregas, e passam a aparecer entre os principais acontecimentos do mês."
+  },
+  {
+   "patch": "P22-entrega-sem-desfecho",
+   "motivo": "Prazo cumprido sem desfecho claro não é listado como entrega produzida (entra só como atividade a confirmar)."
+  },
+  {
+   "patch": "P23-providencia-sugerida",
+   "motivo": "A próxima providência da revisão já vem preenchida com o primeiro próximo passo datado (editável)."
+  },
+  {
+   "patch": "P24-acontecimento-sem-desfecho",
+   "motivo": "Prazo cumprido sem desfecho claro (muitas vezes só anotação interna) não é sugerido como acontecimento quando o processo tem outros candidatos."
   },
   {
    "patch": "P7-csp-meta",

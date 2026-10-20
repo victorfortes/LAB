@@ -88,5 +88,95 @@
   "motivo": "Revalida a exibição do revisional no clique pela identidade da casca.",
   "de": "      $(\"panel-revisional\").hidden = false; renderPainel();",
   "para": "      if (!window.NGA_ADMIN_ATUAL()) return;\n      $(\"panel-revisional\").hidden = false; renderPainel();"
+ },
+ {
+  "id": "P17-marcos-cadastro-prevalece",
+  "motivo": "A data do marco informada no cadastro do cliente passa a valer no PDF; a conferência com o Astrea vira apenas aviso na revisão (antes, o que o Astrea não comprovava saía 'a confirmar').",
+  "de": "      if (v.situacao !== \"confirmado\") { m.data_cadastro = m.data; m.data = null; m.data_a_confirmar = true; }",
+  "para": "      if (v.situacao !== \"confirmado\") { m.data_cadastro = m.data; m.divergencia = v.situacao; }"
+ },
+ {
+  "id": "P17b-aviso-divergente",
+  "motivo": "Texto do aviso de data divergente: vale a data do cadastro.",
+  "de": ".join(\"; \")) + '. No PDF a data sai como \"a confirmar\".</p>';",
+  "para": ".join(\"; \")) + '. No PDF vale a data do cadastro; se o Astrea estiver certo, corrija o cadastro do cliente.</p>';"
+ },
+ {
+  "id": "P17c-aviso-sem-registro",
+  "motivo": "Texto do aviso de data sem registro no Astrea: vale a data do cadastro.",
+  "de": "Sem comprovação no Astrea: o cadastro informa ' + esc(m.data_cadastro) + '. No PDF a data sai como \"a confirmar\".</p>'",
+  "para": "Sem registro identificável no Astrea: vale a data informada no cadastro (' + esc(m.data_cadastro) + ').</p>'"
+ },
+ {
+  "id": "P17d-intro-marcos",
+  "motivo": "Explica na revisão que a conferência com o Astrea é só aviso.",
+  "de": "Cada data é conferida com o Astrea: o que não tem registro identificável sai \"a confirmar\" no PDF.",
+  "para": "Cada data é conferida com o Astrea apenas como aviso: no PDF vale a data do cadastro."
+ },
+ {
+  "id": "P17e-ajuizamento-re-ficha",
+  "motivo": "Na recuperação extrajudicial, a distribuição da ficha do processo também serve de prova do ajuizamento.",
+  "de": "AJUIZAMENTO: function (f) { return /PEDIDO DE HOMOLOGACAO|AJUIZAD\\w*.*RECUPERACAO EXTRAJUDICIAL/.test(f.n); },",
+  "para": "AJUIZAMENTO: function (f) { return (f.ficha && /RECUPERACAO EXTRAJUDICIAL/.test(nrm((f.acao || \"\") + \" \" + (f.juizo || \"\")))) || /PEDIDO DE HOMOLOGACAO|AJUIZAD\\w*.*RECUPERACAO EXTRAJUDICIAL/.test(f.n); },"
+ },
+ {
+  "id": "P18a-evento-usa-titulo",
+  "motivo": "Em evento realizado, o título do evento (ex.: 'Comitê de Credores da NB') entra na classificação; antes só o texto depois de 'Realizado:'.",
+  "de": "      t = generico ? (real.feito + \" \" + real.prazo) : real.feito;",
+  "para": "      t = /^EVENTO/.test(tipoN) ? (real.prazo + \" \" + real.feito) : (generico ? (real.feito + \" \" + real.prazo) : real.feito);"
+ },
+ {
+  "id": "P18b-naturezas-comite",
+  "motivo": "Reunião do comitê de credores (evento) e comunicação ao comitê/credores (convocação, ata, termos) passam a ter natureza própria, em vez de cair em 'Outros' ou 'Acordo / transação'.",
+  "de": "    { nat:\"Pedido de restituição\", fn:\"ENTREGA\", peso:4, area:\"insolvencia\", forca:9,",
+  "para": "    { nat:\"Reunião do comitê de credores\", fn:\"EVENTO\", peso:5, area:\"ambas\", forca:11,\n      p:[/^COMITE\\s+DE\\s+CREDORES\\b/,/\\bREUNIAO\\s+(?:DO\\s+)?COMITE\\b/] },\n    { nat:\"Comunicação ao comitê / credores\", fn:\"ENTREGA\", peso:3, area:\"ambas\", forca:13,\n      p:[/\\bMEMBROS\\s+DO\\s+COMITE\\b/,/\\bCONVOCACAO\\b.*\\b(?:REUNIAO|CREDORES|COMITE)\\b/,/\\bPAUTA\\b.*\\bREUNIAO\\b/] },\n    { nat:\"Pedido de restituição\", fn:\"ENTREGA\", peso:4, area:\"insolvencia\", forca:9,"
+ },
+ {
+  "id": "P19-resumo-exibicao-e-agenda",
+  "motivo": "Funções auxiliares da camada de inteligência: texto de exibição sem saudação de e-mail e leitura de reunião agendada no histórico.",
+  "de": "  function dataParaExibicao(a) { return a.data_efetiva || a.data_narrada || a.data; }",
+  "para": "  function dataParaExibicao(a) { return a.data_efetiva || a.data_narrada || a.data; }\n  // Texto de exibição: tira saudação e fecho de e-mail copiado no histórico, para o relatório mostrar o que foi feito.\n  function resumoExibicao(txt, tipo) {\n    var bruto = String(txt || \"\"), t = bruto.replace(/\\s+/g, \" \").trim();\n    if (/^EVENTO/.test(norm(tipo))) { var ev = /^(.+?)\\s+-\\s+Realizado:/i.exec(t); if (ev) return ev[1] + \" (realizado)\"; }\n    t = t.replace(/^Prezad[oa]s?(?:\\([oa]s?\\))?\\s+Senhor[a-z]*(?:\\([oa]s?\\))?\\s+[^,]{0,90},\\s*/i, \"\");\n    t = t.replace(/\\s*(?:Permanecemos|Seguimos|Ficamos)\\s+à\\s+disposição[^.]*\\.?\\s*(?:At\\.?te\\.?|Atenciosamente\\.?)?\\s*$/i, \"\");\n    t = t.replace(/\\s*(?:At\\.?te\\.?|Atenciosamente\\.?)\\s*$/i, \"\");\n    if (t.length > 170) {   // corta no fim de uma frase (até 170 caracteres, o que cabe nas 3 linhas do cartão), sem deixar o texto pela metade\n      var corte = 0, rs = /[.!?]\\s+/g, mm;\n      while ((mm = rs.exec(t)) && mm.index + 1 <= 170) corte = mm.index + 1;\n      t = corte ? t.slice(0, corte) : t.slice(0, 167).replace(/\\s+\\S*$/, \"\") + \"…\";\n    }\n    return t || bruto;\n  }\n  // Reunião ou ato futuro agendado no próprio histórico (\"fica agendada... Data e horário: 02 de dezembro de 2026, às 14h00\").\n  // Vira candidato a próximo passo na revisão; nada entra no PDF sem confirmação.\n  function agendamentosDoTexto(atividades, hoje) {\n    var MES = { JANEIRO: 1, FEVEREIRO: 2, MARCO: 3, ABRIL: 4, MAIO: 5, JUNHO: 6, JULHO: 7, AGOSTO: 8, SETEMBRO: 9, OUTUBRO: 10, NOVEMBRO: 11, DEZEMBRO: 12 };\n    var ref = hoje || new Date(), base = Date.UTC(ref.getUTCFullYear(), ref.getUTCMonth(), ref.getUTCDate()), out = [], vistos = {};\n    (atividades || []).forEach(function (a) {\n      var t = norm(a.descricao).replace(/\\s+/g, \" \");\n      var re = /(?:DATA\\s+E\\s+HORARIO|AGENDAD[OA]\\w*)[^.]{0,120}?\\b(\\d{1,2})\\s+DE\\s+(JANEIRO|FEVEREIRO|MARCO|ABRIL|MAIO|JUNHO|JULHO|AGOSTO|SETEMBRO|OUTUBRO|NOVEMBRO|DEZEMBRO)\\s+DE\\s+(\\d{4})(?:\\s*,?\\s*AS\\s+(\\d{1,2})\\s*H\\s*(\\d{2})?)?/, m = re.exec(t);\n      if (!m) return;\n      var d = +m[1], mo = MES[m[2]], y = +m[3];\n      if (Date.UTC(y, mo - 1, d) < base) return;\n      var data = (\"0\" + d).slice(-2) + \"/\" + (\"0\" + mo).slice(-2) + \"/\" + y, hora = m[4] ? (\" às \" + m[4] + \"h\" + (m[5] || \"00\")) : \"\";\n      var quem = /COMITE/.test(t) ? \"Reunião do Comitê de Credores\" : \"Reunião\", k = data + \"|\" + quem;\n      if (vistos[k]) return; vistos[k] = 1;\n      out.push({ descricao: quem + \" agendada\" + hora + \" (conforme registro de \" + (a.data || \"data não informada\") + \")\", data: data, responsavel: \"\", numero_processo: a.numero_processo });\n    });\n    return out;\n  }"
+ },
+ {
+  "id": "P19b-acontecimentos-resumo",
+  "motivo": "Acontecimentos candidatos mostram o texto sem saudação/fecho de e-mail.",
+  "de": "        idx: idx, data: dataParaExibicao(a), dataRegistro: a.data, descricao: a.descricao, tipo: a.tipo,",
+  "para": "        idx: idx, data: dataParaExibicao(a), dataRegistro: a.data, descricao: resumoExibicao(a.descricao, a.tipo), tipo: a.tipo,"
+ },
+ {
+  "id": "P19c-entregas-resumo",
+  "motivo": "Entregas candidatas mostram o texto sem saudação/fecho de e-mail.",
+  "de": "          idx: idx, data: dataParaExibicao(a), descricao: a.descricao,\n",
+  "para": "          idx: idx, data: dataParaExibicao(a), descricao: resumoExibicao(a.descricao, a.tipo),\n"
+ },
+ {
+  "id": "P20-proximos-passos-agenda",
+  "motivo": "Próximos passos também sugerem reuniões já agendadas no histórico do mês.",
+  "de": "      proximosPassos: classificarProximosPassos(tarefasFuturas, opts.hoje),",
+  "para": "      proximosPassos: classificarProximosPassos(tarefasFuturas.concat(agendamentosDoTexto(atividades, opts.hoje)), opts.hoje),"
+ },
+ {
+  "id": "P21-peso-evento",
+  "motivo": "Eventos (reunião, audiência, assembleia) pesam pelo esforço, como as entregas, e passam a aparecer entre os principais acontecimentos do mês.",
+  "de": "    else if (a.funcao === \"EVENTO\") p += 45;",
+  "para": "    else if (a.funcao === \"EVENTO\") p += 45 + (a.esforco || 1) * 6;"
+ },
+ {
+  "id": "P22-entrega-sem-desfecho",
+  "motivo": "Prazo cumprido sem desfecho claro não é listado como entrega produzida (entra só como atividade a confirmar).",
+  "de": "      if (explicita || ehEntrega(a)) {",
+  "para": "      if (explicita || (ehEntrega(a) && a.natureza !== \"Prazo com desfecho a confirmar\")) {"
+ },
+ {
+  "id": "P23-providencia-sugerida",
+  "motivo": "A próxima providência da revisão já vem preenchida com o primeiro próximo passo datado (editável).",
+  "de": "    document.getElementById(\"rev-providencia\").value = \"\";",
+  "para": "    document.getElementById(\"rev-providencia\").value = (function () { var ps = (b.proximosPassos || []).filter(function (p) { return p.faixa !== \"vencida\" && p.faixa !== \"sem_data\"; }); return ps.length ? ps[0].acao + (ps[0].data ? \" (\" + ps[0].data + \")\" : \"\") : \"\"; })();"
+ },
+ {
+  "id": "P24-acontecimento-sem-desfecho",
+  "motivo": "Prazo cumprido sem desfecho claro (muitas vezes só anotação interna) não é sugerido como acontecimento quando o processo tem outros candidatos.",
+  "de": "    candidatos.sort(function (x, y) { return (y.peso - x.peso) || porData(x, y); });\n\n    // 1ª passada",
+  "para": "    var temOutro = {};\n    candidatos.forEach(function (c) { if (c.natureza !== \"Prazo com desfecho a confirmar\") temOutro[c.numero_processo || \"\"] = 1; });\n    candidatos = candidatos.filter(function (c) { return c.natureza !== \"Prazo com desfecho a confirmar\" || !temOutro[c.numero_processo || \"\"]; });\n    candidatos.sort(function (x, y) { return (y.peso - x.peso) || porData(x, y); });\n\n    // 1ª passada"
  }
 ]
