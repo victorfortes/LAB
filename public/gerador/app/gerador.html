@@ -1263,6 +1263,7 @@ label .mp-campo .mp-ico{color:var(--gold)}label .mp-campo .mp-txt{font-weight:50
 <div class="toggle-row"><span>Exibir resumo de processos e principais entregas</span><label class="switch"><input type="checkbox" id="cf-resumo" checked><span class="slider"></span></label></div>
 <div class="toggle-row" style="display:none"><span>Exibir entregas do escritório</span><label class="switch"><input type="checkbox" id="cf-entregas" checked><span class="slider"></span></label></div>
 <div class="toggle-row"><span>Exibir próximos passos</span><label class="switch"><input type="checkbox" id="cf-passos" checked><span class="slider"></span></label></div>
+<div class="toggle-row"><span>Destaques do comitê de credores e resumo de e-mails (modelo Grupo NB)</span><label class="switch"><input type="checkbox" id="cf-comite"><span class="slider"></span></label></div>
 <div class="toggle-row"><span>Exigir relatório mensal (entra nas pendências do painel)</span><label class="switch"><input type="checkbox" id="cf-mensal" checked><span class="slider"></span></label></div>
 </div>
 
@@ -2164,9 +2165,9 @@ var NUCLEO = (function () {
       p:[/\bPLANO\s+DE\s+RECUPERACAO\b/,/\bPRJ\b/,/\bPLANO\s+ALTERNATIVO\b/,/\bADITIVO\s+AO\s+PLANO\b/] },
     { nat:"Assembleia de credores", fn:"EVENTO", peso:5, area:"insolvencia", forca:10,
       p:[/\bASSEMBLEIA\s+GERAL\s+DE\s+CREDORES\b/,/\bAGC\b/,/\bASSEMBLEIA\s+DE\s+CREDORES\b/] },
-    { nat:"Reunião do comitê de credores", fn:"EVENTO", peso:5, area:"ambas", forca:11,
+    { nat:"Reunião do comitê de credores", fn:"EVENTO", peso:5, area:"ambas", forca:11, opt:"destaquesComite",
       p:[/^COMITE\s+DE\s+CREDORES\b/,/\bREUNIAO\s+(?:DO\s+)?COMITE\b/] },
-    { nat:"Comunicação ao comitê / credores", fn:"ENTREGA", peso:3, area:"ambas", forca:13,
+    { nat:"Comunicação ao comitê / credores", fn:"ENTREGA", peso:3, area:"ambas", forca:13, opt:"destaquesComite",
       p:[/\bMEMBROS\s+DO\s+COMITE\b/,/\bCONVOCACAO\b.*\b(?:REUNIAO|CREDORES|COMITE)\b/,/\bPAUTA\b.*\bREUNIAO\b/] },
     { nat:"Pedido de restituição", fn:"ENTREGA", peso:4, area:"insolvencia", forca:9,
       p:[/\bPEDIDO\s+DE\s+RESTITUICAO\b/,/\bRESTITUICAO\s+DE\s+(?:VALORES|BENS)\b/] },
@@ -2367,7 +2368,7 @@ var NUCLEO = (function () {
       desfecho = ehPrazo ? "INDETERMINADO" : null;
       // o que foi feito manda; se for genérico demais ("mov 97", "protocolo realizado"), o nome do prazo completa
       var generico = real.feito.length < 18 || /^(?:MOV\s*\d+|PROTOCOLO\s+REALIZADO\.?|FEITO\.?|OK\.?)$/.test(real.feito);
-      t = /^EVENTO/.test(tipoN) ? (real.prazo + " " + real.feito) : (generico ? (real.feito + " " + real.prazo) : real.feito);
+      t = (regrasUsuario && regrasUsuario.destaquesComite && /^EVENTO/.test(tipoN)) ? (real.prazo + " " + real.feito) : (generico ? (real.feito + " " + real.prazo) : real.feito);
     } else if (tipoN === "PRAZO REALIZADO") {
       desfecho = "INDETERMINADO"; // prazo cumprido sem o "Realizado:" não diz o que foi feito
     }
@@ -2383,6 +2384,7 @@ var NUCLEO = (function () {
       if (alvo && t.indexOf(alvo) !== -1) bump(r.natureza || "Outros", r.funcao || null, r.esforco || 3, "ambas", 22 + Math.min(alvo.length / 4, 8), "usuario");
     });
     BASE.forEach(function (r) {
+      if (r.opt && !(regrasUsuario && regrasUsuario[r.opt])) return;
       var hits = 0;
       r.p.forEach(function (p) { if (p.test(t)) hits++; });
       if (!hits) return;
@@ -3594,7 +3596,7 @@ if (typeof module !== "undefined") {
     var p = 0;
     if (a.funcao === "DECISAO") p += 55;
     else if (a.funcao === "ENTREGA") p += 35 + (a.esforco || 1) * 6;
-    else if (a.funcao === "EVENTO") p += 45 + (a.esforco || 1) * 6;
+    else if (a.funcao === "EVENTO") p += 45;
     else if (a.funcao === "ACOMPANHAMENTO") p -= 15;
     else if (a.funcao === "GESTAO") p -= 25;
     if (a.extra && a.extra.resultado) p += 12;
@@ -3608,35 +3610,52 @@ if (typeof module !== "undefined") {
   // explicitamente ("No dia DD/MM/AAAA, ..."). Sem essa narração, usamos a
   // data do registro no Astrea, nunca inventamos uma data.
   function dataParaExibicao(a) { return a.data_efetiva || a.data_narrada || a.data; }
-  // Texto de exibição: tira saudação e fecho de e-mail copiado no histórico, para o relatório mostrar o que foi feito.
+  // Reunião ou ato futuro agendado no texto ("fica agendada... Data e horário: 02 de dezembro de 2026, às 14h00").
+  var MES_EXT = { JANEIRO: 1, FEVEREIRO: 2, MARCO: 3, ABRIL: 4, MAIO: 5, JUNHO: 6, JULHO: 7, AGOSTO: 8, SETEMBRO: 9, OUTUBRO: 10, NOVEMBRO: 11, DEZEMBRO: 12 };
+  function agendaNoTexto(txt) {
+    var t = norm(txt).replace(/\s+/g, " ");
+    var m = /(?:DATA\s+E\s+HORARIO|AGENDAD[OA]\w*)[^.]{0,120}?\b(\d{1,2})\s+DE\s+(JANEIRO|FEVEREIRO|MARCO|ABRIL|MAIO|JUNHO|JULHO|AGOSTO|SETEMBRO|OUTUBRO|NOVEMBRO|DEZEMBRO)\s+DE\s+(\d{4})(?:\s*,?\s*AS\s+(\d{1,2})\s*H\s*(\d{2})?)?/.exec(t);
+    if (!m) return null;
+    var d = +m[1], mo = MES_EXT[m[2]], y = +m[3];
+    return { ts: Date.UTC(y, mo - 1, d), data: ("0" + d).slice(-2) + "/" + ("0" + mo).slice(-2) + "/" + y, hora: m[4] ? (m[4] + "h" + (m[5] || "00")) : "", comite: /COMITE/.test(t) };
+  }
+  // Texto de exibição. E-mail copiado no histórico vira "E-mail encaminhado a ..., com anexo(s): ...", só com o que o próprio texto diz
+  // (destinatário, anexos, reunião agendada); o resto fica na opção "Texto completo". Demais textos: sem saudação/fecho e cortados em fim de frase.
   function resumoExibicao(txt, tipo) {
     var bruto = String(txt || ""), t = bruto.replace(/\s+/g, " ").trim();
     if (/^EVENTO/.test(norm(tipo))) { var ev = /^(.+?)\s+-\s+Realizado:/i.exec(t); if (ev) return ev[1] + " (realizado)"; }
-    t = t.replace(/^Prezad[oa]s?(?:\([oa]s?\))?\s+Senhor[a-z]*(?:\([oa]s?\))?\s+[^,]{0,90},\s*/i, "");
+    var sal = /^Prezad[oa]s?(?:\([oa]s?\))?\s+Senhor[a-z]*(?:\([oa]s?\))?\s+([^,]{3,90}),\s*/i.exec(t), sal2 = sal ? null : /^(?:Prezad[oa]s?|Car[oa]s?)(?:\([oa]s?\))?\s+([^,]{2,60}),\s*/i.exec(t);
+    if (sal || sal2) {
+      var corpo = t.slice((sal || sal2)[0].length), quem = sal ? "aos " + sal[1] : "a " + sal2[1], partes = [];
+      if (/em complemento ao e-?mail anterior/i.test(corpo)) partes.push("em complemento ao e-mail anterior");
+      var ap = /participa[cç][aã]o\s+(?:de todos\s+)?na\s+([^.,]{3,80})[.,]/i.exec(corpo); if (ap) partes.push("após a " + ap[1].trim());
+      var anexos = [], re = /em anexo(?:,\s*também)?\s*,\s*([^.]+?)\.(?:\s|$)/gi, mm;
+      while ((mm = re.exec(corpo))) anexos.push(mm[1].trim().replace(/^(?:a|o|as|os)\s+/i, ""));
+      if (anexos.length) partes.push((anexos.length > 1 ? "com anexos: " : "com anexo: ") + anexos.join("; "));
+      var ag = agendaNoTexto(corpo);
+      var r = "E-mail encaminhado " + quem + (partes.length ? ", " + partes.join(", ") : "") + (ag ? ". Reunião agendada para " + ag.data + (ag.hora ? ", às " + ag.hora : "") : "");
+      if (!partes.length && !ag) { var s1 = /^.{20,300}?[.!?](?:\s|$)/.exec(corpo); r += ": " + (s1 ? s1[0].trim() : corpo.slice(0, 160).replace(/\s+\S*$/, "") + "…"); }
+      else r += ".";
+      return r.length > 380 ? r.slice(0, 377).replace(/[\s;,]+\S*$/, "") + "…" : r;
+    }
     t = t.replace(/\s*(?:Permanecemos|Seguimos|Ficamos)\s+à\s+disposição[^.]*\.?\s*(?:At\.?te\.?|Atenciosamente\.?)?\s*$/i, "");
     t = t.replace(/\s*(?:At\.?te\.?|Atenciosamente\.?)\s*$/i, "");
-    if (t.length > 170) {   // corta no fim de uma frase (até 170 caracteres, o que cabe nas 3 linhas do cartão), sem deixar o texto pela metade
-      var corte = 0, rs = /[.!?]\s+/g, mm;
-      while ((mm = rs.exec(t)) && mm.index + 1 <= 170) corte = mm.index + 1;
-      t = corte ? t.slice(0, corte) : t.slice(0, 167).replace(/\s+\S*$/, "") + "…";
+    if (t.length > 340) {   // corta no fim de uma frase (até 340 caracteres, o que cabe nas 6 linhas do cartão), sem deixar o texto pela metade
+      var corte = 0, rs = /[.!?]\s+/g, m2;
+      while ((m2 = rs.exec(t)) && m2.index + 1 <= 340) corte = m2.index + 1;
+      t = corte ? t.slice(0, corte) : t.slice(0, 337).replace(/\s+\S*$/, "") + "…";
     }
     return t || bruto;
   }
-  // Reunião ou ato futuro agendado no próprio histórico ("fica agendada... Data e horário: 02 de dezembro de 2026, às 14h00").
-  // Vira candidato a próximo passo na revisão; nada entra no PDF sem confirmação.
+  // Reuniões já agendadas no histórico viram candidatos a próximo passo na revisão; nada entra no PDF sem confirmação.
   function agendamentosDoTexto(atividades, hoje) {
-    var MES = { JANEIRO: 1, FEVEREIRO: 2, MARCO: 3, ABRIL: 4, MAIO: 5, JUNHO: 6, JULHO: 7, AGOSTO: 8, SETEMBRO: 9, OUTUBRO: 10, NOVEMBRO: 11, DEZEMBRO: 12 };
     var ref = hoje || new Date(), base = Date.UTC(ref.getUTCFullYear(), ref.getUTCMonth(), ref.getUTCDate()), out = [], vistos = {};
     (atividades || []).forEach(function (a) {
-      var t = norm(a.descricao).replace(/\s+/g, " ");
-      var re = /(?:DATA\s+E\s+HORARIO|AGENDAD[OA]\w*)[^.]{0,120}?\b(\d{1,2})\s+DE\s+(JANEIRO|FEVEREIRO|MARCO|ABRIL|MAIO|JUNHO|JULHO|AGOSTO|SETEMBRO|OUTUBRO|NOVEMBRO|DEZEMBRO)\s+DE\s+(\d{4})(?:\s*,?\s*AS\s+(\d{1,2})\s*H\s*(\d{2})?)?/, m = re.exec(t);
-      if (!m) return;
-      var d = +m[1], mo = MES[m[2]], y = +m[3];
-      if (Date.UTC(y, mo - 1, d) < base) return;
-      var data = ("0" + d).slice(-2) + "/" + ("0" + mo).slice(-2) + "/" + y, hora = m[4] ? (" às " + m[4] + "h" + (m[5] || "00")) : "";
-      var quem = /COMITE/.test(t) ? "Reunião do Comitê de Credores" : "Reunião", k = data + "|" + quem;
+      var g = agendaNoTexto(a.descricao);
+      if (!g || g.ts < base) return;
+      var quem = g.comite ? "Reunião do Comitê de Credores" : "Reunião", k = g.data + "|" + quem;
       if (vistos[k]) return; vistos[k] = 1;
-      out.push({ descricao: quem + " agendada" + hora + " (conforme registro de " + (a.data || "data não informada") + ")", data: data, responsavel: "", numero_processo: a.numero_processo });
+      out.push({ descricao: quem + " agendada" + (g.hora ? " às " + g.hora : "") + " (conforme registro de " + (a.data || "data não informada") + ")", data: g.data, responsavel: "", numero_processo: a.numero_processo });
     });
     return out;
   }
@@ -3646,16 +3665,17 @@ if (typeof module !== "undefined") {
   // atividade candidata apareça pelo menos uma vez, um portfólio com muitas
   // frentes não pode ter processos silenciosamente engolidos pelo ranking
   // global só porque outro processo teve mais acertos de palavra-chave.
-  function selecionarAcontecimentos(atividades, Etiquetas) {
+  function selecionarAcontecimentos(atividades, Etiquetas, config) {
+    var avancado = !!(config && config.destaquesComite);
     var candidatos = atividades.map(function (a, idx) {
       var tags = Etiquetas ? Etiquetas.extrair(a.descricao) : [];
       var temEntregaTag = tags.some(function (t) { return t.tipo === "ENTREGA"; });
       var temMarcoTag = tags.some(function (t) { return t.tipo === "MARCO"; });
-      var peso = pesoDoAto(a);
+      var peso = pesoDoAto(a) + (avancado && a.funcao === "EVENTO" ? (a.esforco || 1) * 6 : 0);
       if (temMarcoTag) peso += 100;
       if (temEntregaTag) peso += 60;
       return {
-        idx: idx, data: dataParaExibicao(a), dataRegistro: a.data, descricao: resumoExibicao(a.descricao, a.tipo), tipo: a.tipo,
+        idx: idx, data: dataParaExibicao(a), dataRegistro: a.data, descricao: avancado ? resumoExibicao(a.descricao, a.tipo) : a.descricao, linhasMax: avancado ? 6 : 3, descricao_integral: String(a.descricao || "").replace(/\s+/g, " ").trim(), tipo: a.tipo,
         numero_processo: a.numero_processo, peso: peso,
         funcao: a.funcao, natureza: a.natureza, esforco: a.esforco, confianca: a.confianca,
         origem: { tipo: "atividade", data: a.data, processo: a.numero_processo },
@@ -3666,8 +3686,10 @@ if (typeof module !== "undefined") {
       return (dy ? dy.getTime() : 0) - (dx ? dx.getTime() : 0);
     };
     var temOutro = {};
+    if (avancado) {
     candidatos.forEach(function (c) { if (c.natureza !== "Prazo com desfecho a confirmar") temOutro[c.numero_processo || ""] = 1; });
     candidatos = candidatos.filter(function (c) { return c.natureza !== "Prazo com desfecho a confirmar" || !temOutro[c.numero_processo || ""]; });
+    }
     candidatos.sort(function (x, y) { return (y.peso - x.peso) || porData(x, y); });
 
     // 1ª passada: garante 1 representante por processo (o melhor candidato
@@ -3704,14 +3726,15 @@ if (typeof module !== "undefined") {
   }
 
   // ------------------------------------------------------------ entregas
-  function selecionarEntregas(atividades, Etiquetas) {
+  function selecionarEntregas(atividades, Etiquetas, config) {
+    var avancado = !!(config && config.destaquesComite);
     var entregas = [];
     atividades.forEach(function (a, idx) {
       var tags = Etiquetas ? Etiquetas.extrair(a.descricao) : [];
       var explicita = tags.some(function (t) { return t.tipo === "ENTREGA"; });
-      if (explicita || (ehEntrega(a) && a.natureza !== "Prazo com desfecho a confirmar")) {
+      if (explicita || (ehEntrega(a) && !(avancado && a.natureza === "Prazo com desfecho a confirmar"))) {
         entregas.push({
-          idx: idx, data: dataParaExibicao(a), descricao: resumoExibicao(a.descricao, a.tipo),
+          idx: idx, data: dataParaExibicao(a), descricao: avancado ? resumoExibicao(a.descricao, a.tipo) : a.descricao, linhasMax: avancado ? 6 : 3, descricao_integral: String(a.descricao || "").replace(/\s+/g, " ").trim(), 
           numero_processo: a.numero_processo, explicita: explicita,
           natureza: a.natureza, esforco: a.esforco,
           origem: { tipo: "atividade", data: a.data, processo: a.numero_processo },
@@ -3813,10 +3836,10 @@ if (typeof module !== "undefined") {
     var template = config.templateTimeline && root.TIMELINE_TEMPLATES ? root.TIMELINE_TEMPLATES[config.templateTimeline] : null;
 
     return {
-      acontecimentos: selecionarAcontecimentos(atividades, Etiquetas),
-      entregas: selecionarEntregas(atividades, Etiquetas),
+      acontecimentos: selecionarAcontecimentos(atividades, Etiquetas, config),
+      entregas: selecionarEntregas(atividades, Etiquetas, config),
       marcos: detectarMarcos(atividades, template, Etiquetas),
-      proximosPassos: classificarProximosPassos(tarefasFuturas.concat(agendamentosDoTexto(atividades, opts.hoje)), opts.hoje),
+      proximosPassos: classificarProximosPassos(tarefasFuturas.concat(config.destaquesComite ? agendamentosDoTexto(atividades, opts.hoje) : []), opts.hoje),
       comparativo: compararComAnterior(indicadores, opts.anterior),
     };
   }
@@ -4782,8 +4805,8 @@ GeradorRelatorioPDF.prototype._paginaAcontecimentos = function (doc, dados, pagi
     this._text(doc, x + 7, yCol[col] - 7.5, chave, { size: 10.5, style: "bold", color: this.tema.texto });
     yCol[col] -= 15;
 
-    eventos.forEach(function (a) {
-      var linhas = this._linhas(doc, a.descricao, colW - 24, 10, 3);
+    partesCompletas(eventos, 1100).forEach(function (a) {
+      var linhas = this._linhas(doc, a.descricao, colW - 24, 10, a.completo ? 0 : (a.linhasMax || 3));
       var alturaBloco = 5 + linhas.length * 4.8 + 4;
 
       if (yCol[col] - alturaBloco < yMin) {
@@ -4812,6 +4835,23 @@ GeradorRelatorioPDF.prototype._paginaAcontecimentos = function (doc, dados, pagi
   return pagina;
 };
 
+// Itens com texto completo (sem corte de 3 linhas): divide em blocos que caibam numa coluna, cortando em fim de frase ou espaço.
+function partesCompletas(lista, max) {
+  var out = [];
+  (lista || []).forEach(function (a) {
+    var t = String(a.descricao || "");
+    if (!a.completo || t.length <= max) { out.push(a); return; }
+    var i = 0;
+    while (t.length > max) {
+      var corte = t.lastIndexOf(". ", max), sp = t.lastIndexOf(" ", max);
+      if (corte < max * 0.6) corte = sp > 0 ? sp : max; else corte += 1;
+      out.push(Object.assign({}, a, { descricao: t.slice(0, corte).trim(), data: i ? ((a.data ? a.data + " " : "") + "(continuação)") : a.data }));
+      t = t.slice(corte).trim(); i++;
+    }
+    out.push(Object.assign({}, a, { descricao: t, data: i ? ((a.data ? a.data + " " : "") + "(continuação)") : a.data }));
+  });
+  return out;
+}
 GeradorRelatorioPDF.prototype._paginaEntregas = function (doc, dados, pagina) {
   var self = this;
   var yMin = 24;
@@ -4835,8 +4875,8 @@ GeradorRelatorioPDF.prototype._paginaEntregas = function (doc, dados, pagina) {
     return self.H - 66;
   }
 
-  ents.forEach(function (e) {
-    var linhas = this._linhas(doc, e.descricao, colW - 16, 10.5, 3);
+  partesCompletas(ents, 1000).forEach(function (e) {
+    var linhas = this._linhas(doc, e.descricao, colW - 16, 10.5, e.completo ? 0 : (e.linhasMax || 3));
     // data em linha própria (quando existir) para nunca colidir com o texto,
     // mesmo quando a primeira linha da descrição ocupa a largura toda do card.
     var h = (e.data ? 6 : 0) + 8 + linhas.length * 5;
@@ -5867,6 +5907,7 @@ GeradorRelatorioPDF.prototype._capaCredor = function (doc, dados) {
 
       progressText.textContent = "Calculando indicadores do período…";
       var regrasParaMotor = await Regras.listar();
+      regrasParaMotor.destaquesComite = !!(clienteCad && clienteCad.config && clienteCad.config.destaquesComite);
       var calculo = calcularIndicadores(extraido.processos, extraido.atividades, inicio, fim, regrasParaMotor, extraido.atividadesAdministrativas || []);
 
       ultimoResultado = {
@@ -6510,7 +6551,7 @@ GeradorRelatorioPDF.prototype._capaCredor = function (doc, dados) {
     document.getElementById("rev-fase").value = oe.faseAtual || "";
     document.getElementById("rev-ultimo").value = oe.ultimoMarco || "";
     document.getElementById("rev-proximo").value = oe.proximoMarco || "";
-    document.getElementById("rev-providencia").value = (function () { var ps = (b.proximosPassos || []).filter(function (p) { return p.faixa !== "vencida" && p.faixa !== "sem_data"; }); return ps.length ? ps[0].acao + (ps[0].data ? " (" + ps[0].data + ")" : "") : ""; })();
+    document.getElementById("rev-providencia").value = (estado.clienteCad && estado.clienteCad.config && estado.clienteCad.config.destaquesComite) ? (function () { var ps = (b.proximosPassos || []).filter(function (p) { return p.faixa !== "vencida" && p.faixa !== "sem_data"; }); return ps.length ? ps[0].acao + (ps[0].data ? " (" + ps[0].data + ")" : "") : ""; })() : "";
 
     // Marcos, apenas informativos (vêm do cadastro). Editar datas => no cadastro do cliente.
     var temTemplate = b.marcos && b.marcos.length;
@@ -6529,7 +6570,7 @@ GeradorRelatorioPDF.prototype._capaCredor = function (doc, dados) {
     document.getElementById("rev-entregas-group").style.display = (b.entregas && b.entregas.length) ? "" : "none";
     document.getElementById("rev-entregas").innerHTML = (b.entregas || []).map(function (e, i) {
       return '<div class="review-item"><input type="checkbox" data-entrega="' + i + '" checked>' +
-        '<div class="ri-body"><b>' + escapeHtml(Etiquetas.limpar(e.descricao)) + '</b>' +
+        '<div class="ri-body"><b>' + escapeHtml(Etiquetas.limpar(e.descricao)) + '</b>' + '<label class="rv-ver-chk"><input type="checkbox" data-entrega-full="' + i + '"> Texto completo no PDF (sem resumo; pode ocupar mais linhas)</label>' +
         (e.explicita ? '<p><span class="origin-tag">marcada com [ENTREGA]</span></p>' : "") + '</div>' +
         '<span class="ri-date">' + escapeHtml(e.data || "") + '</span></div>';
     }).join("");
@@ -6552,7 +6593,7 @@ GeradorRelatorioPDF.prototype._capaCredor = function (doc, dados) {
   function renderAcontRevisao(b) {
     var sugeridos = (b.acontecimentos || []).map(function (a, i) {
       return '<div class="review-item"><input type="checkbox" data-acont="' + i + '" checked>' +
-        '<div class="ri-body"><b>' + escapeHtml(Etiquetas.limpar(a.descricao)) + '</b>' +
+        '<div class="ri-body"><b>' + escapeHtml(Etiquetas.limpar(a.descricao)) + '</b>' + '<label class="rv-ver-chk"><input type="checkbox" data-acont-full="' + i + '"> Texto completo no PDF (sem resumo; pode ocupar mais linhas)</label>' +
         '<p>processo ' + escapeHtml(a.numero_processo || ",") + '</p></div>' +
         '<span class="ri-date">' + escapeHtml(a.data || "") + '</span></div>';
     });
@@ -6588,6 +6629,14 @@ GeradorRelatorioPDF.prototype._capaCredor = function (doc, dados) {
     var d = e.target.closest("[data-acontman-del]");
     if (d) { acontManuais.splice(Number(d.dataset.acontmanDel), 1); renderAcontRevisao(ultimoResultado.briefing); }
   });
+
+  function alternarTextoCompleto(e, atrib, lista) {
+    var ck = e.target.closest("[" + atrib + "]"); if (!ck) return;
+    var it = lista()[Number(ck.getAttribute(atrib))], b = ck.closest(".ri-body").querySelector("b");
+    if (it && b) b.textContent = Etiquetas.limpar(ck.checked ? (it.descricao_integral || it.descricao) : it.descricao);
+  }
+  document.getElementById("rev-acontecimentos").addEventListener("change", function (e) { alternarTextoCompleto(e, "data-acont-full", function () { return (ultimoResultado.briefing || {}).acontecimentos || []; }); });
+  document.getElementById("rev-entregas").addEventListener("change", function (e) { alternarTextoCompleto(e, "data-entrega-full", function () { return (ultimoResultado.briefing || {}).entregas || []; }); });
 
   document.getElementById("rev-voltar").addEventListener("click", function () {
     revisaoSection.hidden = true;
@@ -6695,15 +6744,15 @@ GeradorRelatorioPDF.prototype._capaCredor = function (doc, dados) {
     // Marcos vêm do cadastro do cliente, usados como estão, sem recalcular por checkbox
     var marcosSel = b.marcos.map(function (m) { var ck = m.data_a_confirmar && document.querySelector('[data-marco-conf="' + m.chave + '"]'); return ck && ck.checked ? Object.assign({}, m, { data: m.data_cadastro, data_a_confirmar: false, data_override: true }) : m; });
 
-    var acontSel = (b.acontecimentos || []).filter(function (_, i) { var c = document.querySelector('[data-acont="' + i + '"]'); return c && c.checked; })
-      .map(function (a) { return Object.assign({}, a, { descricao: Etiquetas.limpar(a.descricao) }); });
+    var acontSel = (b.acontecimentos || []).map(function (a, i) { return { a: a, i: i }; }).filter(function (x) { var c = document.querySelector('[data-acont="' + x.i + '"]'); return c && c.checked; })
+      .map(function (x) { var full = document.querySelector('[data-acont-full="' + x.i + '"]'); return Object.assign({}, x.a, full && full.checked ? { descricao: Etiquetas.limpar(x.a.descricao_integral || x.a.descricao), completo: true } : { descricao: Etiquetas.limpar(x.a.descricao) }); });
     // acrescenta acontecimentos manuais confirmados (o "TM": adicionar na revisão)
     acontManuais.forEach(function (a, i) {
       var c = document.querySelector('[data-acontman="' + i + '"]');
-      if (c && c.checked) acontSel.push({ data: a.data, numero_processo: a.numero_processo, descricao: a.descricao, manual: true });
+      if (c && c.checked) acontSel.push({ data: a.data, numero_processo: a.numero_processo, descricao: a.descricao, manual: true, completo: true });
     });
-    var entrSel = (b.entregas || []).filter(function (_, i) { var c = document.querySelector('[data-entrega="' + i + '"]'); return c && c.checked; })
-      .map(function (e) { return Object.assign({}, e, { descricao: Etiquetas.limpar(e.descricao) }); });
+    var entrSel = (b.entregas || []).map(function (e, i) { return { e: e, i: i }; }).filter(function (x) { var c = document.querySelector('[data-entrega="' + x.i + '"]'); return c && c.checked; })
+      .map(function (x) { var full = document.querySelector('[data-entrega-full="' + x.i + '"]'); return Object.assign({}, x.e, full && full.checked ? { descricao: Etiquetas.limpar(x.e.descricao_integral || x.e.descricao), completo: true } : { descricao: Etiquetas.limpar(x.e.descricao) }); });
     var passSel = (b.proximosPassos || []).filter(function (_, i) { var c = document.querySelector('[data-passo="' + i + '"]'); return c && c.checked; });
 
     var ondeEstamos = {
@@ -6962,6 +7011,7 @@ GeradorRelatorioPDF.prototype._capaCredor = function (doc, dados) {
       document.getElementById("cf-resumo").checked = cfg.exibirResumoPorCaso !== false;
       document.getElementById("cf-entregas").checked = cfg.exibirResumoPorCaso !== false && cfg.exibirEntregas !== false;
       document.getElementById("cf-passos").checked = cfg.exibirProximosPassos !== false;
+      document.getElementById("cf-comite").checked = !!cfg.destaquesComite;
       document.getElementById("cf-mensal").checked = cfg.relatorioMensal !== false;
       renderCamposMarcos(cfg.templateTimeline || "nenhum", datasMarcos || {});
       aplicarTipoNoForm(cfg.tipo || "prejudicial", true);
@@ -7007,6 +7057,7 @@ GeradorRelatorioPDF.prototype._capaCredor = function (doc, dados) {
       exibirResumoPorCaso: document.getElementById("cf-resumo").checked,
       exibirEntregas: document.getElementById("cf-resumo").checked,
       exibirProximosPassos: document.getElementById("cf-passos").checked,
+      destaquesComite: document.getElementById("cf-comite").checked,
       relatorioMensal: document.getElementById("cf-mensal").checked,
     };
     var marcos = {};

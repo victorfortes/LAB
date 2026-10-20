@@ -1,6 +1,6 @@
 {
  "original_sha256": "2d6fab8aa87d4233aa7e3564009dd89adb520108737c30ee4c9dae06b085d8a9",
- "pagina_gerador_sha256": "853f6e14d26e82c2e9dfac35062d373be99f89d4329909a25221ed947f47cd66",
+ "pagina_gerador_sha256": "b5a577164bc73474c36b985c46c2a824ca9869c5db42872e0cb8c47f887b46e1",
  "patches": [
   {
    "patch": "P1-fontes-locais",
@@ -84,11 +84,11 @@
   },
   {
    "patch": "P18a-evento-usa-titulo",
-   "motivo": "Em evento realizado, o título do evento (ex.: 'Comitê de Credores da NB') entra na classificação; antes só o texto depois de 'Realizado:'."
+   "motivo": "Só para clientes com 'Destaques do comitê' ligado: em evento realizado, o título do evento (ex.: 'Comitê de Credores da NB') entra na classificação."
   },
   {
    "patch": "P18b-naturezas-comite",
-   "motivo": "Reunião do comitê de credores (evento) e comunicação ao comitê/credores (convocação, ata, termos) passam a ter natureza própria, em vez de cair em 'Outros' ou 'Acordo / transação'."
+   "motivo": "Só para clientes com 'Destaques do comitê' ligado: reunião do comitê de credores (evento) e comunicação ao comitê/credores têm natureza própria."
   },
   {
    "patch": "P19-resumo-exibicao-e-agenda",
@@ -96,31 +96,99 @@
   },
   {
    "patch": "P19b-acontecimentos-resumo",
-   "motivo": "Acontecimentos candidatos mostram o texto sem saudação/fecho de e-mail."
+   "motivo": "Só com 'Destaques do comitê': acontecimentos candidatos mostram resumo (e-mail encaminhado, sem saudação/fecho)."
   },
   {
    "patch": "P19c-entregas-resumo",
-   "motivo": "Entregas candidatas mostram o texto sem saudação/fecho de e-mail."
+   "motivo": "Só com 'Destaques do comitê': entregas candidatas mostram resumo (e-mail encaminhado, sem saudação/fecho)."
   },
   {
    "patch": "P20-proximos-passos-agenda",
-   "motivo": "Próximos passos também sugerem reuniões já agendadas no histórico do mês."
+   "motivo": "Só com 'Destaques do comitê': reuniões já agendadas no histórico viram próximos passos sugeridos."
   },
   {
    "patch": "P21-peso-evento",
-   "motivo": "Eventos (reunião, audiência, assembleia) pesam pelo esforço, como as entregas, e passam a aparecer entre os principais acontecimentos do mês."
+   "motivo": "Só com 'Destaques do comitê': eventos (reunião, audiência, assembleia) pesam pelo esforço e aparecem entre os principais acontecimentos."
   },
   {
    "patch": "P22-entrega-sem-desfecho",
-   "motivo": "Prazo cumprido sem desfecho claro não é listado como entrega produzida (entra só como atividade a confirmar)."
+   "motivo": "Só com 'Destaques do comitê': prazo cumprido sem desfecho claro não é listado como entrega produzida."
   },
   {
    "patch": "P23-providencia-sugerida",
-   "motivo": "A próxima providência da revisão já vem preenchida com o primeiro próximo passo datado (editável)."
+   "motivo": "Só com 'Destaques do comitê': a próxima providência da revisão vem preenchida com o primeiro próximo passo datado (editável)."
   },
   {
    "patch": "P24-acontecimento-sem-desfecho",
-   "motivo": "Prazo cumprido sem desfecho claro (muitas vezes só anotação interna) não é sugerido como acontecimento quando o processo tem outros candidatos."
+   "motivo": "Só com 'Destaques do comitê': prazo cumprido sem desfecho claro (muitas vezes anotação interna) não é sugerido como acontecimento quando o processo tem outros candidatos."
+  },
+  {
+   "patch": "P25-revisao-texto-completo-acont",
+   "motivo": "Na revisão, cada acontecimento sugerido tem a opção 'Texto completo no PDF'."
+  },
+  {
+   "patch": "P25b-revisao-texto-completo-entrega",
+   "motivo": "Na revisão, cada entrega sugerida tem a opção 'Texto completo no PDF'."
+  },
+  {
+   "patch": "P26-alternar-texto-completo",
+   "motivo": "Marcar 'Texto completo' mostra na própria revisão o conteúdo integral; desmarcar volta ao resumo."
+  },
+  {
+   "patch": "P27-geracao-texto-completo-acont",
+   "motivo": "Ao gerar, acontecimento com 'Texto completo' marcado vai com o conteúdo integral e sem o corte de três linhas."
+  },
+  {
+   "patch": "P27b-acontecimento-manual-completo",
+   "motivo": "Acontecimento digitado na revisão sai por inteiro."
+  },
+  {
+   "patch": "P27c-geracao-texto-completo-entrega",
+   "motivo": "Ao gerar, entrega com 'Texto completo' marcado vai com o conteúdo integral e sem o corte de três linhas."
+  },
+  {
+   "patch": "P28-pdf-partes-completas",
+   "motivo": "Layout do PDF: item marcado como completo não é cortado em 3 linhas; textos muito longos são divididos em blocos que cabem na coluna (o motor jsPDF não muda)."
+  },
+  {
+   "patch": "P28b-pdf-acontecimentos-completo",
+   "motivo": "Cartão de acontecimento sem corte quando marcado como completo."
+  },
+  {
+   "patch": "P28c-pdf-entregas-completo",
+   "motivo": "Cartão de entrega sem corte quando marcado como completo."
+  },
+  {
+   "patch": "P18c-natureza-opcional",
+   "motivo": "As naturezas marcadas com 'opt' só pontuam quando o cliente liga a opção correspondente."
+  },
+  {
+   "patch": "P18d-opcao-na-classificacao",
+   "motivo": "Repassa a opção 'Destaques do comitê' do cadastro do cliente ao classificador."
+  },
+  {
+   "patch": "P29-assinatura-acontecimentos",
+   "motivo": "Seleção de acontecimentos recebe a configuração do cliente."
+  },
+  {
+   "patch": "P29b-assinatura-entregas",
+   "motivo": "Seleção de entregas recebe a configuração do cliente."
+  },
+  {
+   "patch": "P29c-briefing-config",
+   "motivo": "O briefing repassa a configuração do cliente à seleção."
+  },
+  {
+   "patch": "P30-cadastro-opcao-html",
+   "motivo": "Cadastro do cliente: opção 'Destaques do comitê de credores e resumo de e-mails' (desligada por padrão; usada no Grupo NB)."
+  },
+  {
+   "patch": "P30b-cadastro-opcao-ler",
+   "motivo": "Ao abrir o cliente, mostra a opção salva."
+  },
+  {
+   "patch": "P30c-cadastro-opcao-salvar",
+   "motivo": "Ao salvar o cliente, grava a opção."
   },
   {
    "patch": "P7-csp-meta",
