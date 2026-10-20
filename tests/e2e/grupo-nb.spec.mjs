@@ -30,7 +30,7 @@ test('Grupo NB: comitê reconhecido, destaque sem anotação interna, reunião a
   expect(r.nat[1]).toBe('Comunicação ao comitê / credores');
   expect(r.nat[2]).toBe('Reunião do comitê de credores');
   expect(r.nat[3]).toBe('Comunicação ao comitê / credores');
-  expect(r.acont[0]).toBe('Comitê de Credores da NB (realizado)');           // a reunião abre a lista de acontecimentos
+  expect(r.acont).toContain('Comitê de Credores da NB (realizado)');          // a reunião do comitê está entre os acontecimentos
   expect(JSON.stringify([r.acont, r.entregas])).not.toContain('SIGILOSA');   // anotação do evento fica de fora
   expect(JSON.stringify(r.entregas)).not.toContain('SOLTA');                 // prazo sem desfecho não é entrega
   expect(JSON.stringify(r.acont)).not.toContain('SOLTA');
@@ -90,4 +90,41 @@ test('sem a opção "Destaques do comitê" o comportamento dos outros clientes n
   // a opção existe no cadastro do cliente, desligada por padrão
   await fr.evaluate(() => window.NGA_CTX.irPara('clientes'));
   expect(await fr.evaluate(() => { const c = document.getElementById('cf-comite'); return !!c && !c.checked; })).toBe(true);
+});
+
+test('Grupo NB: ordem cronológica, fato único, texto do Astrea fora do cliente, a classificar e próxima providência', async ({ page }) => {
+  await entrar(page, 'admin@teste.local'); const fr = await geradorPronto(page);
+  const E20 = 'Prezados(as) Senhores(as) Membros do Comitê de Credores, Em complemento ao e-mail anteriormente encaminhado, encaminhamos, em anexo, Nota Técnica elaborada a respeito da proposta de acordo submetida à análise. O documento é encaminhado com o objetivo de fornecer elementos para avaliação e posicionamento acerca da conveniência, para o Grupo NB, de aderir à proposta de acordo apresentada ou prosseguir com a execução do crédito. At.te';
+  const E15 = 'Prezados(as) Senhores(as) Membros do Comitê de Credores, Agradecemos a participação na 2ª Reunião do Comitê de Credores. Em anexo, a ata. Por fim, fica agendada a reunião • Data e horário: 02 de dezembro de 2099, às 14h00. • Formato: híbrida, presencial ou remota. A pauta e link da reunião serão enviadas a antecedência mínima de 5 dias úteis prevista no Plano. Seguimos à disposição, At.te';
+  const ATI = [
+    { numero_processo: '1', tipo: 'Histórico manual', data: '20/10/2026', descricao: E20 },
+    { numero_processo: '1', tipo: 'Tarefa realizada', data: '20/10/2026', descricao: 'Envio da Nota Técnica em complemento ao e-mail com ata e documentos aos credores da NB' },
+    { numero_processo: '1', tipo: 'Histórico manual', data: '15/10/2026', descricao: E15 },
+    { numero_processo: '1', tipo: 'Evento realizado', data: '15/10/2026', descricao: 'Comitê de Credores da NB - Realizado: ANOTAÇÃO INTERNA - ACONTECEU' },
+    { numero_processo: '1', tipo: 'Prazo realizado', data: '07/10/2026', descricao: 'Enviar convocação com a pauta e link para a reunião com os credores - Realizado: Enviado' },
+  ];
+  const r = await fr.evaluate(({ ATI }) => {
+    const regras = Object.assign([], { destaquesComite: true });
+    const ativs = ATI.map(a => Object.assign({}, a, window.NUCLEO.classificar(a.descricao, a.tipo, regras, 'insolvencia')));
+    const b = window.Inteligencia.montarBriefing({ atividades: ativs, tarefasFuturas: [], indicadores: {}, config: { destaquesComite: true } });
+    const sem = window.NUCLEO.classificar(ATI[4].descricao, ATI[4].tipo, [], 'insolvencia');
+    return { acont: b.acontecimentos.map(a => a.data + ' ' + a.descricao), entr: b.entregas.map(a => a.data + ' ' + a.descricao), desfecho: ativs[4].desfecho || null, desfechoSem: sem.desfecho || null, prov: window.Inteligencia.providenciaDoTexto(ATI) };
+  }, { ATI });
+  const datas = r.acont.map(x => x.slice(0, 10).split('/').reverse().join('-'));
+  expect(datas).toEqual([...datas].sort());                                              // cronológico
+  expect(r.acont.filter(x => x.includes('Nota Técnica')).length).toBe(1);                // e-mail + tarefa = um fato
+  expect(r.acont.join('|')).not.toContain('Envio da Nota Técnica');
+  expect(r.acont).toContain('07/10/2026 Envio de convocação com a pauta e link para a reunião com os credores');
+  expect(JSON.stringify([r.acont, r.entr])).not.toMatch(/Realizado|ANOTA/);              // nada de texto bruto do Astrea
+  expect(r.acont.join('|')).toContain('para subsidiar o posicionamento do Comitê');
+  expect(r.desfecho).toBeNull(); expect(r.desfechoSem).toBe('INDETERMINADO');            // só conta "a classificar" sem a opção
+  expect(r.prov).toBe('Reunião do Comitê de Credores em 02/12/2099, às 14h00 (formato híbrido); envio da pauta e do link com antecedência mínima de 5 dias úteis, conforme o Plano; aguardar o posicionamento do Comitê sobre a proposta de acordo (aderir ou prosseguir com a execução do crédito).');
+  // convocação cumprida conta como atuação processual (não acompanhamento) e só 1 fica "a classificar" quando há dúvida real
+  const cat = await fr.evaluate(({ ATI }) => {
+    const regras = Object.assign([], { destaquesComite: true });
+    const proc = [{ numero_processo: '1', acao: 'Recuperação Extrajudicial', titulo: 'T' }];
+    const ind = window.calcularIndicadores(proc, ATI.map(a => Object.assign({}, a)), new Date(Date.UTC(2026, 9, 1)), new Date(Date.UTC(2026, 9, 31)), regras, []);
+    const d = ind.indicadores; return { proc: d.quantidade_atos_processuais, acomp: d.quantidade_atividades_acompanhamento, pend: d.quantidade_atividades_pendentes_classificacao };
+  }, { ATI });
+  expect(cat.acomp).toBe(0); expect(cat.pend).toBe(0); expect(cat.proc).toBe(5);
 });

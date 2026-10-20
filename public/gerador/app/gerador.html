@@ -2433,6 +2433,7 @@ var NUCLEO = (function () {
     }
     // Prazo cumprido sem desfecho claro: mantém a leitura por pontuação, mas nunca
     // como peça. Se a pontuação cair numa natureza de peça, vira "a confirmar".
+    if (desfecho === "INDETERMINADO" && regrasUsuario && regrasUsuario.destaquesComite && (nat === "Comunicação ao comitê / credores" || nat === "Reunião do comitê de credores")) desfecho = null;
     if (desfecho === "INDETERMINADO" && (NATUREZAS_PECA.indexOf(nat) !== -1 || nat === "Outros" || fn === "DECISAO")) nat = NAT_A_CONFIRMAR;
     return {
       natureza: nat, funcao: fn, esforco: esforco,
@@ -2812,7 +2813,7 @@ function calcularIndicadores(processos, atividades, inicio, fim, regrasUsuario, 
   function categoriaDe(a) {
     if (a.administrativo) return "administrativa";
     if (ehPrazoRealizado(a)) {
-      if (a.desfecho === "PROTOCOLADO") return "processual";
+      if (a.desfecho === "PROTOCOLADO" || a.natureza === "Comunicação ao comitê / credores" || a.natureza === "Reunião do comitê de credores") return "processual";
       if (a.desfecho === "INDETERMINADO") return "pendente";
       return "acompanhamento";
     }
@@ -3624,6 +3625,8 @@ if (typeof module !== "undefined") {
   function resumoExibicao(txt, tipo) {
     var bruto = String(txt || ""), t = bruto.replace(/\s+/g, " ").trim();
     if (/^EVENTO/.test(norm(tipo))) { var ev = /^(.+?)\s+-\s+Realizado:/i.exec(t); if (ev) return ev[1] + " (realizado)"; }
+    var rz = /^(.+?)\s+-\s+Realizado:\s*(.*)$/i.exec(t);   // "NOME DO PRAZO - Realizado: texto": o texto do Astrea (anotações internas) não vai ao cliente
+    if (rz) return nominalizar(rz[1]);
     var sal = /^Prezad[oa]s?(?:\([oa]s?\))?\s+Senhor[a-z]*(?:\([oa]s?\))?\s+([^,]{3,90}),\s*/i.exec(t), sal2 = sal ? null : /^(?:Prezad[oa]s?|Car[oa]s?)(?:\([oa]s?\))?\s+([^,]{2,60}),\s*/i.exec(t);
     if (sal || sal2) {
       var corpo = t.slice((sal || sal2)[0].length), quem = sal ? "aos " + sal[1] : "a " + sal2[1], partes = [];
@@ -3632,11 +3635,12 @@ if (typeof module !== "undefined") {
       var anexos = [], re = /em anexo(?:,\s*também)?\s*,\s*([^.]+?)\.(?:\s|$)/gi, mm;
       while ((mm = re.exec(corpo))) anexos.push(mm[1].trim().replace(/^(?:a|o|as|os)\s+/i, ""));
       if (anexos.length) partes.push((anexos.length > 1 ? "com anexos: " : "com anexo: ") + anexos.join("; "));
+      if (/posicionamento/i.test(corpo) && /aderir/i.test(corpo) && /prosseguir\s+com\s+a\s+execu/i.test(corpo)) partes.push("para subsidiar o posicionamento do Comitê sobre a proposta de acordo (aderir ou prosseguir com a execução do crédito)");
       var ag = agendaNoTexto(corpo);
       var r = "E-mail encaminhado " + quem + (partes.length ? ", " + partes.join(", ") : "") + (ag ? ". Reunião agendada para " + ag.data + (ag.hora ? ", às " + ag.hora : "") : "");
       if (!partes.length && !ag) { var s1 = /^.{20,300}?[.!?](?:\s|$)/.exec(corpo); r += ": " + (s1 ? s1[0].trim() : corpo.slice(0, 160).replace(/\s+\S*$/, "") + "…"); }
       else r += ".";
-      return r.length > 380 ? r.slice(0, 377).replace(/[\s;,]+\S*$/, "") + "…" : r;
+      return r.length > 420 ? r.slice(0, 417).replace(/[\s;,]+\S*$/, "") + "…" : r;
     }
     t = t.replace(/\s*(?:Permanecemos|Seguimos|Ficamos)\s+à\s+disposição[^.]*\.?\s*(?:At\.?te\.?|Atenciosamente\.?)?\s*$/i, "");
     t = t.replace(/\s*(?:At\.?te\.?|Atenciosamente\.?)\s*$/i, "");
@@ -3658,6 +3662,56 @@ if (typeof module !== "undefined") {
       out.push({ descricao: quem + " agendada" + (g.hora ? " às " + g.hora : "") + " (conforme registro de " + (a.data || "data não informada") + ")", data: g.data, responsavel: "", numero_processo: a.numero_processo });
     });
     return out;
+  }
+  // "Enviar convocação ..." -> "Envio de convocação ...": nome do prazo no substantivo, como se lê num relatório ao cliente.
+  var VERBO_SUBST = { ENVIAR: "Envio de", ELABORAR: "Elaboração de", PROTOCOLAR: "Protocolo de", ANALISAR: "Análise de", CONFERIR: "Conferência de", MANIFESTAR: "Manifestação:", SOLICITAR: "Solicitação de", PEDIR: "Pedido de", AGENDAR: "Agendamento de", CONVOCAR: "Convocação de", REALIZAR: "Realização de", APRESENTAR: "Apresentação de", PREPARAR: "Preparação de", REVISAR: "Revisão de", MINUTAR: "Minuta de", VERIFICAR: "Verificação de", ACOMPANHAR: "Acompanhamento de", NOTIFICAR: "Notificação de" };
+  function nominalizar(nome) {
+    var s = String(nome || "").replace(/\s+/g, " ").trim(), m = /^(\S+)\s+(.*)$/.exec(s);
+    var sub = m && VERBO_SUBST[norm(m[1])];
+    return sub ? sub + " " + m[2] : s;
+  }
+  // Mesma data e mesmo anexo: o e-mail ("com anexo: Nota Técnica ...") e a tarefa "Envio da Nota Técnica" são um fato só.
+  function mesclarMesmoFato(lista) {
+    var out = lista.slice();
+    lista.forEach(function (em) {
+      var m = /^E-mail encaminhado .*?\bcom anexos?:\s*(.+?)\.?\s*$/.exec(String(em.descricao || ""));
+      if (!m) return;
+      m[1].split(";").forEach(function (anx) {
+        var w = norm(anx.replace(/^(?:a|o|as|os)\s+/i, "")).split(/\s+/).filter(Boolean), chave = w.slice(0, 2).join(" ");
+        if (chave.length < 10) chave = w.slice(0, 3).join(" ");
+        if (chave.length < 8) return;
+        out = out.filter(function (o) {
+          if (o === em || o.data !== em.data || (o.numero_processo || "") !== (em.numero_processo || "")) return true;
+          if (/^E-mail encaminhado/.test(String(o.descricao || ""))) return true;
+          return norm(o.descricao).indexOf(chave) === -1;
+        });
+      });
+    });
+    return out;
+  }
+  function ordenarPorData(lista) {
+    return lista.map(function (x, i) { return { x: x, i: i }; }).sort(function (a, b) {
+      var da = dataBRtoDate(a.x.data), db = dataBRtoDate(b.x.data);
+      return ((da ? da.getTime() : Infinity) - (db ? db.getTime() : Infinity)) || (a.i - b.i);
+    }).map(function (o) { return o.x; });
+  }
+  // Próxima providência a partir dos próprios históricos: reunião agendada (com formato), antecedência da pauta e posicionamento aguardado.
+  function providenciaDoTexto(atividades, hoje) {
+    var ref = hoje || new Date(), base = Date.UTC(ref.getUTCFullYear(), ref.getUTCMonth(), ref.getUTCDate()), partes = [], ag = null, fmt = "", antec = null, pos = false;
+    (atividades || []).forEach(function (a) {
+      var t = String(a.descricao || ""), g = agendaNoTexto(t);
+      if (g && g.ts >= base && !ag) {
+        ag = g; var f = /Formato:\s*(h[ií]brid[ao]|presencial|remot[ao]|virtual)/i.exec(t);
+        if (f) fmt = f[1].toLowerCase().replace(/ida$/, "ido").replace(/ota$/, "oto");
+        var an = /anteced[eê]ncia\s+m[ií]nima\s+de\s+(\d+)\s+dias\s+(?:úteis|uteis|corridos)/i.exec(t);
+        if (an) antec = { n: an[1], tipo: /corridos/i.test(an[0]) ? "corridos" : "úteis", plano: /prevista\s+no\s+Plano/i.test(t) };
+      }
+      if (/posicionamento/i.test(t) && /aderir/i.test(t) && /prosseguir\s+com\s+a\s+execu/i.test(t)) pos = true;
+    });
+    if (ag) partes.push((ag.comite ? "Reunião do Comitê de Credores" : "Reunião") + " em " + ag.data + (ag.hora ? ", às " + ag.hora : "") + (fmt ? " (formato " + fmt + ")" : ""));
+    if (antec) partes.push("envio da pauta e do link com antecedência mínima de " + antec.n + " dias " + antec.tipo + (antec.plano ? ", conforme o Plano" : ""));
+    if (pos) partes.push("aguardar o posicionamento do Comitê sobre a proposta de acordo (aderir ou prosseguir com a execução do crédito)");
+    return partes.length ? partes.join("; ") + "." : "";
   }
 
   // ------------------------------------------------------- acontecimentos
@@ -3722,7 +3776,8 @@ if (typeof module !== "undefined") {
       vistos[c.idx] = true;
     });
 
-    return selecionados.sort(function (x, y) { return (y.peso - x.peso) || porData(x, y); });
+    var ordenados = selecionados.sort(function (x, y) { return (y.peso - x.peso) || porData(x, y); });
+    return avancado ? ordenarPorData(mesclarMesmoFato(ordenados)) : ordenados;
   }
 
   // ------------------------------------------------------------ entregas
@@ -3742,7 +3797,8 @@ if (typeof module !== "undefined") {
       }
     });
     entregas.sort(function (x, y) { return (y.esforco || 0) - (x.esforco || 0); });
-    return entregas.slice(0, 8);
+    entregas = entregas.slice(0, 8);
+    return avancado ? ordenarPorData(mesclarMesmoFato(entregas)) : entregas;
   }
 
   // ------------------------------------------------------------ marcos
@@ -3850,6 +3906,7 @@ if (typeof module !== "undefined") {
     selecionarEntregas: selecionarEntregas,
     detectarMarcos: detectarMarcos,
     classificarProximosPassos: classificarProximosPassos,
+    providenciaDoTexto: providenciaDoTexto,
     compararComAnterior: compararComAnterior,
   };
   if (typeof module !== "undefined") module.exports = api;
@@ -6551,7 +6608,7 @@ GeradorRelatorioPDF.prototype._capaCredor = function (doc, dados) {
     document.getElementById("rev-fase").value = oe.faseAtual || "";
     document.getElementById("rev-ultimo").value = oe.ultimoMarco || "";
     document.getElementById("rev-proximo").value = oe.proximoMarco || "";
-    document.getElementById("rev-providencia").value = (estado.clienteCad && estado.clienteCad.config && estado.clienteCad.config.destaquesComite) ? (function () { var ps = (b.proximosPassos || []).filter(function (p) { return p.faixa !== "vencida" && p.faixa !== "sem_data"; }); return ps.length ? ps[0].acao + (ps[0].data ? " (" + ps[0].data + ")" : "") : ""; })() : "";
+    document.getElementById("rev-providencia").value = (estado.clienteCad && estado.clienteCad.config && estado.clienteCad.config.destaquesComite) ? (Inteligencia.providenciaDoTexto(estado.atividadesClassificadas || []) || (function () { var ps = (b.proximosPassos || []).filter(function (p) { return p.faixa !== "vencida" && p.faixa !== "sem_data"; }); return ps.length ? ps[0].acao + (ps[0].data ? " (" + ps[0].data + ")" : "") : ""; })()) : "";
 
     // Marcos, apenas informativos (vêm do cadastro). Editar datas => no cadastro do cliente.
     var temTemplate = b.marcos && b.marcos.length;

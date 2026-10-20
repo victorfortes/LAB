@@ -1,6 +1,6 @@
 {
  "original_sha256": "2d6fab8aa87d4233aa7e3564009dd89adb520108737c30ee4c9dae06b085d8a9",
- "pagina_gerador_sha256": "b5a577164bc73474c36b985c46c2a824ca9869c5db42872e0cb8c47f887b46e1",
+ "pagina_gerador_sha256": "9ac12ad70f496171f76fc01e8f5dc4b8116472b4d4758e7824b8f6ebb8e602fc",
  "patches": [
   {
    "patch": "P1-fontes-locais",
@@ -116,7 +116,7 @@
   },
   {
    "patch": "P23-providencia-sugerida",
-   "motivo": "Só com 'Destaques do comitê': a próxima providência da revisão vem preenchida com o primeiro próximo passo datado (editável)."
+   "motivo": "Só com 'Destaques do comitê': a próxima providência da revisão vem preenchida com o que os históricos dizem (reunião agendada, antecedência da pauta, posicionamento aguardado), ou com o primeiro próximo passo datado. Editável."
   },
   {
    "patch": "P24-acontecimento-sem-desfecho",
@@ -189,6 +189,26 @@
   {
    "patch": "P30c-cadastro-opcao-salvar",
    "motivo": "Ao salvar o cliente, grava a opção."
+  },
+  {
+   "patch": "P32-acontecimentos-cronologicos",
+   "motivo": "Só com 'Destaques do comitê': acontecimentos em ordem cronológica e sem o mesmo fato repetido (e-mail com anexo + tarefa de envio do mesmo anexo)."
+  },
+  {
+   "patch": "P32b-entregas-cronologicas",
+   "motivo": "Só com 'Destaques do comitê': entregas em ordem cronológica e sem o mesmo fato repetido."
+  },
+  {
+   "patch": "P32c-api-providencia",
+   "motivo": "Expõe a leitura da próxima providência."
+  },
+  {
+   "patch": "P31-convocacao-nao-pendente",
+   "motivo": "Só com 'Destaques do comitê': prazo cumprido já classificado como reunião/comunicação ao comitê não conta como 'a classificar'."
+  },
+  {
+   "patch": "P33-comunicacao-comite-processual",
+   "motivo": "Só com 'Destaques do comitê' (as naturezas só existem com a opção): convocação e comunicação ao comitê, mesmo como prazo cumprido, contam como atuação processual e não como acompanhamento."
   },
   {
    "patch": "P7-csp-meta",
