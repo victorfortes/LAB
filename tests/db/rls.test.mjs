@@ -161,3 +161,12 @@ test('menor privilégio (com os padrões do Supabase): anon sem funções, authe
   await como(U.adv, `update documentos set dados='{"a":2}' where id='priv_ok'`);
   assert.ok((await como(U.adv, 'select papel_atual() p')).rows[0].p === 'advogado');
 });
+
+test('serviço de administração (service_role) lê o papel em perfis e registra auditoria', async () => {
+  await db.exec('set role service_role');
+  try {
+    const r = await db.query('select papel, ativo from perfis where user_id = $1', [U.admin]);
+    assert.equal(r.rows[0].papel, 'admin');
+    await db.query("insert into auditoria (user_id, email, acao, colecao, doc_id) values ($1, 'admin@teste.local', 'usuario_criar', 'perfis', 'x')", [U.admin]);
+  } finally { await db.exec('reset role'); }
+});
