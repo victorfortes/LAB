@@ -128,3 +128,22 @@ test('Grupo NB: ordem cronológica, fato único, texto do Astrea fora do cliente
   }, { ATI });
   expect(cat.acomp).toBe(0); expect(cat.pend).toBe(0); expect(cat.proc).toBe(5);
 });
+
+test('próxima providência longa aparece inteira na página da linha do tempo; texto curto não muda', async ({ page }) => {
+  await entrar(page, 'admin@teste.local'); const fr = await geradorPronto(page);
+  const longa = 'Reunião do Comitê de Credores em 02/12/2026, às 14h00 (formato híbrido); envio da pauta e do link com antecedência mínima de 5 dias úteis, conforme o Plano; aguardar o posicionamento do Comitê sobre a proposta de acordo (aderir ou prosseguir com a execução do crédito) FIMPROV.';
+  const r = await fr.evaluate(async ({ longa }) => {
+    const gerar = (prov) => {
+      const g = new GeradorRelatorioPDF();
+      const marcos = [{ chave: 'NEGOCIACAO', rotulo: 'Negociação', data: '01/06/2025', status: 'concluido' }, { chave: 'HOMOLOGACAO', rotulo: 'Homologação', data: null, status: 'atual' }];
+      const doc = g.gerarExecutivo({ cliente: 'CLIENTE TESTE', periodoISO: '2026-10', indicadores: {}, atividades: [], briefing: { marcos, acontecimentos: [], entregas: [], proximosPassos: [] },
+        config: { exibirEsforco: false, exibirLinhaTempo: true, templateTimeline: 're', exibirResumoPorCaso: false, exibirProximosPassos: false },
+        ondeEstamos: { faseAtual: 'Homologação', ultimoMarco: 'Negociação (01/06/2025)', proximoMarco: 'Cumprimento', proximaProvidencia: prov } });
+      return Array.from(new Uint8Array(doc.output('arraybuffer')));
+    };
+    const ler = async (bytes) => { const d = await window.NGA_ABRIR_PDF(new Uint8Array(bytes)); let t = ''; for (let i = 1; i <= d.numPages; i++) t += (await (await d.getPage(i)).getTextContent()).items.map(x => x.str).join(' ') + ' '; return t; };
+    return { longa: await ler(gerar(longa)), curta: await ler(gerar('Analisar o plano.')) };
+  }, { longa });
+  expect(r.longa).toContain('FIMPROV'); expect(r.longa).toContain('aguardar'); expect(r.longa).toContain('conforme');
+  expect(r.curta).toContain('Analisar'); expect(r.curta).toContain('plano.');
+});

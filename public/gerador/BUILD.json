@@ -1,6 +1,6 @@
 {
  "original_sha256": "2d6fab8aa87d4233aa7e3564009dd89adb520108737c30ee4c9dae06b085d8a9",
- "pagina_gerador_sha256": "9ac12ad70f496171f76fc01e8f5dc4b8116472b4d4758e7824b8f6ebb8e602fc",
+ "pagina_gerador_sha256": "699d27e714601aa9424131e5ee25f518f60333157e6b1fc6a789f3a13002d1cf",
  "patches": [
   {
    "patch": "P1-fontes-locais",
@@ -209,6 +209,10 @@
   {
    "patch": "P33-comunicacao-comite-processual",
    "motivo": "Só com 'Destaques do comitê' (as naturezas só existem com a opção): convocação e comunicação ao comitê, mesmo como prazo cumprido, contam como atuação processual e não como acompanhamento."
+  },
+  {
+   "patch": "P34-quadro-onde-estamos-texto-longo",
+   "motivo": "No quadro 'Onde estamos', texto longo (ex.: próxima providência com vários itens) reduz a fonte até caber, em vez de ser cortado em 5 linhas sem aviso. Texto curto não muda."
   },
   {
    "patch": "P7-csp-meta",
