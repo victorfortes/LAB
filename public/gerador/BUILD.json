@@ -1,6 +1,6 @@
 {
  "original_sha256": "2d6fab8aa87d4233aa7e3564009dd89adb520108737c30ee4c9dae06b085d8a9",
- "pagina_gerador_sha256": "699d27e714601aa9424131e5ee25f518f60333157e6b1fc6a789f3a13002d1cf",
+ "pagina_gerador_sha256": "70f08fbfd48535bee49ec396f27a56070acf08c7528e495432a6ffbd12cdeb33",
  "patches": [
   {
    "patch": "P1-fontes-locais",
@@ -213,6 +213,54 @@
   {
    "patch": "P34-quadro-onde-estamos-texto-longo",
    "motivo": "No quadro 'Onde estamos', texto longo (ex.: próxima providência com vários itens) reduz a fonte até caber, em vez de ser cortado em 5 linhas sem aviso. Texto curto não muda."
+  },
+  {
+   "patch": "P35-ficha-caso-campos",
+   "motivo": "Ficha do caso: lê OBJETO, valor da causa e da condenação (antes o OBJETO ficava colado na data de criação)."
+  },
+  {
+   "patch": "P35b-ficha-caso-retorno",
+   "motivo": "Ficha do caso devolve também objeto e valores."
+  },
+  {
+   "patch": "P36-resultado-tarefas-casos",
+   "motivo": "Guarda as tarefas futuras dos casos (antes descartadas)."
+  },
+  {
+   "patch": "P37-atividade-do-caso-indice",
+   "motivo": "Atividade de caso guarda o índice do caso (casos de mesmo título não se misturam)."
+  },
+  {
+   "patch": "P38-tarefa-futura-do-caso",
+   "motivo": "Tarefa futura de caso é guardada (usada quando o export é de casos)."
+  },
+  {
+   "patch": "P39-indice-do-caso",
+   "motivo": "Cada ficha do caso recebe um índice."
+  },
+  {
+   "patch": "P40-base-casos",
+   "motivo": "Export do Astrea só com 'Ficha do caso' (sem ficha de processo): cada caso passa a ser a unidade-base do relatório, no lugar do processo, com a mesma lógica (indicadores, natureza, acontecimentos, próximos passos). Export com processos continua como antes."
+  },
+  {
+   "patch": "P40b-base-casos-chamada",
+   "motivo": "Converte os casos em unidades ao fim da leitura."
+  },
+  {
+   "patch": "P41-sinal-base-casos",
+   "motivo": "Informa ao gerador de PDF que a base é de casos (rótulos 'caso' no lugar de 'processo')."
+  },
+  {
+   "patch": "P42-rotulos-de-caso",
+   "motivo": "No PDF, com base de casos, os rótulos 'processo' viram 'caso' (só rótulos fixos; o texto dos registros nunca é alterado)."
+  },
+  {
+   "patch": "P42b-funcao-rotulos",
+   "motivo": "Tabela de rótulos fixos trocados em base de casos."
+  },
+  {
+   "patch": "P43-rotulo-tela-casos",
+   "motivo": "Na tela de resultado, 'processos analisados' vira 'casos analisados' quando a base é de casos."
   },
   {
    "patch": "P7-csp-meta",

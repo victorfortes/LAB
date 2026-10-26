@@ -3,7 +3,7 @@
 // a pessoa é obrigada a trocá-la no primeiro acesso (user_metadata.trocar_senha). A chave de serviço só existe aqui.
 import { createClient } from 'npm:@supabase/supabase-js@2.46.1';
 
-const ORIGENS = (Deno.env.get('ALLOWED_ORIGINS') ?? 'https://report-loom-forge.lovable.app').split(',').map((s) => s.trim());
+const ORIGENS = (Deno.env.get('ALLOWED_ORIGINS') ?? 'https://relatoriosnga.lovable.app,https://report-loom-forge.lovable.app').split(',').map((s) => s.trim());
 const PAPEIS = ['admin', 'advogado', 'visualizador'];
 const MAX_LOTE = 50;
 

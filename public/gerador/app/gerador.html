@@ -1909,7 +1909,7 @@ function finishActivity(activity, process, result) {
       _primeiraDaPagina: !!activity.primeiraDaPagina,
     };
     if (process && process.administrativo) {
-      result.atividadesAdministrativas.push(Object.assign({}, registro, { numero_processo: null, caso: process.titulo, administrativo: true }));
+      result.atividadesAdministrativas.push(Object.assign({}, registro, { numero_processo: null, caso: process.titulo, caso_idx: process._idx, administrativo: true }));
       return;
     }
     // Defesa contra duplicação de linha de fronteira de página: quando uma tabela
@@ -1966,9 +1966,9 @@ function extractWordsFromPage(textContent, pageHeight) {
 }
 
 function finishTarefaFutura(tarefa, process, result) {
-  if (process && process.administrativo) return;
   var descricao = clean(tarefa.description);
   if (!descricao) return;
+  if (process && process.administrativo) { result.tarefasFuturasCasos.push({ caso_idx: process._idx, data: tarefa.data || null, descricao: descricao, tipo: clean(tarefa.type) || null, responsavel: process.advogado || null }); return; }
   result.tarefasFuturas.push({
     numero_processo: process.numero_processo,
     data: tarefa.data || null,
@@ -1976,6 +1976,31 @@ function finishTarefaFutura(tarefa, process, result) {
     tipo: clean(tarefa.type) || null,
     responsavel: process.advogado || null,
   });
+}
+
+function valorDoBloco(bloco, re) { var m = re.exec(bloco); return m ? m[1].trim() : null; }
+// Export só de casos: cada caso vira a unidade-base (no lugar do processo), identificada pelo título do caso.
+function converterCasosEmUnidades(result) {
+  if (result.processos.length || !result.casosAdministrativos.length) return;
+  var usados = {}, chaves = [];
+  result.casosAdministrativos.forEach(function (c, i) {
+    var base = c.titulo || ("Caso " + (i + 1)), chave = base, n = 2;
+    while (usados[chave]) chave = base + " (" + (n++) + ")";
+    usados[chave] = 1; chaves[i] = chave;
+    var p = {}; PROCESS_COLUMNS.forEach(function (k) { p[k] = null; });
+    p.numero_processo = chave; p.cliente = c.cliente; p.titulo = c.titulo; p.advogado = c.advogado; p.criado_em = c.criado_em; p.status = c.status;
+    p.acao = c.objeto || null; p.valor_causa = c.valor_causa || null; p.valor_condenacao = c.valor_condenacao || null; p.unidade = "caso";
+    result.processos.push(p);
+  });
+  result.atividadesAdministrativas.forEach(function (a) {
+    var k = chaves[a.caso_idx]; if (!k) return;
+    var r = Object.assign({}, a, { numero_processo: k }); delete r.administrativo; delete r.caso; delete r.caso_idx;
+    result.atividades.push(r);
+  });
+  (result.tarefasFuturasCasos || []).forEach(function (t) {
+    var k = chaves[t.caso_idx]; if (k) result.tarefasFuturas.push({ numero_processo: k, data: t.data, descricao: t.descricao, tipo: t.tipo, responsavel: t.responsavel });
+  });
+  result.atividadesAdministrativas = []; result.casosAdministrativos = []; result.baseCasos = true;
 }
 
 // "Ficha do caso" é um cadastro administrativo do Astrea (ex.: um projeto), sem número judicial.
@@ -1986,15 +2011,15 @@ function detectarFichaDoCaso(lines) {
     if (!/\bFicha do caso\b/i.test(texto)) continue;
     const fim = headerEnd(lines, i);
     const bloco = lines.slice(i, fim).map(lineText).join(" ").replace(/\s+/g, " ");
-    const outros = "CLIENTE|T[ÍI]TULO|ENVOLVIDOS|ADVOGADO|CRIADO EM|VALOR DA CAUSA|VALOR DA CONDENA[ÇC][ÃA]O|STATUS|PASTA|EQUIPE|FASE|SJ";
+    const outros = "CLIENTE|T[ÍI]TULO|OBJETO|ENVOLVIDOS|ADVOGADO|CRIADO EM|VALOR DA CAUSA|VALOR DA CONDENA[ÇC][ÃA]O|STATUS|PASTA|EQUIPE|FASE|SJ";
     const campo = (rot) => { const m = new RegExp(rot + "\\s*:\\s*(.*?)(?=\\s+(?:" + outros + ")\\s*:|$)", "i").exec(bloco); return m ? m[1].trim() : null; };
-    return { cliente: campo("CLIENTE"), titulo: campo("T[ÍI]TULO"), advogado: campo("ADVOGADO"), criado_em: campo("CRIADO EM"), status: campo("STATUS") };
+    return { cliente: campo("CLIENTE"), titulo: campo("T[ÍI]TULO"), objeto: campo("OBJETO"), advogado: campo("ADVOGADO"), criado_em: campo("CRIADO EM"), valor_causa: valorDoBloco(bloco, /VALOR DA CAUSA\s*:\s*(R\$\s*[\d.]+,\d{2})/i), valor_condenacao: valorDoBloco(bloco, /CONDENA[ÇC][ÃA]O\s*:\s*(R\$\s*[\d.]+,\d{2})/i) || valorDoBloco(bloco, /(R\$\s*[\d.]+,\d{2})\s+CONDENA[ÇC][ÃA]O/i), status: campo("STATUS") };
   }
   return null;
 }
 
 async function parseAstreaPDF(pdfDoc) {
-  const result = { processos: [], atividades: [], tarefasFuturas: [], naoClassificados: [], duplicatasIgnoradas: 0, paginasSemTexto: [], casosAdministrativos: [], atividadesAdministrativas: [] };
+  const result = { tarefasFuturasCasos: [], processos: [], atividades: [], tarefasFuturas: [], naoClassificados: [], duplicatasIgnoradas: 0, paginasSemTexto: [], casosAdministrativos: [], atividadesAdministrativas: [] };
   let current = null;
   let historyActive = false;
   let tarefasActive = false;
@@ -2044,7 +2069,7 @@ async function parseAstreaPDF(pdfDoc) {
     if (fichaCaso) {
       if (activity && current) { finishActivity(activity, current, result); activity = null; }
       if (tarefa && current) { finishTarefaFutura(tarefa, current, result); tarefa = null; }
-      current = Object.assign({ administrativo: true, numero_processo: null }, fichaCaso);
+      current = Object.assign({ administrativo: true, numero_processo: null, _idx: result.casosAdministrativos.length }, fichaCaso);
       result.casosAdministrativos.push(current);
       historyActive = false;
       tarefasActive = false;
@@ -2115,6 +2140,7 @@ async function parseAstreaPDF(pdfDoc) {
   }
   if (activity && current) finishActivity(activity, current, result);
   if (tarefa && current) finishTarefaFutura(tarefa, current, result);
+  converterCasosEmUnidades(result);
   return result;
 }
 
@@ -3923,6 +3949,14 @@ if (typeof module !== "undefined") {
 // NGA logo PNG (1600x900, transparent padding around the visible mark), same file
 // used by the header. The crop math below trims that padding without redrawing the mark.
 
+// Base de casos: troca só os rótulos fixos do relatório ("PROCESSOS MOVIMENTADOS" -> "CASOS MOVIMENTADOS").
+var ROTULOS_CASO = { "PROCESSOS MOVIMENTADOS": "CASOS MOVIMENTADOS", "processos movimentados": "casos movimentados", "REGISTROS POR PROCESSO": "REGISTROS POR CASO", "registros por processo": "registros por caso", "PROCESSOS ATIVOS": "CASOS ATIVOS", "PROCESSOS ATIVOS NA CARTEIRA": "CASOS ATIVOS NA CARTEIRA", "processos ativos": "casos ativos", "processos ativos na carteira": "casos ativos na carteira", "PROCESSOS POR RESPONSÁVEL": "CASOS POR RESPONSÁVEL", "Processos por responsável": "Casos por responsável", "Processos por equipe responsável": "Casos por equipe responsável", "PROCESSO": "CASO", "Processos movimentados no mês": "Casos movimentados no mês", "PROCESSOS COM VALOR INFORMADO": "CASOS COM VALOR INFORMADO", "Sem processo vinculado": "Sem caso vinculado" };
+function rotuloDeCaso(t) {
+  if (Object.prototype.hasOwnProperty.call(ROTULOS_CASO, t)) return ROTULOS_CASO[t];
+  if (/^\d+ processos? · /.test(t)) return t.replace(/^(\d+) processos? · /, function (m, n) { return n + (n === "1" ? " caso · " : " casos · "); });
+  return t.indexOf("Fatos materialmente relevantes do período, agrupados por processo.") === 0 ? t.replace("agrupados por processo", "agrupados por caso") : t;
+}
+
 // Nome do cliente para cabeçalho e rodapé: uma linha, sem texto de ficha grudado.
 function nomeCurto(nome, limite) {
   limite = limite || 46;
@@ -4053,6 +4087,7 @@ class GeradorRelatorioPDF {
     doc.circle(cx, this.H - cy, r, "F");
   }
   _text(doc, x, y, text, { size = 9, font = "helvetica", style = "normal", color = "#000000", align = "left", just = 0 } = {}) {
+    if (window.NGA_BASE_CASOS && typeof text === "string") text = rotuloDeCaso(text);
     doc.setFont(font, style);
     doc.setFontSize(size);
     doc.setTextColor(color);
@@ -5969,6 +6004,7 @@ GeradorRelatorioPDF.prototype._capaCredor = function (doc, dados) {
       progressText.textContent = "Calculando indicadores do período…";
       var regrasParaMotor = await Regras.listar();
       regrasParaMotor.destaquesComite = !!(clienteCad && clienteCad.config && clienteCad.config.destaquesComite);
+      window.NGA_BASE_CASOS = !!extraido.baseCasos;
       var calculo = calcularIndicadores(extraido.processos, extraido.atividades, inicio, fim, regrasParaMotor, extraido.atividadesAdministrativas || []);
 
       ultimoResultado = {
@@ -6337,7 +6373,7 @@ GeradorRelatorioPDF.prototype._capaCredor = function (doc, dados) {
     var statusRight = document.querySelector("#status-footer-right");
     if (statusRight) {
       var agora = new Date().toLocaleString("pt-BR");
-      statusRight.textContent = "Gerado em " + agora + " · " + numberFmt(data.total_processos) + " processos analisados";
+      statusRight.textContent = "Gerado em " + agora + " · " + numberFmt(data.total_processos) + (window.NGA_BASE_CASOS ? " casos analisados" : " processos analisados");
     }
 
     if (naoClassificados && naoClassificados.length) {

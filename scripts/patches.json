@@ -316,5 +316,77 @@
   "motivo": "No quadro 'Onde estamos', texto longo (ex.: próxima providência com vários itens) reduz a fonte até caber, em vez de ser cortado em 5 linhas sem aviso. Texto curto não muda.",
   "de": "    this._linhas(doc, texto, boxW - 12, 8.5, 5).forEach(function (linha, j) {\n      this._text(doc, x + 6, boxY + boxH - 15 - j * 4.4, linha.t, { size: 8.5, color: b[1] ? this.tema.texto : this.tema.cinza, just: linha.just });\n    }, this);",
   "para": "    var tam = 8.5, passo = 4.4, lin = this._linhas(doc, texto, boxW - 12, tam, 5);\n    if (this._linhas(doc, texto, boxW - 12, tam).length > 5) {   // texto longo: reduz a fonte até caber, em vez de cortar o fim\n      [7.5, 6.8, 6.2].some(function (s) { var l = this._linhas(doc, texto, boxW - 12, s), cap = Math.floor(24 / (s * 0.518)); tam = s; passo = s * 0.518; lin = l.slice(0, cap); return l.length <= cap; }, this);\n    }\n    lin.forEach(function (linha, j) {\n      this._text(doc, x + 6, boxY + boxH - 15 - j * passo, linha.t, { size: tam, color: b[1] ? this.tema.texto : this.tema.cinza, just: linha.just });\n    }, this);"
+ },
+ {
+  "id": "P35-ficha-caso-campos",
+  "motivo": "Ficha do caso: lê OBJETO, valor da causa e da condenação (antes o OBJETO ficava colado na data de criação).",
+  "de": "    const outros = \"CLIENTE|T[ÍI]TULO|ENVOLVIDOS|ADVOGADO|CRIADO EM|VALOR DA CAUSA|VALOR DA CONDENA[ÇC][ÃA]O|STATUS|PASTA|EQUIPE|FASE|SJ\";",
+  "para": "    const outros = \"CLIENTE|T[ÍI]TULO|OBJETO|ENVOLVIDOS|ADVOGADO|CRIADO EM|VALOR DA CAUSA|VALOR DA CONDENA[ÇC][ÃA]O|STATUS|PASTA|EQUIPE|FASE|SJ\";"
+ },
+ {
+  "id": "P35b-ficha-caso-retorno",
+  "motivo": "Ficha do caso devolve também objeto e valores.",
+  "de": "    return { cliente: campo(\"CLIENTE\"), titulo: campo(\"T[ÍI]TULO\"), advogado: campo(\"ADVOGADO\"), criado_em: campo(\"CRIADO EM\"), status: campo(\"STATUS\") };",
+  "para": "    return { cliente: campo(\"CLIENTE\"), titulo: campo(\"T[ÍI]TULO\"), objeto: campo(\"OBJETO\"), advogado: campo(\"ADVOGADO\"), criado_em: campo(\"CRIADO EM\"), valor_causa: valorDoBloco(bloco, /VALOR DA CAUSA\\s*:\\s*(R\\$\\s*[\\d.]+,\\d{2})/i), valor_condenacao: valorDoBloco(bloco, /CONDENA[ÇC][ÃA]O\\s*:\\s*(R\\$\\s*[\\d.]+,\\d{2})/i) || valorDoBloco(bloco, /(R\\$\\s*[\\d.]+,\\d{2})\\s+CONDENA[ÇC][ÃA]O/i), status: campo(\"STATUS\") };"
+ },
+ {
+  "id": "P36-resultado-tarefas-casos",
+  "motivo": "Guarda as tarefas futuras dos casos (antes descartadas).",
+  "de": "const result = { processos: [], atividades: [], tarefasFuturas: [],",
+  "para": "const result = { tarefasFuturasCasos: [], processos: [], atividades: [], tarefasFuturas: [],"
+ },
+ {
+  "id": "P37-atividade-do-caso-indice",
+  "motivo": "Atividade de caso guarda o índice do caso (casos de mesmo título não se misturam).",
+  "de": "result.atividadesAdministrativas.push(Object.assign({}, registro, { numero_processo: null, caso: process.titulo, administrativo: true }));",
+  "para": "result.atividadesAdministrativas.push(Object.assign({}, registro, { numero_processo: null, caso: process.titulo, caso_idx: process._idx, administrativo: true }));"
+ },
+ {
+  "id": "P38-tarefa-futura-do-caso",
+  "motivo": "Tarefa futura de caso é guardada (usada quando o export é de casos).",
+  "de": "  if (process && process.administrativo) return;\n  var descricao = clean(tarefa.description);\n  if (!descricao) return;",
+  "para": "  var descricao = clean(tarefa.description);\n  if (!descricao) return;\n  if (process && process.administrativo) { result.tarefasFuturasCasos.push({ caso_idx: process._idx, data: tarefa.data || null, descricao: descricao, tipo: clean(tarefa.type) || null, responsavel: process.advogado || null }); return; }"
+ },
+ {
+  "id": "P39-indice-do-caso",
+  "motivo": "Cada ficha do caso recebe um índice.",
+  "de": "      current = Object.assign({ administrativo: true, numero_processo: null }, fichaCaso);",
+  "para": "      current = Object.assign({ administrativo: true, numero_processo: null, _idx: result.casosAdministrativos.length }, fichaCaso);"
+ },
+ {
+  "id": "P40-base-casos",
+  "motivo": "Export do Astrea só com 'Ficha do caso' (sem ficha de processo): cada caso passa a ser a unidade-base do relatório, no lugar do processo, com a mesma lógica (indicadores, natureza, acontecimentos, próximos passos). Export com processos continua como antes.",
+  "de": "// \"Ficha do caso\" é um cadastro administrativo do Astrea (ex.: um projeto), sem número judicial.",
+  "para": "function valorDoBloco(bloco, re) { var m = re.exec(bloco); return m ? m[1].trim() : null; }\n// Export só de casos: cada caso vira a unidade-base (no lugar do processo), identificada pelo título do caso.\nfunction converterCasosEmUnidades(result) {\n  if (result.processos.length || !result.casosAdministrativos.length) return;\n  var usados = {}, chaves = [];\n  result.casosAdministrativos.forEach(function (c, i) {\n    var base = c.titulo || (\"Caso \" + (i + 1)), chave = base, n = 2;\n    while (usados[chave]) chave = base + \" (\" + (n++) + \")\";\n    usados[chave] = 1; chaves[i] = chave;\n    var p = {}; PROCESS_COLUMNS.forEach(function (k) { p[k] = null; });\n    p.numero_processo = chave; p.cliente = c.cliente; p.titulo = c.titulo; p.advogado = c.advogado; p.criado_em = c.criado_em; p.status = c.status;\n    p.acao = c.objeto || null; p.valor_causa = c.valor_causa || null; p.valor_condenacao = c.valor_condenacao || null; p.unidade = \"caso\";\n    result.processos.push(p);\n  });\n  result.atividadesAdministrativas.forEach(function (a) {\n    var k = chaves[a.caso_idx]; if (!k) return;\n    var r = Object.assign({}, a, { numero_processo: k }); delete r.administrativo; delete r.caso; delete r.caso_idx;\n    result.atividades.push(r);\n  });\n  (result.tarefasFuturasCasos || []).forEach(function (t) {\n    var k = chaves[t.caso_idx]; if (k) result.tarefasFuturas.push({ numero_processo: k, data: t.data, descricao: t.descricao, tipo: t.tipo, responsavel: t.responsavel });\n  });\n  result.atividadesAdministrativas = []; result.casosAdministrativos = []; result.baseCasos = true;\n}\n\n// \"Ficha do caso\" é um cadastro administrativo do Astrea (ex.: um projeto), sem número judicial."
+ },
+ {
+  "id": "P40b-base-casos-chamada",
+  "motivo": "Converte os casos em unidades ao fim da leitura.",
+  "de": "  if (tarefa && current) finishTarefaFutura(tarefa, current, result);\n  return result;\n}",
+  "para": "  if (tarefa && current) finishTarefaFutura(tarefa, current, result);\n  converterCasosEmUnidades(result);\n  return result;\n}"
+ },
+ {
+  "id": "P41-sinal-base-casos",
+  "motivo": "Informa ao gerador de PDF que a base é de casos (rótulos 'caso' no lugar de 'processo').",
+  "de": "      var calculo = calcularIndicadores(extraido.processos, extraido.atividades, inicio, fim, regrasParaMotor, extraido.atividadesAdministrativas || []);",
+  "para": "      window.NGA_BASE_CASOS = !!extraido.baseCasos;\n      var calculo = calcularIndicadores(extraido.processos, extraido.atividades, inicio, fim, regrasParaMotor, extraido.atividadesAdministrativas || []);"
+ },
+ {
+  "id": "P42-rotulos-de-caso",
+  "motivo": "No PDF, com base de casos, os rótulos 'processo' viram 'caso' (só rótulos fixos; o texto dos registros nunca é alterado).",
+  "de": "  _text(doc, x, y, text, { size = 9, font = \"helvetica\", style = \"normal\", color = \"#000000\", align = \"left\", just = 0 } = {}) {\n    doc.setFont(font, style);",
+  "para": "  _text(doc, x, y, text, { size = 9, font = \"helvetica\", style = \"normal\", color = \"#000000\", align = \"left\", just = 0 } = {}) {\n    if (window.NGA_BASE_CASOS && typeof text === \"string\") text = rotuloDeCaso(text);\n    doc.setFont(font, style);"
+ },
+ {
+  "id": "P42b-funcao-rotulos",
+  "motivo": "Tabela de rótulos fixos trocados em base de casos.",
+  "de": "// Nome do cliente para cabeçalho e rodapé: uma linha, sem texto de ficha grudado.",
+  "para": "// Base de casos: troca só os rótulos fixos do relatório (\"PROCESSOS MOVIMENTADOS\" -> \"CASOS MOVIMENTADOS\").\nvar ROTULOS_CASO = { \"PROCESSOS MOVIMENTADOS\": \"CASOS MOVIMENTADOS\", \"processos movimentados\": \"casos movimentados\", \"REGISTROS POR PROCESSO\": \"REGISTROS POR CASO\", \"registros por processo\": \"registros por caso\", \"PROCESSOS ATIVOS\": \"CASOS ATIVOS\", \"PROCESSOS ATIVOS NA CARTEIRA\": \"CASOS ATIVOS NA CARTEIRA\", \"processos ativos\": \"casos ativos\", \"processos ativos na carteira\": \"casos ativos na carteira\", \"PROCESSOS POR RESPONSÁVEL\": \"CASOS POR RESPONSÁVEL\", \"Processos por responsável\": \"Casos por responsável\", \"Processos por equipe responsável\": \"Casos por equipe responsável\", \"PROCESSO\": \"CASO\", \"Processos movimentados no mês\": \"Casos movimentados no mês\", \"PROCESSOS COM VALOR INFORMADO\": \"CASOS COM VALOR INFORMADO\", \"Sem processo vinculado\": \"Sem caso vinculado\" };\nfunction rotuloDeCaso(t) {\n  if (Object.prototype.hasOwnProperty.call(ROTULOS_CASO, t)) return ROTULOS_CASO[t];\n  if (/^\\d+ processos? · /.test(t)) return t.replace(/^(\\d+) processos? · /, function (m, n) { return n + (n === \"1\" ? \" caso · \" : \" casos · \"); });\n  return t.indexOf(\"Fatos materialmente relevantes do período, agrupados por processo.\") === 0 ? t.replace(\"agrupados por processo\", \"agrupados por caso\") : t;\n}\n\n// Nome do cliente para cabeçalho e rodapé: uma linha, sem texto de ficha grudado."
+ },
+ {
+  "id": "P43-rotulo-tela-casos",
+  "motivo": "Na tela de resultado, 'processos analisados' vira 'casos analisados' quando a base é de casos.",
+  "de": "statusRight.textContent = \"Gerado em \" + agora + \" · \" + numberFmt(data.total_processos) + \" processos analisados\";",
+  "para": "statusRight.textContent = \"Gerado em \" + agora + \" · \" + numberFmt(data.total_processos) + (window.NGA_BASE_CASOS ? \" casos analisados\" : \" processos analisados\");"
  }
 ]
