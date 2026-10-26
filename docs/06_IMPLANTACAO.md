@@ -65,3 +65,9 @@ Estrutura preparada para que o Lovable sincronize **todo o código-fonte editáv
 - Sem cabeçalhos HTTP no Lovable: a CSP vai por `<meta>` e a casca tem proteção de moldura por JavaScript (testados).
 Passos: (1) no Report Weaver, *Settings > Git > GitHub* e autorizar (cria o repositório do Lovable); (2) `git remote add lovable <url do repositório criado>` e `git push lovable main --force-with-lease` (o Lovable importa os commits que chegam à branch sincronizada); (3) publicar no Lovable; (4) rodar a checklist da seção 4 na URL `*.lovable.app`.
 **Se o Lovable não aceitar essa estrutura** (por exemplo, não rodar `vite build` apontando para a raiz do repositório), a alternativa é o **Cloudflare Pages** (seção 3), sem descartar o projeto Lovable.
+
+## Pausa automática do Supabase gratuito (ocorrida em 26/10/2026)
+- O plano gratuito pausa o projeto após cerca de 1 semana sem uso; pausado, o endereço do banco deixa de existir e o login do site falha. Aconteceu com `nga-gerador-sp`; os dados voltaram intactos ao retomar (41 clientes, 28 emissões, 1 administrador).
+- Retomar: painel do Supabase > projeto > "Resume project" (gratuito). O banco leva alguns minutos para responder.
+- Prevenção: a rotina `.github/workflows/manter-ativo.yml` consulta o banco a cada 3 dias e falha (com e-mail do GitHub) se ele estiver pausado ou fora do ar. Só o plano Pro elimina o risco de vez.
+- Origens aceitas pela função `gerenciar-usuarios`: segredo `ALLOWED_ORIGINS` (relatoriosnga.lovable.app e report-loom-forge.lovable.app).
