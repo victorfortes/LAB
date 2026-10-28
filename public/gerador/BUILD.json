@@ -1,6 +1,6 @@
 {
  "original_sha256": "2d6fab8aa87d4233aa7e3564009dd89adb520108737c30ee4c9dae06b085d8a9",
- "pagina_gerador_sha256": "70f08fbfd48535bee49ec396f27a56070acf08c7528e495432a6ffbd12cdeb33",
+ "pagina_gerador_sha256": "daa621103885c6cbd7326219ef07cebdb86f7cfd825a7ad59cbde26f896f5cce",
  "patches": [
   {
    "patch": "P1-fontes-locais",
@@ -261,6 +261,102 @@
   {
    "patch": "P43-rotulo-tela-casos",
    "motivo": "Na tela de resultado, 'processos analisados' vira 'casos analisados' quando a base é de casos."
+  },
+  {
+   "patch": "P44-ficha-sem-numero",
+   "motivo": "Reconhece 'Ficha do processo' sem número (processo sem CNJ): antes ela era absorvida pela ficha anterior e seus registros iam para o processo errado."
+  },
+  {
+   "patch": "P44b-registrar-ficha",
+   "motivo": "Cada ficha lida é registrada (tipo de cabeçalho, contador n/N, chave do processo sem número, valor da causa nos dois layouts)."
+  },
+  {
+   "patch": "P44c-registro-com-ficha",
+   "motivo": "Cada registro guarda de qual ficha veio (permite contar fichas movimentadas e conferir com o texto bruto)."
+  },
+  {
+   "patch": "P45-funcoes-de-ficha",
+   "motivo": "Funções de leitura de ficha, valor da causa e conferência do contador n/N."
+  },
+  {
+   "patch": "P46-assinatura-casos",
+   "motivo": "calcularIndicadores recebe também os casos extrajudiciais (fichas do caso)."
+  },
+  {
+   "patch": "P46b-chamada-casos",
+   "motivo": "Passa os casos ao cálculo."
+  },
+  {
+   "patch": "P47-equipes-por-processo",
+   "motivo": "Equipe e advogado são contados por processo (CNJ distinto + sem número), não por ficha."
+  },
+  {
+   "patch": "P47b-totais-e-movimentados",
+   "motivo": "Movimentados contam processos (CNJ), processos sem número e casos extrajudiciais com registro no mês; fichas movimentadas à parte."
+  },
+  {
+   "patch": "P47c-ativos",
+   "motivo": "Processos ativos: STATUS 'Ativo' e FASE diferente de ARQUIVADO; n/d quando não dá para calcular."
+  },
+  {
+   "patch": "P47d-valor-por-cnj",
+   "motivo": "Valor total das causas: uma vez por CNJ (o maior valor entre as fichas do mesmo CNJ)."
+  },
+  {
+   "patch": "P47e-eventos-com-audiencia",
+   "motivo": "Eventos nas barras por tipo incluem audiências realizadas (antes ficavam fora de qualquer barra e a soma não fechava)."
+  },
+  {
+   "patch": "P47f-media-mesmo-numerador",
+   "motivo": "Registros por processo = registros do cartão 'Registros no Astrea' dividido pelos processos movimentados do cartão ao lado."
+  },
+  {
+   "patch": "P47g-detalhe-movimentados",
+   "motivo": "Detalhe dos movimentados (processos, sem número, casos, fichas)."
+  },
+  {
+   "patch": "P47h-equipes-denominador",
+   "motivo": "Percentual por equipe/advogado sobre os processos contados (CNJ + sem número)."
+  },
+  {
+   "patch": "P47i-silenciosos",
+   "motivo": "Processos silenciosos = processos (CNJ) sem registro no mês."
+  },
+  {
+   "patch": "P47j-avisos-metricas",
+   "motivo": "Confere se a soma das barras por tipo fecha com o total de registros e se a média usa o mesmo numerador e denominador exibidos; registra aviso."
+  },
+  {
+   "patch": "P48-cartao-nd",
+   "motivo": "Cartão de indicador aceita texto (n/d) em vez de número."
+  },
+  {
+   "patch": "P48b-ativos-nd",
+   "motivo": "Processos ativos mostram n/d (nunca 0) quando o critério não pode ser calculado."
+  },
+  {
+   "patch": "P48c-nota-carteira-chamada",
+   "motivo": "Nota discreta sob o subtítulo de 'O mês em números'."
+  },
+  {
+   "patch": "P48d-nota-carteira",
+   "motivo": "Nota com a composição dos movimentados (processos, sem número, casos, fichas), a carteira (fichas e arquivadas) e os registros espelhados."
+  },
+  {
+   "patch": "P49-tela-ativos-nd",
+   "motivo": "Na tela, processos ativos mostram n/d quando não dá para calcular."
+  },
+  {
+   "patch": "P50-diagnostico-na-tela",
+   "motivo": "Bloco de diagnóstico (fora do PDF): fichas lidas por tipo de cabeçalho, páginas esperadas e avisos."
+  },
+  {
+   "patch": "P51-auditoria",
+   "motivo": "Auditoria independente: recalcula as métricas do texto bruto do PDF e compara com o motor a cada geração; bloqueia (com opção consciente de seguir) se houver diferença."
+  },
+  {
+   "patch": "P51b-auditoria-chamada",
+   "motivo": "Executa a auditoria em toda geração, logo depois do cálculo."
   },
   {
    "patch": "P7-csp-meta",

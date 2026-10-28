@@ -70,3 +70,10 @@ Controle acrescentado: renderizar os **mesmos bytes** duas vezes no mesmo navega
 
 ### Pacote Lovable
 `npm run build` (Node) e `vite build` geram o mesmo `dist/` que o build Python (paridade byte a byte verificada). Suíte e2e executada contra esse `dist` simulando hospedagem sem cabeçalhos HTTP.
+
+## Fichas, métricas e auditoria (28/10/2026)
+- `tests/e2e/fichas-e-metricas.spec.mjs`: fixture sintético com os três cabeçalhos, R$ depois e antes do rótulo, CNJ repetido, sem número, caso e contador n/N; aviso de ficha não reconhecida; bloqueio pela auditoria; e regressão com o bruto REAL do Deville (só local, `NGA_DEVILLE_PDF`; dado de cliente não vai ao repositório).
+- Auditoria conferida contra 19 combinações arquivo × mês dos brutos reais disponíveis (Deville, Grupo NB, Pauli e a carteira Trans Mosa): zero diferenças.
+- **Deville, outubro/2026, o que o arquivo realmente dá:** 70 fichas (64 numeradas, 3 sem número, 3 casos; o rodapé diz 70/70), 56 CNJ distintos, 47 registros (25 tarefas, 7 prazos, 10 andamentos, 5 históricos), 14 fichas movimentadas (11 processos, 1 sem número, 2 casos), 33 atividades do escritório, 44 processos ativos (18 fichas arquivadas), valor R$ 5.374.341,44. Os valores esperados informados (69 fichas, 55 CNJ, 46 registros, 13 movimentadas) são exatamente os nossos menos a ficha 1/70 (0839557-40.2026.8.12.0001, 1 tarefa de 27/10/2026), que existe no PDF.
+- Canet e Charlotte: PDFs de outubro/2026 não estavam disponíveis; a regressão deles fica pendente.
+

@@ -1825,6 +1825,9 @@ function findProcess(lines) {
     const m = PROCESS_RE.exec(text);
     if (m) return [i, m[1].replace(/\s+/g, "")];
   }
+  for (let i = 0; i < lines.length; i++) {   // "Ficha do processo   51/70": processo sem número (CNJ)
+    if (/^Ficha\s+do\s+processo\s+\d+\s*\/\s*\d+\s*$/i.test(lineText(lines[i]).trim())) return [i, "\u00a7SN"];
+  }
   return [-1, null];
 }
 
@@ -1907,6 +1910,7 @@ function finishActivity(activity, process, result) {
       tipo: activityType,
       _pagina: activity.page,
       _primeiraDaPagina: !!activity.primeiraDaPagina,
+      ficha: process && process._ficha != null ? process._ficha : null,
     };
     if (process && process.administrativo) {
       result.atividadesAdministrativas.push(Object.assign({}, registro, { numero_processo: null, caso: process.titulo, caso_idx: process._idx, administrativo: true }));
@@ -2013,9 +2017,66 @@ function detectarFichaDoCaso(lines) {
     const bloco = lines.slice(i, fim).map(lineText).join(" ").replace(/\s+/g, " ");
     const outros = "CLIENTE|T[ÍI]TULO|OBJETO|ENVOLVIDOS|ADVOGADO|CRIADO EM|VALOR DA CAUSA|VALOR DA CONDENA[ÇC][ÃA]O|STATUS|PASTA|EQUIPE|FASE|SJ";
     const campo = (rot) => { const m = new RegExp(rot + "\\s*:\\s*(.*?)(?=\\s+(?:" + outros + ")\\s*:|$)", "i").exec(bloco); return m ? m[1].trim() : null; };
-    return { cliente: campo("CLIENTE"), titulo: campo("T[ÍI]TULO"), objeto: campo("OBJETO"), advogado: campo("ADVOGADO"), criado_em: campo("CRIADO EM"), valor_causa: valorDoBloco(bloco, /VALOR DA CAUSA\s*:\s*(R\$\s*[\d.]+,\d{2})/i), valor_condenacao: valorDoBloco(bloco, /CONDENA[ÇC][ÃA]O\s*:\s*(R\$\s*[\d.]+,\d{2})/i) || valorDoBloco(bloco, /(R\$\s*[\d.]+,\d{2})\s+CONDENA[ÇC][ÃA]O/i), status: campo("STATUS") };
+    return { cliente: limparCampoDaFicha(campo("CLIENTE")), titulo: limparCampoDaFicha(campo("T[ÍI]TULO")), objeto: limparCampoDaFicha(campo("OBJETO")), advogado: (limparCampoDaFicha(campo("ADVOGADO")) || "").replace(/\s+\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}.*$/, "") || null, criado_em: limparCampoDaFicha(campo("CRIADO EM")), valor_causa: valorDoBloco(bloco, /VALOR DA CAUSA\s*:\s*(R\$\s*[\d.]+,\d{2})/i), valor_condenacao: valorDoBloco(bloco, /CONDENA[ÇC][ÃA]O\s*:\s*(R\$\s*[\d.]+,\d{2})/i) || valorDoBloco(bloco, /(R\$\s*[\d.]+,\d{2})\s+CONDENA[ÇC][ÃA]O/i), status: (/^(?:Ativo|Inativo|Arquivad[oa]|Encerrad[oa]|Suspens[oa])(?:\s+\d+º\s+Grau)?/i.exec(limparCampoDaFicha(campo("STATUS")) || "") || [limparCampoDaFicha(campo("STATUS"))])[0] };
   }
   return null;
+}
+
+function valorCausaDoBloco(linhas) {   // "VALOR DA CAUSA" com o R$ depois, antes (mesma linha) ou na linha acima do rótulo
+  var t = linhas.map(function (l) { return lineText(l).replace(/\s+/g, " ").trim(); }), RS = "(R\\$\\s*[\\d.]+,\\d{2})";
+  for (var i = 0; i < t.length; i++) {
+    if (!/VALOR\s+DA\s+CAUSA/i.test(t[i])) continue;
+    var m = new RegExp("VALOR\\s+DA\\s+CAUSA\\s*:?\\s*" + RS, "i").exec(t[i]) || new RegExp(RS + "\\s+VALOR\\s+DA\\s+CAUSA", "i").exec(t[i]);
+    if (m) return m[1].replace(/\s+/g, " ");
+    var acima = i > 0 ? new RegExp("^" + RS + "$").exec(t[i - 1]) : null;
+    if (acima) return acima[1].replace(/\s+/g, " ");
+  }
+  return null;
+}
+// Em fichas com título longo as colunas se misturam no texto: tira rótulo solto ("VALOR DA R$ 0,00 ... CONDENAÇÃO:") e contador de página.
+function limparCampoDaFicha(t) {
+  if (t == null) return t;
+  return String(t).replace(/\s*VALOR\s+DA\s+R\$\s*[\d.]+,\d{2}\s*/gi, " ").replace(/\s*CONDENA[ÇC][ÃA]O\s*:?/gi, " ").replace(/\s+\d{1,4}\s*\/\s*\d{1,4}\s*$/, "").replace(/\s+/g, " ").trim();
+}
+function diagnosticoFichas(result) {
+  return result.diagnostico || (result.diagnostico = { numeradas: 0, sem_numero: 0, casos: 0, contadores: [], paginas_pdf: null, esperadas: null, lidas: 0, avisos: [] });
+}
+function contadorDaFicha(linha) { var c = /(\d+)\s*\/\s*(\d+)\s*$/.exec(lineText(linha).replace(/\s+/g, " ").trim()); return c ? { n: +c[1], N: +c[2] } : { n: null, N: null }; }
+function registrarFicha(result, linhas, proc, semNumero) {
+  var d = diagnosticoFichas(result);
+  d.contadores.push(contadorDaFicha(linhas[0]));
+  proc._ficha = d.contadores.length - 1;
+  if (semNumero) {
+    proc.sem_numero = true; d.sem_numero++;
+    var base = "Sem nº · pasta " + (proc.pasta || ("ficha " + (d.contadores[proc._ficha].n || (proc._ficha + 1)))), chave = base, k = 2;
+    while (result.processos.some(function (p) { return p !== proc && p.numero_processo === chave; })) chave = base + " (" + (k++) + ")";
+    proc.numero_processo = chave;
+  } else d.numeradas++;
+  proc.status = limparCampoDaFicha(proc.status); proc.fase = limparCampoDaFicha(proc.fase);
+  var txt = linhas.map(function (l) { return lineText(l).replace(/\s+/g, " ").trim(); }).join(" ");   // STATUS e FASE também pelo texto, quando a leitura por coluna não os pegou
+  if (!proc.status) { var ms = /STATUS\s*:\s*(Ativo|Inativo|Arquivad\w+|Encerrad\w+|Suspens\w+)(?:\s+(?:\d+º\s+Grau|Superior))?/i.exec(txt) || /(Ativo|Inativo|Arquivad\w+|Encerrad\w+|Suspens\w+)(?:\s+(?:\d+º\s+Grau|Superior))?\s+STATUS\s*:/i.exec(txt); if (ms) proc.status = ms[0].replace(/^STATUS\s*:\s*/i, "").replace(/\s+STATUS\s*:$/i, "").trim(); }
+  if (!proc.fase) { var mf = /FASE\s*:\s*(.+?)(?:\s+SJ\s*:|$)/.exec(txt); if (mf) proc.fase = limparCampoDaFicha(mf[1]); }
+  var v = valorCausaDoBloco(linhas);
+  if (v && !/^R\$\s*[\d.]+,\d{2}$/.test(String(proc.valor_causa || "").trim())) proc.valor_causa = v;
+}
+function registrarCaso(result, lines, caso) {
+  var d = diagnosticoFichas(result), i = lines.findIndex(function (l) { return /\bFicha do caso\b/i.test(lineText(l)); });
+  d.contadores.push(i >= 0 ? contadorDaFicha(lines[i]) : { n: null, N: null });
+  caso._ficha = d.contadores.length - 1; d.casos++;
+}
+// Conferência: o número de fichas lidas tem de ser igual ao N do contador "n/N" que o Astrea imprime em cada ficha.
+function conferirFichas(result, pdfDoc) {
+  var d = diagnosticoFichas(result);
+  d.paginas_pdf = pdfDoc.numPages; d.lidas = d.numeradas + d.sem_numero + d.casos;
+  var Ns = d.contadores.map(function (c) { return c.N; }).filter(Boolean);
+  d.esperadas = Ns.length ? Math.max.apply(null, Ns) : null;
+  if (d.esperadas != null && d.lidas !== d.esperadas) {
+    var vistos = {}; d.contadores.forEach(function (c) { if (c.n) vistos[c.n] = 1; });
+    var faltam = []; for (var n = 1; n <= d.esperadas; n++) if (!vistos[n]) faltam.push(n);
+    d.avisos.push("Fichas lidas: " + d.lidas + "; o rodapé do Astrea indica " + d.esperadas + (faltam.length ? " (ficha(s) " + faltam.slice(0, 8).join(", ") + " não reconhecida(s))" : "") + ". Confira o relatório.");
+  }
+  result.avisos = (result.avisos || []).concat(d.avisos);
+  if (typeof console !== "undefined") { if (d.avisos.length) console.warn("[NGA] " + d.avisos.join(" ")); else console.info("[NGA] fichas lidas: " + d.numeradas + " numeradas, " + d.sem_numero + " sem número, " + d.casos + " caso(s) = " + d.lidas + " de " + d.esperadas + " esperadas; páginas do PDF: " + d.paginas_pdf); }
 }
 
 async function parseAstreaPDF(pdfDoc) {
@@ -2064,12 +2125,14 @@ async function parseAstreaPDF(pdfDoc) {
       const hEnd = headerEnd(lines, titleIndex);
       parseSummary(lines.slice(titleIndex + 1, hEnd), current);
       parseHeaderFields(lines.slice(titleIndex + 1, hEnd), current, pageWidth);
+      registrarFicha(result, lines.slice(titleIndex, hEnd), current, number === "\u00a7SN");
     }
     const fichaCaso = number ? null : detectarFichaDoCaso(lines);
     if (fichaCaso) {
       if (activity && current) { finishActivity(activity, current, result); activity = null; }
       if (tarefa && current) { finishTarefaFutura(tarefa, current, result); tarefa = null; }
       current = Object.assign({ administrativo: true, numero_processo: null, _idx: result.casosAdministrativos.length }, fichaCaso);
+      registrarCaso(result, lines, current);
       result.casosAdministrativos.push(current);
       historyActive = false;
       tarefasActive = false;
@@ -2140,8 +2203,132 @@ async function parseAstreaPDF(pdfDoc) {
   }
   if (activity && current) finishActivity(activity, current, result);
   if (tarefa && current) finishTarefaFutura(tarefa, current, result);
+  conferirFichas(result, pdfDoc);
   converterCasosEmUnidades(result);
   return result;
+}
+
+// ---------------------------------------------------------------------------
+// AUDITORIA  ·  recalcula as métricas direto do texto bruto do PDF, por um caminho independente do leitor principal
+// (sem colunas por posição: só linhas de texto e expressões regulares), e compara com o que o motor calculou.
+// Base de comparação dos registros: DATA DE LANÇAMENTO no Astrea (a data narrada no texto só desloca o período do relatório).
+async function linhasBrutasDoPdf(pdfDoc) {
+  var out = [];
+  for (var pg = 1; pg <= pdfDoc.numPages; pg++) {
+    var tc = await (await pdfDoc.getPage(pg)).getTextContent(), itens = tc.items.filter(function (i) { return i.str && i.str.trim(); })
+      .map(function (i) { return { x: i.transform[4], y: i.transform[5], s: i.str }; }).sort(function (a, b) { return (b.y - a.y) || (a.x - b.x); });
+    var atual = null;
+    itens.forEach(function (it) {
+      if (atual && Math.abs(atual.y - it.y) <= 2.5) { atual.s += " " + it.s; }
+      else { atual = { y: it.y, s: it.s }; out.push(atual); }
+    });
+  }
+  return out.map(function (l) { return l.s.replace(/\s+/g, " ").trim(); });
+}
+function auditoriaDataBR(s) { var m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(s); return m ? Date.UTC(+m[3], +m[2] - 1, +m[1]) : null; }
+var AUD_TIPOS = [["Tarefa realizada", /Tarefa\s+realizada/i], ["Prazo realizado", /Prazo\s+realizado/i], ["Evento realizado", /Evento\s+realizado/i], ["Audiência realizada", /Audi[eê]ncia\s+realizada/i], ["Histórico manual", /Hist[oó]rico\s+manual/i], ["Andamento", /Andamento/i]];
+// O tipo (coluna da direita) pode vir numa linha só ("Tarefa realizada") ou em duas ("Histórico" ... "manual"), no fim das linhas.
+var AUD_PARES = [["Tarefa realizada", /Tarefa$/i, /realizada$/i], ["Prazo realizado", /Prazo$/i, /realizado$/i], ["Evento realizado", /Evento$/i, /realizado$/i], ["Audiência realizada", /Audi[eê]ncia$/i, /realizada$/i], ["Histórico manual", /Hist[oó]rico$/i, /manual$/i]];
+function auditoriaTipoDoRegistro(L) {
+  for (var i = 0; i < L.length; i++) {
+    for (var k = 0; k < AUD_TIPOS.length - 1; k++) if (new RegExp(AUD_TIPOS[k][1].source + "$", "i").test(L[i])) return AUD_TIPOS[k][0];
+    for (var p = 0; p < AUD_PARES.length; p++) {
+      if (!AUD_PARES[p][1].test(L[i])) continue;
+      for (var j = i + 1; j < Math.min(i + 4, L.length); j++) if (AUD_PARES[p][2].test(L[j])) return AUD_PARES[p][0];
+    }
+    if (/(^|\s)Andamento$/i.test(L[i])) return "Andamento";
+  }
+  return null;
+}
+async function auditoriaTextoBruto(pdfDoc, extraido, calculo, inicio, fim) {
+  var linhas = await linhasBrutasDoPdf(pdfDoc), fichas = [], atual = null, secao = null;
+  var H = /^Ficha do (processo|caso)\b(?:\s*-\s*N[ºo°]?\s*(.+?))?\s+(\d+)\s*\/\s*(\d+)$/i;
+  linhas.forEach(function (l) {
+    var m = H.exec(l);
+    if (m) { atual = { tipo: m[1].toLowerCase(), cnj: m[2] ? m[2].replace(/\s+/g, "") : null, n: +m[3], N: +m[4], cab: [], regs: [], todas: [] }; fichas.push(atual); secao = "cab"; return; }
+    if (!atual) return;
+    atual.todas.push(l);
+    if (/^Hist[oó]rico\b/i.test(l)) { secao = "hist"; return; }
+    if (/^Atividades a concluir/i.test(l)) { secao = "fut"; return; }
+    if (secao === "cab") { atual.cab.push(l); return; }
+    if (secao !== "hist") return;
+    if (/^DATA\s+DESCRI/i.test(l) || /^\d{2}\/\d{2}\/\d{4},\s*\d{1,2}:\d{2}\s+Astrea/i.test(l) || /^https?:\/\/(?:app\.)?astrea\.net\.br/i.test(l)) return;
+    var r = /^(\d{2}\/\d{2}\/\d{4})\s+(?!\d{1,2}:\d{2}(?::\d{2})?\b)/.exec(l);
+    if (r) atual.regs.push({ data: r[1], linhas: [l] }); else if (atual.regs.length) atual.regs[atual.regs.length - 1].linhas.push(l);
+  });
+  var ini = inicio.getTime(), fi = fim.getTime(), RS = /R\$\s*[\d.]+,\d{2}/g, num = function (s) { return Number(s.replace(/[^0-9,]/g, "").replace(",", ".")); };
+  var res = { fichas: { processo: 0, sem_numero: 0, caso: 0 }, registros: 0, porTipo: {}, semTipo: 0, fichasMov: {}, unidades: {}, porDia: {}, valor: 0, ativos: 0, temStatus: false };
+  var grupos = {}, snValor = 0, casoValor = 0, snAtivos = 0, detalhe = [];
+  fichas.forEach(function (f, idx) {
+    var cabTxt = f.cab.join(" "), todoTxt = f.todas.join(" ");
+    if (f.tipo === "caso") res.fichas.caso++; else if (f.cnj) res.fichas.processo++; else res.fichas.sem_numero++;
+    // valor da causa: o R$ mais próximo do rótulo, sem cruzar o rótulo da condenação
+    var ix = cabTxt.search(/VALOR\s+DA\s+CAUSA/i), valor = 0;
+    if (ix >= 0) {
+      var lab = /VALOR\s+DA\s+CAUSA\s*:?/i.exec(cabTxt), fimLab = ix + lab[0].length, depois = cabTxt.slice(fimLab), antes = cabTxt.slice(0, ix);
+      var a = RS.exec(depois); RS.lastIndex = 0; var b = null, mm; while ((mm = RS.exec(antes))) b = mm; RS.lastIndex = 0;
+      var dA = a && !/CONDENA/i.test(depois.slice(0, a.index)) ? a.index : Infinity, dB = b ? antes.length - (b.index + b[0].length) : Infinity;
+      if (dA < Infinity || dB < Infinity) valor = dA <= dB ? num(a[0]) : num(b[0]);
+    }
+    var st = /STATUS:\s*(Ativo|Inativo|Arquivad\w+|Encerrad\w+|Suspens\w+)/i.exec(todoTxt) || /(Ativo|Inativo|Arquivad\w+|Encerrad\w+|Suspens\w+)(?:\s+\d+º\s+Grau)?\s+STATUS:/i.exec(todoTxt) || /\b(Ativo|Inativo|Arquivad\w+|Encerrad\w+|Suspens\w+)\s+(?:\d+º\s+Grau|Superior)\b/i.exec(todoTxt), fase = /FASE:\s*(.+?)(?:\s+SJ:|$)/.exec(todoTxt);
+    var ativa = !!st && /^ativo/i.test(st[1]) && !/^ARQUIVAD/i.test(fase ? fase[1].trim().normalize("NFD").replace(/[̀-ͯ]/g, "").toUpperCase() : "");
+    if (st) res.temStatus = true;
+    detalhe.push({ idx: idx, cnj: f.cnj, tipo: f.tipo, ativa: ativa, status: st ? st[1] : null, fase: fase ? fase[1].trim() : null, valor: valor });
+    if (f.tipo === "caso" && extraido.baseCasos) grupos["caso|" + idx] = { v: valor, a: ativa };
+    else if (f.tipo === "caso") casoValor += valor;
+    else if (f.cnj) { var g = grupos[f.cnj] || (grupos[f.cnj] = { v: 0, a: false }); g.v = Math.max(g.v, valor); g.a = g.a || ativa; }
+    else { snValor += valor; if (ativa) snAtivos++; }
+    f.regs.forEach(function (r) {
+      var ts = auditoriaDataBR(r.data); if (ts == null || ts < ini || ts > fi) return;
+      var tipo = auditoriaTipoDoRegistro(r.linhas);
+      res.registros++; if (tipo) res.porTipo[tipo] = (res.porTipo[tipo] || 0) + 1; else res.semTipo++;
+      res.fichasMov[idx] = true; res.unidades[f.tipo === "caso" ? "caso|" + idx : (f.cnj || "sn|" + idx)] = true; res.porDia[r.data] = (res.porDia[r.data] || 0) + 1;
+    });
+  });
+  var cnjs = Object.keys(grupos);
+  res.valor = cnjs.reduce(function (s, k) { return s + grupos[k].v; }, 0) + snValor + casoValor;
+  res.ativos = cnjs.filter(function (k) { return grupos[k].a; }).length + snAtivos;
+  res.cnj = cnjs.length;
+
+  // ---- lado do motor (mesma base: data de lançamento)
+  var ind = calculo.indicadores, todas = calculo.todasClassificadas || [], porProc = {};
+  (extraido.processos || []).forEach(function (p) { porProc[p.numero_processo] = p; });
+  var emPer = todas.filter(function (a) { return a._tsReg >= ini && a._tsReg <= fi; });
+  var extrasNaoLidos = (extraido.naoClassificados || []).filter(function (x) { var t = auditoriaDataBR(x.data); return t != null && t >= ini && t <= fi; });
+  var reimp = (extraido.reimpressoes || []).filter(function (x) { var t = auditoriaDataBR(x.data); return t != null && t >= ini && t <= fi; });
+  var mot = { registros: emPer.length + extrasNaoLidos.length + reimp.length, porTipo: {}, fichasMov: {}, unidades: {}, porDia: {} };
+  var tipoCanon = function (t) { var n = String(t || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase(); for (var i = 0; i < AUD_TIPOS.length; i++) if (AUD_TIPOS[i][1].test(n) || AUD_TIPOS[i][1].test(t)) return AUD_TIPOS[i][0]; return String(t); };
+  emPer.concat(reimp).forEach(function (a) { var t = tipoCanon(a.tipo); mot.porTipo[t] = (mot.porTipo[t] || 0) + 1; });
+  emPer.forEach(function (a) { var u = unidadeDe(a, porProc); mot.unidades[u.tipo + "|" + u.chave] = true; if (a.ficha != null) mot.fichasMov[a.ficha] = true; mot.porDia[a.data] = (mot.porDia[a.data] || 0) + 1; });
+  reimp.forEach(function (a) { mot.porDia[a.data] = (mot.porDia[a.data] || 0) + 1; });
+  extrasNaoLidos.forEach(function (a) { mot.porDia[a.data] = (mot.porDia[a.data] || 0) + 1; });
+
+  var dif = [], fm = function (n) { return String(Math.round(n * 100) / 100).replace(".", ","); };
+  var cmp = function (rot, bruto, motor) { if (bruto !== motor) dif.push(rot + ": texto bruto " + fm(bruto) + " × relatório " + fm(motor)); };
+  var dg = extraido.diagnostico || {};
+  cmp("fichas com número", res.fichas.processo, dg.numeradas || 0); cmp("fichas sem número", res.fichas.sem_numero, dg.sem_numero || 0); cmp("fichas de caso", res.fichas.caso, dg.casos || 0);
+  cmp("registros no período (por data de lançamento)", res.registros, mot.registros);
+  AUD_TIPOS.forEach(function (t) { cmp("registros do tipo " + t[0], res.porTipo[t[0]] || 0, mot.porTipo[t[0]] || 0); });
+  cmp("fichas movimentadas", Object.keys(res.fichasMov).length, Object.keys(mot.fichasMov).length);
+  cmp("itens movimentados (processos + sem número + casos)", Object.keys(res.unidades).length, Object.keys(mot.unidades).length);
+  var dias = {}; Object.keys(res.porDia).concat(Object.keys(mot.porDia)).forEach(function (d) { dias[d] = 1; });
+  var difDias = Object.keys(dias).filter(function (d) { return (res.porDia[d] || 0) !== (mot.porDia[d] || 0); });
+  if (difDias.length) dif.push("atividades por dia: diferem em " + difDias.sort().slice(0, 6).join(", ") + (difDias.length > 6 ? "…" : ""));
+  cmp("valor total das causas", Math.round(res.valor * 100) / 100, Math.round(ind.valor_total_causa * 100) / 100);
+  if (ind.processos_ativos != null) cmp("processos ativos", res.ativos, ind.processos_ativos);
+  cmp("processos (CNJ distintos)", res.cnj, ind.total_processos);
+  return { detalhe: detalhe, diferencas: dif, independente: { fichas: res.fichas, registros: res.registros, porTipo: res.porTipo, fichasMovimentadas: Object.keys(res.fichasMov).length, itensMovimentados: Object.keys(res.unidades).length, valorTotal: res.valor, ativos: res.ativos, cnjDistintos: res.cnj, registrosSemTipo: res.semTipo }, motor: { registros: mot.registros, porTipo: mot.porTipo } };
+}
+async function auditarGeracao(pdfDoc, extraido, calculo, inicio, fim) {
+  var aud = await auditoriaTextoBruto(pdfDoc, extraido, calculo, inicio, fim);
+  window.NGA_DIAGNOSTICO = { fichas: extraido.diagnostico || null, auditoria: aud };
+  extraido.auditoria = aud;
+  if (typeof console !== "undefined") console.info("[NGA] auditoria do texto bruto:", aud.diferencas.length ? aud.diferencas : "sem diferenças", aud.independente);
+  if (aud.diferencas.length) {
+    var msg = "A auditoria recalculou as métricas direto do texto do PDF e encontrou diferenças:\n- " + aud.diferencas.join("\n- ");
+    var seguir = typeof window.confirm === "function" && window.confirm(msg + "\n\nOK = gerar mesmo assim, por sua conta e risco.\nCancelar = bloquear a geração do PDF.");
+    if (!seguir) throw new Error("Geração bloqueada pela auditoria. Diferenças: " + aud.diferencas.join(" | "));
+  }
 }
 
 if (typeof module !== "undefined") {
@@ -2767,7 +2954,41 @@ function marcarDuplicidades(todas) {
   return { removidas: removidas, possiveis: possiveis };
 }
 
-function calcularIndicadores(processos, atividades, inicio, fim, regrasUsuario, administrativas) {
+// ---------------------------------------------------------------------------
+// CARTEIRA  ·  como o relatório conta processos, fichas e casos
+//  - Ficha = uma ficha do Astrea (pastas diferentes, como 003325 e 003325.01, são fichas diferentes do mesmo CNJ).
+//  - Processo = CNJ distinto. Fichas do mesmo CNJ contam uma vez; o valor da causa é o MAIOR entre as fichas do grupo.
+//  - Processo sem número (ficha sem CNJ) e caso extrajudicial ("Ficha do caso") são itens à parte, com rótulo próprio.
+//  - Ativo = STATUS começando em "Ativo" e FASE diferente de ARQUIVADO (processo com ao menos uma ficha ativa). Sem STATUS em nenhuma ficha: n/d.
+function montarCarteira(processos, casos) {
+  var P = processos || [], C = casos || [], grupos = {}, ordem = [], semNum = [];
+  var vb = function (v) { try { return valorBRL(v); } catch (e) { return 0; } };
+  P.forEach(function (p) {
+    if (p.sem_numero) { semNum.push(p); return; }
+    if (!grupos[p.numero_processo]) { grupos[p.numero_processo] = []; ordem.push(p.numero_processo); }
+    grupos[p.numero_processo].push(p);
+  });
+  var arquivada = function (p) { return /^ARQUIVAD/.test(NUCLEO.nrm(p.fase)); };
+  var ativa = function (p) { return NUCLEO.nrm(p.status).indexOf("ATIVO") === 0 && !arquivada(p); };
+  var cnj = ordem.map(function (k) { return grupos[k]; });
+  var maior = function (g) { return Math.max.apply(null, g.map(function (p) { return vb(p.valor_causa); }).concat([0])); };
+  var temStatus = P.some(function (p) { return p.status; });
+  return {
+    fichas_processo: P.length, fichas_total: P.length + C.length, cnj_distintos: ordem.length, sem_numero: semNum.length, casos: C.length,
+    arquivadas: P.filter(arquivada).length,
+    ativos: temStatus ? cnj.filter(function (g) { return g.some(ativa); }).length + semNum.filter(ativa).length : null,
+    valor_total: cnj.reduce(function (s, g) { return s + maior(g); }, 0) + semNum.reduce(function (s, p) { return s + vb(p.valor_causa); }, 0) + C.reduce(function (s, c) { return s + vb(c.valor_causa); }, 0),
+    unicos: cnj.map(function (g) { return g[0]; }).concat(semNum),
+  };
+}
+function unidadeDe(a, porProc) {
+  if (a.administrativo) return { tipo: "caso", chave: String(a.caso_idx != null ? a.caso_idx : (a.caso || "")) };
+  var p = porProc[a.numero_processo];
+  return { tipo: p && p.sem_numero ? "sem_numero" : "cnj", chave: a.numero_processo };
+}
+function somaTipos(tipos, re) { var s = 0; Object.keys(tipos).forEach(function (k) { if (re.test(NUCLEO.nrm(k))) s += tipos[k]; }); return s; }
+
+function calcularIndicadores(processos, atividades, inicio, fim, regrasUsuario, administrativas, casos) {
   if (inicio > fim) throw new Error("A data inicial não pode ser posterior à data final.");
   var porProc = {};
   (processos || []).forEach(function (p) { porProc[p.numero_processo] = p; });
@@ -2857,7 +3078,8 @@ function calcularIndicadores(processos, atividades, inicio, fim, regrasUsuario, 
   var restantes = filtradas.length - atuacao.length - andamentos.length - histCopia.length - histInformativos.length - revisar.length - duplicadas.length;
 
   var equipes = {}, advogados = {};
-  (processos || []).forEach(function (p) {
+  var carteira = montarCarteira(processos, casos);
+  carteira.unicos.forEach(function (p) {
     var eq = p.equipe || "Não informado", adv = p.advogado || "Não informado";
     equipes[eq] = (equipes[eq] || 0) + 1;
     advogados[adv] = (advogados[adv] || 0) + 1;
@@ -2888,9 +3110,12 @@ function calcularIndicadores(processos, atividades, inicio, fim, regrasUsuario, 
     return arr.length >= 8 && Object.keys(procs).length >= 4;
   }).map(function (d) { return { data: d, quantidade: porDiaReg[d].length }; });
 
-  var totalProcessos = (processos || []).length;
+  var totalProcessos = carteira.cnj_distintos;
   var totalAtividades = filtradas.length;
-  var movCount = Object.keys(movimentados).length;
+  var movU = { cnj: {}, sem_numero: {}, caso: {} }, movFichas = {};
+  filtradas.forEach(function (a) { var u = unidadeDe(a, porProc); movU[u.tipo][u.chave] = true; if (a.ficha != null) movFichas[a.ficha] = true; });
+  var movDetalhe = { processos: Object.keys(movU.cnj).length, sem_numero: Object.keys(movU.sem_numero).length, casos: Object.keys(movU.caso).length, fichas: Object.keys(movFichas).length };
+  var movCount = movDetalhe.processos + movDetalhe.sem_numero + movDetalhe.casos;
   var topEsf = Object.keys(esforcoPorProc).map(function (k) { return esforcoPorProc[k]; }).sort(function (a, b) { return b - a; }).slice(0, 5)
     .reduce(function (s, v) { return s + v; }, 0);
   var comAto = {}; atuacao.forEach(function (a) { if (!a.administrativo) comAto[a.numero_processo] = 1; });
@@ -2899,21 +3124,24 @@ function calcularIndicadores(processos, atividades, inicio, fim, regrasUsuario, 
   var indicadores = {
     periodo: { inicio: isoDate(inicio), fim: isoDate(fim) },
     total_processos: totalProcessos,
-    processos_ativos: (processos || []).filter(function (p) { return NUCLEO.nrm(p.status).indexOf("ATIVO") === 0; }).length,
+    processos_ativos: carteira.ativos,
+    carteira: { fichas_total: carteira.fichas_total, fichas_processo: carteira.fichas_processo, processos_distintos: carteira.cnj_distintos, sem_numero: carteira.sem_numero, casos: carteira.casos, arquivadas: carteira.arquivadas, ativos: carteira.ativos },
     processos_por_equipe: equipes,
     processos_por_advogado: advogados,
-    valor_total_causa: (processos || []).reduce(function (acc, p) { return acc + valorBRL(p.valor_causa); }, 0),
+    valor_total_causa: carteira.valor_total,
     quantidade_total_atividades_periodo: totalAtividades,
     quantidade_tarefas_realizadas: tipos["Tarefa realizada"] || 0,
     quantidade_prazos_realizados: tipos["Prazo realizado"] || 0,
-    quantidade_eventos_realizados: tipos["Evento realizado"] || 0,
+    quantidade_eventos_realizados: somaTipos(tipos, /^(EVENTO|AUDIENCIA)/),
+    registros_por_tipo: tipos,
     quantidade_historicos_manuais: tipos["Histórico manual"] || 0,
     historicos_a_revisar: revisar.map(function (a) { return { numero_processo: a.numero_processo, data: a.data_efetiva || a.data, papel: a.papel_historico, motivo: a.motivo_historico, descricao: a.descricao }; }),
     historicos_informativos: histInformativos.map(function (a) { return { numero_processo: a.numero_processo, data: a.data_efetiva || a.data, origem: a.origem_historico, motivo: a.motivo_historico, descricao: a.descricao }; }),
     quantidade_andamentos: tipos["Andamento"] || 0,
     quantidade_processos_movimentados: movCount,
+    movimentados_detalhe: movDetalhe,
     processos_com_ato: Object.keys(comAto).length,
-    media_atividades_por_processo_movimentado: movCount ? Math.round((judiciais.length / movCount) * 100) / 100 : 0.0,
+    media_atividades_por_processo_movimentado: movCount ? Math.round((totalAtividades / movCount) * 100) / 100 : 0.0,
     distribuicao_percentual_atividades_por_natureza: distribuicao(naturezas, atuacao.length, Object.keys(naturezas).sort(function (a, b) { return naturezas[b] - naturezas[a]; })),
     quantidade_atuacao_escritorio: atuacao.length,
     // conceitos separados
@@ -2933,8 +3161,8 @@ function calcularIndicadores(processos, atividades, inicio, fim, regrasUsuario, 
     reconciliacao_registros: { registros: totalAtividades, atividades_escritorio: atuacao.length, andamentos_tribunal: andamentos.length, historicos_reproduzidos_tribunal: histCopia.length, informativos: histInformativos.length, a_revisar: revisar.length, duplicidades_comprovadas: duplicadas.length, outros: restantes },
     quantidade_recebidos_tribunal: filtradas.filter(function (a) { return a.funcao === "DECISAO" || a.natureza === "Andamento recebido do tribunal"; }).length,
     quantidade_gestao_interna: filtradas.filter(function (a) { return a.funcao === "GESTAO"; }).length,
-    distribuicao_por_equipe: distribuicao(equipes, totalProcessos),
-    distribuicao_por_advogado: distribuicao(advogados, totalProcessos),
+    distribuicao_por_equipe: distribuicao(equipes, carteira.unicos.length),
+    distribuicao_por_advogado: distribuicao(advogados, carteira.unicos.length),
     evolucao_atividades: evolucao(filtradas, inicio, fim),
     evolucao_atuacao: evolucao(atuacao, inicio, fim),
 
@@ -2948,7 +3176,7 @@ function calcularIndicadores(processos, atividades, inicio, fim, regrasUsuario, 
     esforco_por_advogado: esforcoPorAdv,
     esforco_por_processo: esforcoPorProc,
     esforco_medio_por_processo: movCount ? Math.round((esforcoTotal / movCount) * 10) / 10 : 0,
-    processos_silenciosos: totalProcessos - movCount,
+    processos_silenciosos: totalProcessos - movDetalhe.processos,
     tempo_resposta_mediano: mediana(respostas),
     tempo_resposta_amostra: respostas.length,
     concentracao_top5: percentual(topEsf, esforcoTotal),
@@ -2958,6 +3186,13 @@ function calcularIndicadores(processos, atividades, inicio, fim, regrasUsuario, 
   };
   // peças protocoladas e desfecho dos prazos (acrescenta, não substitui nada)
   Object.assign(indicadores, pecas);
+  // Regra de espelhamento (mantida): "Histórico manual" que espelha outro lançamento no mesmo processo, em até 2 dias, e é a mesma peça
+  // com a data citada no texto (ou descrição idêntica) conta uma vez como atividade (ver marcarDuplicidades). Os registros seguem contados
+  // no total do Astrea; as tarefas gêmeas ("Analisar Intimação ... / 2") NÃO são agrupadas.
+  indicadores.avisos_metricas = [];
+  var somaBarras = indicadores.quantidade_tarefas_realizadas + indicadores.quantidade_prazos_realizados + indicadores.quantidade_andamentos + indicadores.quantidade_historicos_manuais + indicadores.quantidade_eventos_realizados;
+  if (somaBarras !== totalAtividades) indicadores.avisos_metricas.push("A soma dos registros por tipo (" + somaBarras + ") é diferente do total de registros (" + totalAtividades + "). Tipos lidos: " + Object.keys(tipos).map(function (k) { return k + " " + tipos[k]; }).join(", ") + ".");
+  if (movCount && Math.abs(indicadores.media_atividades_por_processo_movimentado - totalAtividades / movCount) > 0.006) indicadores.avisos_metricas.push("Registros por processo não confere com registros ÷ processos movimentados.");
 
   return { indicadores: indicadores, atividadesClassificadas: filtradas, todasClassificadas: todas };
 }
@@ -4184,11 +4419,12 @@ class GeradorRelatorioPDF {
   _visaoGeral(doc, cliente, d, pagina) {
     this._base(doc, "O mês em números", "VOLUME E MOVIMENTAÇÃO", cliente, pagina);
     this._explicacao(doc, "Este panorama resume os registros do Astrea (lançamentos do período, inclusive movimentações do tribunal) e o alcance da atuação sobre a carteira do cliente.");
+    this._notaCarteira(doc, d);
     const kpis = [
       [d.quantidade_total_atividades_periodo, "registros no Astrea", this.tema.verde],
       [d.quantidade_processos_movimentados, "processos movimentados", this.tema.amarelo],
       [{ media: d.media_atividades_por_processo_movimentado }, "registros por processo", PALETA[2]],
-      [d.processos_ativos, "processos ativos na carteira", PALETA[3]],
+      [d.processos_ativos == null ? "n/d" : d.processos_ativos, "processos ativos na carteira", PALETA[3]],
     ];
     const gap = 5, largura = (this.W - 2 * this.M - 3 * gap) / 4;
     kpis.forEach((item, i) => this._cardKpi(doc, this.M + i * (largura + gap), this.H - 95, largura, 30, ...item));
@@ -4212,6 +4448,22 @@ class GeradorRelatorioPDF {
     this._text(doc, 154, 33, "VALOR TOTAL DAS CAUSAS CADASTRADAS", { size: 7, style: "bold", color: this.tema.verde });
     this._text(doc, 154, 24, moeda(d.valor_total_causa), { size: 16, style: "bold", color: this.tema.branco });
     this._fechar(doc);
+  }
+
+  _notaCarteira(doc, d) {
+    const partes = [], q = d.movimentados_detalhe, c = d.carteira;
+    if (q && (q.sem_numero || q.casos || (q.fichas != null && q.fichas !== q.processos))) {
+      const m = [`${q.processos} processo${q.processos === 1 ? "" : "s"}`];
+      if (q.sem_numero) m.push(`${q.sem_numero} sem número`);
+      if (q.casos) m.push(`${q.casos} caso${q.casos === 1 ? "" : "s"} extrajudicia${q.casos === 1 ? "l" : "is"}`);
+      partes.push(`Movimentados: ${m.join(" · ")} (${q.fichas} ficha${q.fichas === 1 ? "" : "s"}).`);
+    }
+    if (c && c.fichas_total) partes.push(`Carteira: ${c.fichas_total} ficha${c.fichas_total === 1 ? "" : "s"}, ${c.arquivadas} arquivada${c.arquivadas === 1 ? "" : "s"}.`);
+    const esp = (d.duplicidades_removidas || []).length;
+    if (esp) partes.push(`${esp} registro${esp === 1 ? " espelhado contado" : "s espelhados contados"} uma vez.`);
+    doc.setFont("helvetica", "normal"); doc.setFontSize(7);
+    while (partes.length && doc.getTextWidth(partes.join(" ")) > 255) partes.pop();
+    if (partes.length) this._text(doc, this.M, this.H - 61.5, partes.join(" "), { size: 7, color: this.tema.cinza });
   }
 
   _distribuicao(doc, cliente, d, pagina) {
@@ -4338,7 +4590,7 @@ class GeradorRelatorioPDF {
     this._rect(doc, x, y + h - 1.5, w, 1.5, cor);
     // média sempre com duas casas, para não sair "4" num mês e "3,93" no outro
     const texto = (valor && typeof valor === "object" && "media" in valor) ? decimal(valor.media)
-      : Number.isInteger(valor) ? inteiro(valor) : decimal(valor);
+      : typeof valor === "string" ? valor : Number.isInteger(valor) ? inteiro(valor) : decimal(valor);
     this._text(doc, x + 7, y + 15, texto, { size: 25, style: "bold", color: this.tema.texto });
     this._text(doc, x + 7, y + 7, rotulo.toUpperCase(), { size: 7.5, style: "bold", color: this.tema.cinza });
   }
@@ -6005,7 +6257,8 @@ GeradorRelatorioPDF.prototype._capaCredor = function (doc, dados) {
       var regrasParaMotor = await Regras.listar();
       regrasParaMotor.destaquesComite = !!(clienteCad && clienteCad.config && clienteCad.config.destaquesComite);
       window.NGA_BASE_CASOS = !!extraido.baseCasos;
-      var calculo = calcularIndicadores(extraido.processos, extraido.atividades, inicio, fim, regrasParaMotor, extraido.atividadesAdministrativas || []);
+      var calculo = calcularIndicadores(extraido.processos, extraido.atividades, inicio, fim, regrasParaMotor, extraido.atividadesAdministrativas || [], extraido.casosAdministrativos || []);
+      await auditarGeracao(pdfDoc, extraido, calculo, inicio, fim);
 
       ultimoResultado = {
         cliente: cliente,
@@ -6345,7 +6598,7 @@ GeradorRelatorioPDF.prototype._capaCredor = function (doc, dados) {
     document.querySelector("#result-period").textContent = brDate(data.periodo.inicio) + ", " + brDate(data.periodo.fim);
     var metrics = [
       [numberFmt(data.total_processos), "Total de processos"],
-      [numberFmt(data.processos_ativos), "Processos ativos"],
+      [data.processos_ativos == null ? "n/d" : numberFmt(data.processos_ativos), "Processos ativos"],
       [numberFmt(data.quantidade_total_atividades_periodo), "Atividades no período"],
       [numberFmt(data.quantidade_processos_movimentados), "Processos movimentados"],
       [decimalFmt(data.media_atividades_por_processo_movimentado), "Média por processo"],
@@ -6373,7 +6626,7 @@ GeradorRelatorioPDF.prototype._capaCredor = function (doc, dados) {
     var statusRight = document.querySelector("#status-footer-right");
     if (statusRight) {
       var agora = new Date().toLocaleString("pt-BR");
-      statusRight.textContent = "Gerado em " + agora + " · " + numberFmt(data.total_processos) + (window.NGA_BASE_CASOS ? " casos analisados" : " processos analisados");
+      statusRight.textContent = "Gerado em " + agora + " · " + numberFmt(data.total_processos) + (window.NGA_BASE_CASOS ? " casos analisados" : " processos" + (data.carteira && data.carteira.sem_numero ? " · " + data.carteira.sem_numero + " sem número" : "") + (data.carteira && data.carteira.casos ? " · " + data.carteira.casos + (data.carteira.casos === 1 ? " caso extrajudicial" : " casos extrajudiciais") : "") + " analisados");
     }
 
     if (naoClassificados && naoClassificados.length) {
@@ -14219,6 +14472,9 @@ window.NGA_AVISO_RITMO = function (id, ev) {
     if (d && d.duplicidades_removidas && d.duplicidades_removidas.length) partes.push(d.duplicidades_removidas.length + " histórico(s) com duplicidade comprovada (citam a data e descrevem a mesma peça de outro lançamento) não foram contados em dobro.");
     if (extraido && extraido.reimpressoes && extraido.reimpressoes.length) partes.push(extraido.reimpressoes.length + " linha(s) idêntica(s) repetida(s) na quebra de página do PDF foram tratadas como reimpressão do navegador (página " + extraido.reimpressoes.map(function (x) { return x.pagina; }).join(", ") + "); confira.");
     if (d && d.quantidade_atividades_pendentes_classificacao) partes.push(d.quantidade_atividades_pendentes_classificacao + " prazo(s) cumprido(s) sem texto que diga o que foi feito: contam como atividade, mas ficam pendentes de classificação e não contam como peça.");
+    if (extraido && extraido.diagnostico) { var dg = extraido.diagnostico; partes.push("Diagnóstico: fichas lidas " + dg.numeradas + " com número, " + dg.sem_numero + " sem número, " + dg.casos + " caso(s) = " + dg.lidas + (dg.esperadas != null ? " de " + dg.esperadas + " indicadas no rodapé do Astrea" : "") + "; páginas do PDF: " + dg.paginas_pdf + "."); }
+    (extraido && extraido.avisos || []).forEach(function (a) { partes.push("ATENÇÃO: " + a); });
+    ((d && d.avisos_metricas) || []).forEach(function (a) { partes.push("ATENÇÃO: " + a); });
     return partes.join(" ");
   }
 

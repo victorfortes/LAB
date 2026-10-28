@@ -54,7 +54,7 @@ for (const [nome, view] of [['painel', 'painel'], ['novo-relatorio', 'novo'], ['
 }
 
 // ------------------------------------------------------------------------------------------- PDFs
-async function comparar(nome, pdfO, pdfM, pO, fM) {
+async function comparar(nome, pdfO, pdfM, pO, fM, intencionais = []) {   // intencionais: páginas que mudam DE PROPÓSITO (regras de contagem de 28/10/2026)
   expect(pdfO, 'original gerou PDF').toBeTruthy(); expect(pdfM, 'migrado gerou PDF').toBeTruthy();
   const aO = await analisarPdf(pO, pdfO.bytes), aM = await analisarPdf(fM, pdfM.bytes);
   expect(aM.length, 'número de páginas').toBe(aO.length);
@@ -62,6 +62,7 @@ async function comparar(nome, pdfO, pdfM, pO, fM) {
   let totalPix = 0, totalPx = 0;
   aO.forEach((p, i) => {
     expect(aM[i].w, `largura pág ${i + 1}`).toBe(p.w); expect(aM[i].h, `altura pág ${i + 1}`).toBe(p.h);
+    if (intencionais.includes(i + 1)) return;
     expect(aM[i].texto, `texto pág ${i + 1}`).toBe(p.texto); expect(aM[i].fontes, `fontes pág ${i + 1}`).toBe(p.fontes);
     const r = compararPng(p.png, aM[i].png); totalPix += r.pixels; totalPx += r.total;
   });
@@ -70,8 +71,8 @@ async function comparar(nome, pdfO, pdfM, pO, fM) {
   const aM2 = await analisarPdf(fM, pdfM.bytes);
   let ctrl = 0; aM.forEach((p, i) => { ctrl += compararPng(p.png, aM2[i].png).pixels; });
   console.log(`  [pdf:${nome}] páginas=${aO.length} | texto/fontes/tamanho iguais | pixels original×migrado=${totalPix}/${totalPx} | controle (mesmos bytes, 2 renders)=${ctrl} | bytes idênticos (normalizados)=${bytesIguais}`);
-  expect(bytesIguais || totalPix === 0, 'PDFs diferem: bytes diferentes e render diferente').toBe(true);
-  if (!bytesIguais) expect(totalPix, 'render por pixel').toBe(0);
+  if (!intencionais.length) expect(bytesIguais || totalPix === 0, 'PDFs diferem: bytes diferentes e render diferente').toBe(true);
+  if (!bytesIguais) expect(totalPix, 'render por pixel (páginas sem mudança intencional)').toBe(0);
   else if (totalPix > 0) console.log(`  [aviso:${nome}] bytes idênticos mas render diferiu em ${totalPix} px (controle=${ctrl}): variação do renderizador, não do PDF`);
 }
 
@@ -148,6 +149,10 @@ test('PDF Quantitativo/Executivo a partir de exportação real do Astrea: origin
       return ctx.evaluate(() => window.__pdfs[0]);
     };
     const pdfO = await gerar(pO, 'Quantitativo'), pdfM = await gerar(fM, 'Quantitativo');
-    await comparar('quantitativo (Astrea real)', pdfO, pdfM, pO, fM);
+    // Páginas 2 e 3 mudam de propósito: processos por CNJ distinto, valor uma vez por CNJ, ativos (STATUS e FASE), audiências em Eventos, nota da carteira
+    await comparar('quantitativo (Astrea real)', pdfO, pdfM, pO, fM, [2, 3]);
+    const aM = await analisarPdf(fM, pdfM.bytes), t2 = aM[1].texto;
+    expect(t2).toContain('Carteira: '); expect(t2).toContain('arquivadas.');
+    expect(t2).not.toContain('99||PROCESSOS ATIVOS');
   } finally { await fechar(); }
 });
