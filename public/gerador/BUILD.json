@@ -1,6 +1,6 @@
 {
  "original_sha256": "2d6fab8aa87d4233aa7e3564009dd89adb520108737c30ee4c9dae06b085d8a9",
- "pagina_gerador_sha256": "daa621103885c6cbd7326219ef07cebdb86f7cfd825a7ad59cbde26f896f5cce",
+ "pagina_gerador_sha256": "884bed4188ecad787686efc0294297bc02601ae7ec75cec11b5de65b0b60bc66",
  "patches": [
   {
    "patch": "P1-fontes-locais",

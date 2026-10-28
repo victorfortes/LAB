@@ -2042,6 +2042,15 @@ function diagnosticoFichas(result) {
   return result.diagnostico || (result.diagnostico = { numeradas: 0, sem_numero: 0, casos: 0, contadores: [], paginas_pdf: null, esperadas: null, lidas: 0, avisos: [] });
 }
 function contadorDaFicha(linha) { var c = /(\d+)\s*\/\s*(\d+)\s*$/.exec(lineText(linha).replace(/\s+/g, " ").trim()); return c ? { n: +c[1], N: +c[2] } : { n: null, N: null }; }
+// STATUS: acha a palavra de status ("Ativo 1º Grau", "Arquivado"...) onde ela estiver, mesmo com R$ ou outro texto colado pela leitura por colunas.
+function statusDaFicha(bruto, txt) {
+  var TOK = /(Ativo|Inativo|Arquivad[oa]|Encerrad[oa]|Suspens[oa])(?:\s+(?:\d+º\s+Grau|Superior))?/i, m = TOK.exec(String(bruto || ""));
+  if (m) return m[0].trim();
+  m = /STATUS\s*:\s*(Ativo|Inativo|Arquivad[oa]|Encerrad[oa]|Suspens[oa])(?:\s+(?:\d+º\s+Grau|Superior))?/i.exec(txt || "");
+  if (m) return m[0].replace(/^STATUS\s*:\s*/i, "").trim();
+  m = /(Ativo|Inativo|Arquivad[oa]|Encerrad[oa]|Suspens[oa])(?:\s+(?:\d+º\s+Grau|Superior))?\s+STATUS\s*:/i.exec(txt || "") || /\b(Ativo|Inativo|Arquivad[oa])\s+(?:\d+º\s+Grau|Superior)\b/i.exec(txt || "");
+  return m ? m[0].replace(/\s+STATUS\s*:$/i, "").trim() : null;
+}
 function registrarFicha(result, linhas, proc, semNumero) {
   var d = diagnosticoFichas(result);
   d.contadores.push(contadorDaFicha(linhas[0]));
@@ -2054,7 +2063,7 @@ function registrarFicha(result, linhas, proc, semNumero) {
   } else d.numeradas++;
   proc.status = limparCampoDaFicha(proc.status); proc.fase = limparCampoDaFicha(proc.fase);
   var txt = linhas.map(function (l) { return lineText(l).replace(/\s+/g, " ").trim(); }).join(" ");   // STATUS e FASE também pelo texto, quando a leitura por coluna não os pegou
-  if (!proc.status) { var ms = /STATUS\s*:\s*(Ativo|Inativo|Arquivad\w+|Encerrad\w+|Suspens\w+)(?:\s+(?:\d+º\s+Grau|Superior))?/i.exec(txt) || /(Ativo|Inativo|Arquivad\w+|Encerrad\w+|Suspens\w+)(?:\s+(?:\d+º\s+Grau|Superior))?\s+STATUS\s*:/i.exec(txt); if (ms) proc.status = ms[0].replace(/^STATUS\s*:\s*/i, "").replace(/\s+STATUS\s*:$/i, "").trim(); }
+  proc.status = statusDaFicha(proc.status, txt) || proc.status;
   if (!proc.fase) { var mf = /FASE\s*:\s*(.+?)(?:\s+SJ\s*:|$)/.exec(txt); if (mf) proc.fase = limparCampoDaFicha(mf[1]); }
   var v = valorCausaDoBloco(linhas);
   if (v && !/^R\$\s*[\d.]+,\d{2}$/.test(String(proc.valor_causa || "").trim())) proc.valor_causa = v;
@@ -2303,8 +2312,10 @@ async function auditoriaTextoBruto(pdfDoc, extraido, calculo, inicio, fim) {
   reimp.forEach(function (a) { mot.porDia[a.data] = (mot.porDia[a.data] || 0) + 1; });
   extrasNaoLidos.forEach(function (a) { mot.porDia[a.data] = (mot.porDia[a.data] || 0) + 1; });
 
-  var dif = [], fm = function (n) { return String(Math.round(n * 100) / 100).replace(".", ","); };
-  var cmp = function (rot, bruto, motor) { if (bruto !== motor) dif.push(rot + ": texto bruto " + fm(bruto) + " × relatório " + fm(motor)); };
+  var dif = [], corrigiveis = [], fm = function (n) { return String(Math.round(n * 100) / 100).replace(".", ","); };
+  // chave = indicador que a própria auditoria corrige usando o valor recalculado do texto bruto (sem pedir nada a ninguém);
+  // sem chave = diferença que não dá para corrigir sozinho (registros perdidos na leitura): vai para decisão de quem gera.
+  var cmp = function (rot, bruto, motor, chave) { if (bruto === motor) return; var txt = rot + ": texto bruto " + fm(bruto) + " × relatório " + fm(motor); if (chave) corrigiveis.push({ chave: chave, valor: bruto, anterior: motor, texto: txt }); else dif.push(txt); };
   var dg = extraido.diagnostico || {};
   cmp("fichas com número", res.fichas.processo, dg.numeradas || 0); cmp("fichas sem número", res.fichas.sem_numero, dg.sem_numero || 0); cmp("fichas de caso", res.fichas.caso, dg.casos || 0);
   cmp("registros no período (por data de lançamento)", res.registros, mot.registros);
@@ -2314,16 +2325,40 @@ async function auditoriaTextoBruto(pdfDoc, extraido, calculo, inicio, fim) {
   var dias = {}; Object.keys(res.porDia).concat(Object.keys(mot.porDia)).forEach(function (d) { dias[d] = 1; });
   var difDias = Object.keys(dias).filter(function (d) { return (res.porDia[d] || 0) !== (mot.porDia[d] || 0); });
   if (difDias.length) dif.push("atividades por dia: diferem em " + difDias.sort().slice(0, 6).join(", ") + (difDias.length > 6 ? "…" : ""));
-  cmp("valor total das causas", Math.round(res.valor * 100) / 100, Math.round(ind.valor_total_causa * 100) / 100);
-  if (ind.processos_ativos != null) cmp("processos ativos", res.ativos, ind.processos_ativos);
-  cmp("processos (CNJ distintos)", res.cnj, ind.total_processos);
-  return { detalhe: detalhe, diferencas: dif, independente: { fichas: res.fichas, registros: res.registros, porTipo: res.porTipo, fichasMovimentadas: Object.keys(res.fichasMov).length, itensMovimentados: Object.keys(res.unidades).length, valorTotal: res.valor, ativos: res.ativos, cnjDistintos: res.cnj, registrosSemTipo: res.semTipo }, motor: { registros: mot.registros, porTipo: mot.porTipo } };
+  var unExib = {}, fiExib = {};
+  (calculo.atividadesClassificadas || []).forEach(function (a) { var u = unidadeDe(a, porProc); unExib[u.tipo + "|" + u.chave] = true; if (a.ficha != null) fiExib[a.ficha] = true; });
+  cmp("itens movimentados (cartão)", Object.keys(unExib).length, ind.quantidade_processos_movimentados, "itens");
+  if (ind.movimentados_detalhe) cmp("fichas movimentadas (cartão)", Object.keys(fiExib).length, ind.movimentados_detalhe.fichas, "fichas_mov");
+  cmp("valor total das causas", Math.round(res.valor * 100) / 100, Math.round(ind.valor_total_causa * 100) / 100, "valor");
+  if (res.temStatus) cmp("processos ativos", res.ativos, ind.processos_ativos == null ? -1 : ind.processos_ativos, "ativos");
+  cmp("processos (CNJ distintos)", res.cnj, ind.total_processos, "cnj");
+  return { detalhe: detalhe, diferencas: dif, corrigiveis: corrigiveis, unidadesExibidas: unExib, independente: { fichas: res.fichas, registros: res.registros, porTipo: res.porTipo, fichasMovimentadas: Object.keys(res.fichasMov).length, itensMovimentados: Object.keys(res.unidades).length, valorTotal: res.valor, ativos: res.ativos, cnjDistintos: res.cnj, registrosSemTipo: res.semTipo }, motor: { registros: mot.registros, porTipo: mot.porTipo } };
+}
+// Aplica ao relatório o que o confronto com o texto bruto já resolveu: corrige os indicadores escalares divergentes e registra cada correção.
+function aplicarCorrecoesDaAuditoria(aud, extraido, calculo) {
+  var ind = calculo.indicadores, feitas = [];
+  (aud.corrigiveis || []).forEach(function (c) {
+    if (c.chave === "ativos") { ind.processos_ativos = c.valor; if (ind.carteira) ind.carteira.ativos = c.valor; }
+    else if (c.chave === "valor") ind.valor_total_causa = c.valor;
+    else if (c.chave === "cnj") { ind.total_processos = c.valor; if (ind.carteira) ind.carteira.processos_distintos = c.valor; }
+    else if (c.chave === "fichas_mov") { if (ind.movimentados_detalhe) ind.movimentados_detalhe.fichas = c.valor; }
+    else if (c.chave === "itens") {
+      var k = Object.keys(aud.unidadesExibidas || {}), sn = k.filter(function (x) { return x.indexOf("sem_numero|") === 0; }).length, cs = extraido.baseCasos ? 0 : k.filter(function (x) { return x.indexOf("caso|") === 0; }).length;
+      ind.quantidade_processos_movimentados = c.valor;
+      if (ind.movimentados_detalhe) { ind.movimentados_detalhe.sem_numero = sn; ind.movimentados_detalhe.casos = cs; ind.movimentados_detalhe.processos = c.valor - sn - cs; }
+      ind.media_atividades_por_processo_movimentado = c.valor ? Math.round((ind.quantidade_total_atividades_periodo / c.valor) * 100) / 100 : 0;
+    } else return;
+    feitas.push(c.texto.replace(": texto bruto ", ": corrigido de ").replace(" × relatório ", " para ").replace(/^(.*): corrigido de (\S+) para (\S+)$/, function (m, r, bruto, rel) { return r + ": " + rel + " → " + bruto; }));
+  });
+  ind.correcoes_auditoria = feitas;
+  return feitas;
 }
 async function auditarGeracao(pdfDoc, extraido, calculo, inicio, fim) {
   var aud = await auditoriaTextoBruto(pdfDoc, extraido, calculo, inicio, fim);
+  aud.correcoes = aplicarCorrecoesDaAuditoria(aud, extraido, calculo);
   window.NGA_DIAGNOSTICO = { fichas: extraido.diagnostico || null, auditoria: aud };
   extraido.auditoria = aud;
-  if (typeof console !== "undefined") console.info("[NGA] auditoria do texto bruto:", aud.diferencas.length ? aud.diferencas : "sem diferenças", aud.independente);
+  if (typeof console !== "undefined") console.info("[NGA] auditoria do texto bruto:", aud.correcoes.length ? "corrigido: " + aud.correcoes.join("; ") : "sem correções", aud.diferencas.length ? aud.diferencas : "sem diferenças pendentes", aud.independente);
   if (aud.diferencas.length) {
     var msg = "A auditoria recalculou as métricas direto do texto do PDF e encontrou diferenças:\n- " + aud.diferencas.join("\n- ");
     var seguir = typeof window.confirm === "function" && window.confirm(msg + "\n\nOK = gerar mesmo assim, por sua conta e risco.\nCancelar = bloquear a geração do PDF.");
@@ -2972,7 +3007,7 @@ function montarCarteira(processos, casos) {
   var ativa = function (p) { return NUCLEO.nrm(p.status).indexOf("ATIVO") === 0 && !arquivada(p); };
   var cnj = ordem.map(function (k) { return grupos[k]; });
   var maior = function (g) { return Math.max.apply(null, g.map(function (p) { return vb(p.valor_causa); }).concat([0])); };
-  var temStatus = P.some(function (p) { return p.status; });
+  var temStatus = P.some(function (p) { return /^(ATIVO|INATIVO|ARQUIVAD|ENCERRAD|SUSPENS)/.test(NUCLEO.nrm(p.status)); });
   return {
     fichas_processo: P.length, fichas_total: P.length + C.length, cnj_distintos: ordem.length, sem_numero: semNum.length, casos: C.length,
     arquivadas: P.filter(arquivada).length,
@@ -14475,6 +14510,7 @@ window.NGA_AVISO_RITMO = function (id, ev) {
     if (extraido && extraido.diagnostico) { var dg = extraido.diagnostico; partes.push("Diagnóstico: fichas lidas " + dg.numeradas + " com número, " + dg.sem_numero + " sem número, " + dg.casos + " caso(s) = " + dg.lidas + (dg.esperadas != null ? " de " + dg.esperadas + " indicadas no rodapé do Astrea" : "") + "; páginas do PDF: " + dg.paginas_pdf + "."); }
     (extraido && extraido.avisos || []).forEach(function (a) { partes.push("ATENÇÃO: " + a); });
     ((d && d.avisos_metricas) || []).forEach(function (a) { partes.push("ATENÇÃO: " + a); });
+    ((d && d.correcoes_auditoria) || []).forEach(function (c) { partes.push("Auditoria corrigiu: " + c + "."); });
     return partes.join(" ");
   }
 

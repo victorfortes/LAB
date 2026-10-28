@@ -40,11 +40,38 @@ test('fichas: três cabeçalhos, valor da causa nos dois layouts, CNJ repetido u
   expect(r.i.avisosM).toEqual([]); expect(r.dif).toEqual([]);                                                    // auditoria sem diferenças
 });
 
+test('STATUS: a palavra de status é achada mesmo com R$ ou texto colado pela leitura por colunas', async ({ page }) => {
+  await entrar(page, 'admin@teste.local'); const fr = await geradorPronto(page);
+  const r = await fr.evaluate(() => [
+    statusDaFicha('Ativo 1º Grau', ''), statusDaFicha('R$ 135.000,00 Ativo 1º Grau', ''), statusDaFicha('R$ 0,00 Ativo Superior 3/128', ''), statusDaFicha('Arquivado', ''),
+    statusDaFicha(null, 'VALOR DA CAUSA: R$ 1,00 Ativo 1º Grau STATUS: AÇÃO: X'), statusDaFicha('', 'STATUS: Ativo 2º Grau'), statusDaFicha('R$ 5,00', 'sem nada'),
+  ]);
+  expect(r).toEqual(['Ativo 1º Grau', 'Ativo 1º Grau', 'Ativo Superior', 'Arquivado', 'Ativo 1º Grau', 'Ativo 2º Grau', null]);
+});
+
 test('conferência do contador: ficha não reconhecida gera aviso', async ({ page }) => {
   await entrar(page, 'admin@teste.local'); const fr = await geradorPronto(page);
   const bytes = await montar(fr, [P1, P3]);   // contadores 1/5 e 3/5: faltam fichas
   const r = await fr.evaluate(async (b) => { const x = await parseAstreaPDF(await window.NGA_ABRIR_PDF(new Uint8Array(b))); return x.avisos; }, bytes);
   expect(r.join(' ')).toMatch(/lidas: 2.*indica 5.*2, 4, 5/);
+});
+
+test('auditoria corrige sozinha os indicadores divergentes, sem perguntar nada', async ({ page }) => {
+  await entrar(page, 'admin@teste.local'); const fr = await geradorPronto(page);
+  const bytes = await montar(fr, [P1, P2, P3, P4, P5]);
+  const r = await fr.evaluate(async (b) => {
+    let perguntou = false; window.confirm = () => { perguntou = true; return false; };
+    const d = await window.NGA_ABRIR_PDF(new Uint8Array(b)); const x = await parseAstreaPDF(d);
+    const ini = new Date(Date.UTC(2026, 9, 1)), fim = new Date(Date.UTC(2026, 9, 31));
+    const c = calcularIndicadores(x.processos, x.atividades, ini, fim, [], x.atividadesAdministrativas, x.casosAdministrativos), i = c.indicadores;
+    i.processos_ativos = 0; i.valor_total_causa = 1; i.total_processos = 9; i.quantidade_processos_movimentados = 9; i.carteira.ativos = 0;   // simula a leitura errada
+    await auditarGeracao(d, x, c, ini, fim);
+    return { perguntou, ativos: i.processos_ativos, valor: i.valor_total_causa, cnj: i.total_processos, mov: i.quantidade_processos_movimentados, media: i.media_atividades_por_processo_movimentado, det: i.movimentados_detalhe, corr: i.correcoes_auditoria };
+  }, bytes);
+  expect(r.perguntou).toBe(false);
+  expect(r).toMatchObject({ ativos: 2, valor: 196103.86, cnj: 2, mov: 4, media: 1.5 });
+  expect(r.det).toMatchObject({ processos: 2, sem_numero: 1, casos: 1 });
+  expect(r.corr.join(' | ')).toMatch(/processos ativos: 0 → 2/); expect(r.corr.length).toBeGreaterThanOrEqual(4);
 });
 
 test('auditoria bloqueia a geração quando o texto bruto diverge do motor', async ({ page }) => {
