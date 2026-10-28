@@ -1,6 +1,6 @@
 {
  "original_sha256": "2d6fab8aa87d4233aa7e3564009dd89adb520108737c30ee4c9dae06b085d8a9",
- "pagina_gerador_sha256": "884bed4188ecad787686efc0294297bc02601ae7ec75cec11b5de65b0b60bc66",
+ "pagina_gerador_sha256": "17e0b8f9c39d7c5cc342b043d422318603ad9584adc3b4af96f27f252b2917c4",
  "patches": [
   {
    "patch": "P1-fontes-locais",
@@ -357,6 +357,10 @@
   {
    "patch": "P51b-auditoria-chamada",
    "motivo": "Executa a auditoria em toda geração, logo depois do cálculo."
+  },
+  {
+   "patch": "P52-tipo-canonico",
+   "motivo": "O tipo do registro lido só com a primeira palavra ('Histórico', 'Tarefa'...) vira o tipo completo; antes essas linhas ficavam fora das barras por tipo."
   },
   {
    "patch": "P7-csp-meta",

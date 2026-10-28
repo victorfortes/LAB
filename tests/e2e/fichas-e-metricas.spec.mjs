@@ -74,6 +74,35 @@ test('auditoria corrige sozinha os indicadores divergentes, sem perguntar nada',
   expect(r.corr.join(' | ')).toMatch(/processos ativos: 0 → 2/); expect(r.corr.length).toBeGreaterThanOrEqual(4);
 });
 
+test('auditoria reconstrói registro que a leitura perdeu e recalcula, sem perguntar', async ({ page }) => {
+  await entrar(page, 'admin@teste.local'); const fr = await geradorPronto(page);
+  const bytes = await montar(fr, [P1, P2, P3, P4, P5]);
+  const r = await fr.evaluate(async (b) => {
+    let perguntou = false; window.confirm = () => { perguntou = true; return false; };
+    const d = await window.NGA_ABRIR_PDF(new Uint8Array(b)); const x = await parseAstreaPDF(d);
+    const ini = new Date(Date.UTC(2026, 9, 1)), fim = new Date(Date.UTC(2026, 9, 31)), calc = () => calcularIndicadores(x.processos, x.atividades, ini, fim, [], x.atividadesAdministrativas, x.casosAdministrativos);
+    x.atividades.splice(0, 1);                       // a leitura "perde" o 1º registro (Elaborar peça, 05/10)
+    const c2 = await auditarGeracao(d, x, calc(), ini, fim, calc);
+    return { perguntou, reg: c2.indicadores.quantidade_total_atividades_periodo, rec: (x.reconstruidos || []).map(a => [a.data, a.tipo, a.descricao]), corr: c2.indicadores.correcoes_auditoria };
+  }, bytes);
+  expect(r.perguntou).toBe(false); expect(r.reg).toBe(6);
+  expect(r.rec).toEqual([['05/10/2026', 'Tarefa realizada', 'Elaborar peça']]);
+  expect(r.corr.join(' | ')).toContain('reconstruídos do texto bruto');
+});
+
+test('tipo lido só com a primeira palavra ("Histórico") conta como Histórico manual', async ({ page }) => {
+  await entrar(page, 'admin@teste.local'); const fr = await geradorPronto(page);
+  const pg = ficha([[40, 100, 'Ficha do processo - Nº 0003333-33.2026.8.16.0001 1/1'], [40, 130, 'STATUS: Ativo 1º Grau']], [...reg(330, '05/10/2026', 'Contato com o cliente', 'Histórico'), ...reg(350, '06/10/2026', 'Elaborar peça', 'Tarefa')]);
+  const bytes = await montar(fr, [pg]);
+  const r = await fr.evaluate(async (b) => {
+    const d = await window.NGA_ABRIR_PDF(new Uint8Array(b)); const x = await parseAstreaPDF(d);
+    const ini = new Date(Date.UTC(2026, 9, 1)), fim = new Date(Date.UTC(2026, 9, 31)); const c = calcularIndicadores(x.processos, x.atividades, ini, fim, [], [], []);
+    const au = await auditoriaTextoBruto(d, x, c, ini, fim);
+    return { tipos: x.atividades.map(a => a.tipo), por: c.indicadores.registros_por_tipo, dif: au.diferencas };
+  }, bytes);
+  expect(r.tipos).toEqual(['Histórico manual', 'Tarefa realizada']); expect(r.por['Histórico manual']).toBe(1); expect(r.dif).toEqual([]);
+});
+
 test('auditoria bloqueia a geração quando o texto bruto diverge do motor', async ({ page }) => {
   await entrar(page, 'admin@teste.local'); const fr = await geradorPronto(page);
   const bytes = await montar(fr, [P1, P2, P3, P4, P5]);
