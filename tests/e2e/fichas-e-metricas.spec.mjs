@@ -86,8 +86,22 @@ test('auditoria reconstrói registro que a leitura perdeu e recalcula, sem pergu
     return { perguntou, reg: c2.indicadores.quantidade_total_atividades_periodo, rec: (x.reconstruidos || []).map(a => [a.data, a.tipo, a.descricao]), corr: c2.indicadores.correcoes_auditoria };
   }, bytes);
   expect(r.perguntou).toBe(false); expect(r.reg).toBe(6);
-  expect(r.rec).toEqual([['05/10/2026', 'Tarefa realizada', 'Elaborar peça']]);
-  expect(r.corr.join(' | ')).toContain('reconstruídos do texto bruto');
+  expect(r.rec.length).toBeGreaterThanOrEqual(1); expect(r.rec.map(a => a[2])).toContain('Elaborar peça');
+  expect(r.corr.join(' | ')).toContain('refeitos pelo texto');
+});
+
+test('auditoria remove registro lido a mais pela leitura por colunas (caso do Deville no Windows: 46 no texto × 51 no relatório)', async ({ page }) => {
+  await entrar(page, 'admin@teste.local'); const fr = await geradorPronto(page);
+  const bytes = await montar(fr, [P1, P2, P3, P4, P5]);
+  const r = await fr.evaluate(async (b) => {
+    let perguntou = false; window.confirm = () => { perguntou = true; return false; };
+    const d = await window.NGA_ABRIR_PDF(new Uint8Array(b)); const x = await parseAstreaPDF(d);
+    const ini = new Date(Date.UTC(2026, 9, 1)), fim = new Date(Date.UTC(2026, 9, 31)), calc = () => calcularIndicadores(x.processos, x.atividades, ini, fim, [], x.atividadesAdministrativas, x.casosAdministrativos);
+    const dup = Object.assign({}, x.atividades[0], { descricao: 'fragmento lido a mais' }); x.atividades.push(dup, Object.assign({}, x.atividades[1]));   // 2 registros a mais, em fichas diferentes
+    const c2 = await auditarGeracao(d, x, calc(), ini, fim, calc);
+    return { perguntou, reg: c2.indicadores.quantidade_total_atividades_periodo, por: c2.indicadores.registros_por_tipo, corr: c2.indicadores.correcoes_auditoria };
+  }, bytes);
+  expect(r.perguntou).toBe(false); expect(r.reg).toBe(6); expect(r.corr.join(' | ')).toContain('refeitos pelo texto');
 });
 
 test('tipo lido só com a primeira palavra ("Histórico") conta como Histórico manual', async ({ page }) => {

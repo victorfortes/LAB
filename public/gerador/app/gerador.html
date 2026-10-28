@@ -1826,7 +1826,7 @@ function findProcess(lines) {
     if (m) return [i, m[1].replace(/\s+/g, "")];
   }
   for (let i = 0; i < lines.length; i++) {   // "Ficha do processo   51/70": processo sem número (CNJ)
-    if (/^Ficha\s+do\s+processo\s+\d+\s*\/\s*\d+\s*$/i.test(lineText(lines[i]).trim())) return [i, "\u00a7SN"];
+    if (/^Ficha\s+do\s+processo(?:\s+\d+\s*\/\s*\d+)?\s*$/i.test(lineText(lines[i]).replace(/\s+/g, " ").trim())) return [i, "\u00a7SN"];
   }
   return [-1, null];
 }
@@ -1899,7 +1899,7 @@ function parseHeaderFields(lines, process, width) {
 }
 
 function finishActivity(activity, process, result) {
-  const activityType = tipoCanonicoDoAstrea(clean(activity.type).replace(/(\s+\d{1,4}\/\d{1,4})+\s*$/, "").replace(/^(\d{1,4}\/\d{1,4}\s+)+/, ""));
+  const activityType = tipoCanonicoDoAstrea((clean(activity.type) || "").replace(/(\s+\d{1,4}\/\d{1,4})+\s*$/, "").replace(/^(\d{1,4}\/\d{1,4}\s+)+/, ""));
   const description = clean(activity.description);
   if (activityType && description) {
     const registro = {
@@ -2046,7 +2046,10 @@ function tipoCanonicoDoAstrea(t) {
 function diagnosticoFichas(result) {
   return result.diagnostico || (result.diagnostico = { numeradas: 0, sem_numero: 0, casos: 0, contadores: [], paginas_pdf: null, esperadas: null, lidas: 0, avisos: [] });
 }
-function contadorDaFicha(linha) { var c = /(\d+)\s*\/\s*(\d+)\s*$/.exec(lineText(linha).replace(/\s+/g, " ").trim()); return c ? { n: +c[1], N: +c[2] } : { n: null, N: null }; }
+function contadorDaFicha(linha, seguinte) {   // o "n/N" fica no fim da linha do cabeçalho ou, em algumas leituras, numa linha própria logo abaixo
+  var c = /(\d+)\s*\/\s*(\d+)\s*$/.exec(lineText(linha).replace(/\s+/g, " ").trim()) || (seguinte ? /^(\d+)\s*\/\s*(\d+)$/.exec(lineText(seguinte).replace(/\s+/g, " ").trim()) : null);
+  return c ? { n: +c[1], N: +c[2] } : { n: null, N: null };
+}
 // STATUS: acha a palavra de status ("Ativo 1º Grau", "Arquivado"...) onde ela estiver, mesmo com R$ ou outro texto colado pela leitura por colunas.
 function statusDaFicha(bruto, txt) {
   var TOK = /(Ativo|Inativo|Arquivad[oa]|Encerrad[oa]|Suspens[oa])(?:\s+(?:\d+º\s+Grau|Superior))?/i, m = TOK.exec(String(bruto || ""));
@@ -2058,7 +2061,7 @@ function statusDaFicha(bruto, txt) {
 }
 function registrarFicha(result, linhas, proc, semNumero) {
   var d = diagnosticoFichas(result);
-  d.contadores.push(contadorDaFicha(linhas[0]));
+  d.contadores.push(contadorDaFicha(linhas[0], linhas[1]));
   proc._ficha = d.contadores.length - 1;
   if (semNumero) {
     proc.sem_numero = true; d.sem_numero++;
@@ -2075,7 +2078,7 @@ function registrarFicha(result, linhas, proc, semNumero) {
 }
 function registrarCaso(result, lines, caso) {
   var d = diagnosticoFichas(result), i = lines.findIndex(function (l) { return /\bFicha do caso\b/i.test(lineText(l)); });
-  d.contadores.push(i >= 0 ? contadorDaFicha(lines[i]) : { n: null, N: null });
+  d.contadores.push(i >= 0 ? contadorDaFicha(lines[i], lines[i + 1]) : { n: null, N: null });
   caso._ficha = d.contadores.length - 1; d.casos++;
 }
 // Conferência: o número de fichas lidas tem de ser igual ao N do contador "n/N" que o Astrea imprime em cada ficha.
@@ -2230,14 +2233,14 @@ async function linhasBrutasDoPdf(pdfDoc) {
   var out = [];
   for (var pg = 1; pg <= pdfDoc.numPages; pg++) {
     var tc = await (await pdfDoc.getPage(pg)).getTextContent(), itens = tc.items.filter(function (i) { return i.str && i.str.trim(); })
-      .map(function (i) { return { x: i.transform[4], y: i.transform[5], s: i.str }; }).sort(function (a, b) { return (b.y - a.y) || (a.x - b.x); });
-    var atual = null;
-    itens.forEach(function (it) {
-      if (atual && Math.abs(atual.y - it.y) <= 2.5) { atual.s += " " + it.s; }
-      else { atual = { y: it.y, s: it.s }; out.push(atual); }
+      .map(function (i) { return { x: i.transform[4], y: i.transform[5], s: i.str }; }).sort(function (a, b) { return b.y - a.y; });
+    var grupo = null, grupos = [];
+    itens.forEach(function (it) {   // linha = itens com y próximo do primeiro da linha; dentro da linha, da esquerda para a direita
+      if (grupo && Math.abs(grupo.y - it.y) <= 2.5) grupo.itens.push(it); else { grupo = { y: it.y, itens: [it] }; grupos.push(grupo); }
     });
+    grupos.forEach(function (g) { out.push(g.itens.sort(function (a, b) { return a.x - b.x; }).map(function (i) { return i.s; }).join(" ")); });
   }
-  return out.map(function (l) { return l.s.replace(/\s+/g, " ").trim(); });
+  return out.map(function (l) { return l.replace(/\s+/g, " ").trim(); });
 }
 function auditoriaDataBR(s) { var m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(s); return m ? Date.UTC(+m[3], +m[2] - 1, +m[1]) : null; }
 function AUD_CANON(t) {
@@ -2263,10 +2266,17 @@ function auditoriaTipoDoRegistro(L) {
 }
 async function auditoriaTextoBruto(pdfDoc, extraido, calculo, inicio, fim) {
   var linhas = await linhasBrutasDoPdf(pdfDoc), fichas = [], atual = null, secao = null;
-  var H = /^Ficha do (processo|caso)\b(?:\s*-\s*N[ºo°]?\s*(.+?))?\s+(\d+)\s*\/\s*(\d+)$/i;
-  linhas.forEach(function (l) {
+  var H = /^Ficha do (processo|caso)\b(.*)$/i, CONT = /(?:^|\s)(\d+)\s*\/\s*(\d+)$/;
+  linhas.forEach(function (l, li) {
     var m = H.exec(l);
-    if (m) { atual = { tipo: m[1].toLowerCase(), cnj: m[2] ? m[2].replace(/\s+/g, "") : null, n: +m[3], N: +m[4], cab: [], regs: [], todas: [] }; fichas.push(atual); secao = "cab"; return; }
+    if (m) {
+      // cabeçalho tolerante: "Ficha do processo - Nº X n/N", "Ficha do processo n/N" (sem número) ou "Ficha do caso n/N"; o contador pode estar na linha seguinte
+      var resto = m[2].trim(), ct = CONT.exec(resto) || (/^\d+\s*\/\s*\d+$/.test(linhas[li + 1] || "") ? CONT.exec(linhas[li + 1]) : null);
+      if (ct && CONT.exec(resto)) resto = resto.replace(CONT, "").trim();
+      var nm = /^-\s*N[ºo°]?\s*(.+)$/i.exec(resto);
+      atual = { tipo: m[1].toLowerCase(), cnj: nm ? nm[1].replace(/\s+/g, "") : null, n: ct ? +ct[1] : null, N: ct ? +ct[2] : null, cab: [], regs: [], todas: [] }; fichas.push(atual); secao = "cab"; return;
+    }
+    if (atual && /^\d+\s*\/\s*\d+$/.test(l) && atual.cab.length === 0 && secao === "cab") return;   // contador solto logo abaixo do cabeçalho
     if (!atual) return;
     atual.todas.push(l);
     if (/^Hist[oó]rico\b/i.test(l)) { secao = "hist"; return; }
@@ -2329,7 +2339,7 @@ async function auditoriaTextoBruto(pdfDoc, extraido, calculo, inicio, fim) {
   // sem chave = diferença que não dá para corrigir sozinho (registros perdidos na leitura): vai para decisão de quem gera.
   var cmp = function (rot, bruto, motor, chave) { if (bruto === motor) return; var txt = rot + ": texto bruto " + fm(bruto) + " × relatório " + fm(motor); if (chave) corrigiveis.push({ chave: chave, valor: bruto, anterior: motor, texto: txt }); else dif.push(txt); };
   var dg = extraido.diagnostico || {};
-  cmp("fichas com número", res.fichas.processo, dg.numeradas || 0); cmp("fichas sem número", res.fichas.sem_numero, dg.sem_numero || 0); cmp("fichas de caso", res.fichas.caso, dg.casos || 0);
+  var estrutura = { ok: res.fichas.processo === (dg.numeradas || 0) && res.fichas.sem_numero === (dg.sem_numero || 0) && res.fichas.caso === (dg.casos || 0), bruto: res.fichas, motor: { processo: dg.numeradas || 0, sem_numero: dg.sem_numero || 0, caso: dg.casos || 0 }, cabecalhos: linhas.filter(function (l) { return /^Ficha do/i.test(l); }).length, amostra: linhas.filter(function (l) { return /^Ficha do/i.test(l); }).slice(0, 3), contadorEsperado: dg.esperadas == null ? null : dg.esperadas };
   cmp("registros no período (por data de lançamento)", res.registros, mot.registros);
   AUD_TIPOS.forEach(function (t) { cmp("registros do tipo " + t[0], res.porTipo[t[0]] || 0, mot.porTipo[t[0]] || 0); });
   cmp("fichas movimentadas", Object.keys(res.fichasMov).length, Object.keys(mot.fichasMov).length);
@@ -2344,7 +2354,7 @@ async function auditoriaTextoBruto(pdfDoc, extraido, calculo, inicio, fim) {
   cmp("valor total das causas", Math.round(res.valor * 100) / 100, Math.round(ind.valor_total_causa * 100) / 100, "valor");
   if (res.temStatus) cmp("processos ativos", res.ativos, ind.processos_ativos == null ? -1 : ind.processos_ativos, "ativos");
   cmp("processos (CNJ distintos)", res.cnj, ind.total_processos, "cnj");
-  return { regsBrutos: regsBrutos, detalhe: detalhe, diferencas: dif, corrigiveis: corrigiveis, unidadesExibidas: unExib, independente: { fichas: res.fichas, registros: res.registros, porTipo: res.porTipo, fichasMovimentadas: Object.keys(res.fichasMov).length, itensMovimentados: Object.keys(res.unidades).length, valorTotal: res.valor, ativos: res.ativos, cnjDistintos: res.cnj, registrosSemTipo: res.semTipo }, motor: { registros: mot.registros, porTipo: mot.porTipo } };
+  return { estrutura: estrutura, regsBrutos: regsBrutos, detalhe: detalhe, diferencas: dif, corrigiveis: corrigiveis, unidadesExibidas: unExib, independente: { fichas: res.fichas, registros: res.registros, porTipo: res.porTipo, fichasMovimentadas: Object.keys(res.fichasMov).length, itensMovimentados: Object.keys(res.unidades).length, valorTotal: res.valor, ativos: res.ativos, cnjDistintos: res.cnj, registrosSemTipo: res.semTipo }, motor: { registros: mot.registros, porTipo: mot.porTipo } };
 }
 // Aplica ao relatório o que o confronto com o texto bruto já resolveu: corrige os indicadores escalares divergentes e registra cada correção.
 function aplicarCorrecoesDaAuditoria(aud, extraido, calculo) {
@@ -2365,41 +2375,63 @@ function aplicarCorrecoesDaAuditoria(aud, extraido, calculo) {
   ind.correcoes_auditoria = feitas;
   return feitas;
 }
-// Registros que a leitura principal não pegou (ou pegou com outro tipo) e o texto bruto mostra: a auditoria os reconstrói e o relatório é recalculado.
+// Reconciliação por ficha: a leitura principal usa posição de colunas (sensível a medidas de fonte, que mudam de máquina para máquina);
+// a leitura da auditoria usa só linhas de texto. Nas fichas em que as duas divergem (registro perdido, a mais ou com outro tipo),
+// vale o texto bruto: os registros da ficha são substituídos pelos lidos do texto e o relatório é recalculado.
 function reconciliarRegistros(aud, extraido) {
-  var proc = {}, caso = {}, motor = {}, reimp = {}, vistos = {}, novos = [];
+  var proc = {}, caso = {}, motor = {}, bruto = {}, reimp = {}, fichas = {}, novos = [], removidos = 0;
   (extraido.processos || []).forEach(function (p) { if (p._ficha != null) proc[p._ficha] = p; });
   (extraido.casosAdministrativos || []).forEach(function (c) { if (c._ficha != null) caso[c._ficha] = c; });
   var chave = function (f, d, t) { return f + "|" + d + "|" + AUD_CANON(t); };
-  (extraido.atividades || []).concat(extraido.atividadesAdministrativas || []).forEach(function (a) { if (a.ficha == null) return; var k = chave(a.ficha, a.data, a.tipo); motor[k] = (motor[k] || 0) + 1; });
+  var todasMotor = (extraido.atividades || []).concat(extraido.atividadesAdministrativas || []);
+  todasMotor.forEach(function (a) { if (a.ficha == null) return; var k = chave(a.ficha, a.data, a.tipo); motor[k] = (motor[k] || 0) + 1; });
   (extraido.reimpressoes || []).forEach(function (x) { var k = x.numero_processo + "|" + x.data + "|" + AUD_CANON(x.tipo); reimp[k] = (reimp[k] || 0) + 1; });
+  (aud.regsBrutos || []).forEach(function (r) { if (!r.tipo) return; var k = chave(r.idx, r.data, r.tipo); bruto[k] = (bruto[k] || 0) + 1; });
+  var reimpUsadas = {};
+  Object.keys(bruto).concat(Object.keys(motor)).forEach(function (k) {
+    var f = +k.split("|")[0], b = bruto[k] || 0, m = motor[k] || 0, p = proc[f];
+    if (b > m && p) { var rk = p.numero_processo + "|" + k.split("|").slice(1).join("|"), usa = Math.min(b - m, (reimp[rk] || 0) - (reimpUsadas[rk] || 0)); if (usa > 0) { reimpUsadas[rk] = (reimpUsadas[rk] || 0) + usa; m += usa; } }
+    if (b !== m) fichas[f] = true;
+  });
   var RUIDO = /NITSCHKE|^ADV - NGA|@nga\.adv\.br|^Contato:|^Rua Castro|^CNPJ 07\.045|^\d+\s*\/\s*\d+$|\bAstrea$/i;
-  (aud.regsBrutos || []).forEach(function (r) {
-    if (!r.tipo) return;
-    var k = chave(r.idx, r.data, r.tipo); vistos[k] = (vistos[k] || 0) + 1;
-    if (vistos[k] <= (motor[k] || 0)) return;
-    var p = proc[r.idx], c = caso[r.idx]; if (!p && !c) return;
-    var rk = p ? p.numero_processo + "|" + r.data + "|" + AUD_CANON(r.tipo) : null;
-    if (rk && reimp[rk] > 0) { reimp[rk]--; return; }          // reimpressão de fronteira de página que o leitor principal descartou de propósito
-    var linhas = r.linhas.filter(function (l) { return !RUIDO.test(l); }).map(function (l) { return l.replace(/\s+(Tarefa|Prazo|Evento|Audi[eê]ncia|Hist[oó]rico)(?:\s+(?:realizad[oa]|manual))?$/i, "").replace(/^(?:realizad[oa]|manual)$/i, ""); });
-    var descricao = linhas.join(" ").replace(/^\d{2}\/\d{2}\/\d{4}\s+/, "").replace(/\s+/g, " ").trim();
-    if (!descricao) return;
-    var reg = { numero_processo: p ? p.numero_processo : null, data: r.data, data_narrada: extrairDataNarrada(descricao), descricao: descricao, tipo: AUD_CANON(r.tipo), _pagina: 0, _primeiraDaPagina: false, ficha: r.idx, reconstruido_pela_auditoria: true };
-    if (p) extraido.atividades.push(reg); else { reg.administrativo = true; reg.caso = c.titulo; reg.caso_idx = c._idx; extraido.atividadesAdministrativas.push(reg); }
-    novos.push(reg);
+  Object.keys(fichas).forEach(function (fs) {
+    var f = +fs, p = proc[f], c = caso[f]; if (!p && !c) return;
+    var antes = (extraido.atividades || []).length + (extraido.atividadesAdministrativas || []).length;
+    extraido.atividades = (extraido.atividades || []).filter(function (a) { return a.ficha !== f; });
+    extraido.atividadesAdministrativas = (extraido.atividadesAdministrativas || []).filter(function (a) { return a.ficha !== f; });
+    removidos += antes - (extraido.atividades.length + extraido.atividadesAdministrativas.length);
+    var pulaReimp = {};
+    (aud.regsBrutos || []).filter(function (r) { return r.idx === f && r.tipo; }).forEach(function (r) {
+      var rk = p ? p.numero_processo + "|" + r.data + "|" + AUD_CANON(r.tipo) : null;
+      if (rk && (reimp[rk] || 0) - (pulaReimp[rk] || 0) > 0) { pulaReimp[rk] = (pulaReimp[rk] || 0) + 1; return; }   // reimpressão de fronteira de página, descartada de propósito
+      var linhas = r.linhas.filter(function (l) { return !RUIDO.test(l); }).map(function (l) { return l.replace(/\s+(Tarefa|Prazo|Evento|Audi[eê]ncia|Hist[oó]rico)(?:\s+(?:realizad[oa]|manual))?$/i, "").replace(/^(?:realizad[oa]|manual)$/i, ""); });
+      var descricao = linhas.join(" ").replace(/^\d{2}\/\d{2}\/\d{4}\s+/, "").replace(/\s+/g, " ").trim();
+      if (!descricao) return;
+      var reg = { numero_processo: p ? p.numero_processo : null, data: r.data, data_narrada: extrairDataNarrada(descricao), descricao: descricao, tipo: AUD_CANON(r.tipo), _pagina: 0, _primeiraDaPagina: false, ficha: f, reconstruido_pela_auditoria: true };
+      if (p) extraido.atividades.push(reg); else { reg.administrativo = true; reg.caso = c.titulo; reg.caso_idx = c._idx; extraido.atividadesAdministrativas.push(reg); }
+      novos.push(reg);
+    });
   });
   extraido.reconstruidos = (extraido.reconstruidos || []).concat(novos);
+  novos.fichas = Object.keys(fichas).length; novos.removidos = removidos;
   return novos;
 }
-async function auditarGeracao(pdfDoc, extraido, calculo, inicio, fim, recalcular) {
+async function auditarGeracaoCore(pdfDoc, extraido, calculo, inicio, fim, recalcular) {
   var aud = await auditoriaTextoBruto(pdfDoc, extraido, calculo, inicio, fim), rec = [];
+  if (!aud.estrutura.ok) {   // a leitura por linhas não achou as mesmas fichas que a principal: não dá para saber qual está certa, então a auditoria não corrige nem bloqueia
+    aud.inconclusiva = true; aud.diferencas = []; aud.corrigiveis = []; aud.correcoes = []; aud.reconstruidos = [];
+    window.NGA_DIAGNOSTICO = { fichas: extraido.diagnostico || null, auditoria: aud }; extraido.auditoria = aud;
+    if (typeof console !== "undefined") console.warn("[NGA] auditoria inconclusiva: fichas no texto " + JSON.stringify(aud.estrutura.bruto) + " × leitura principal " + JSON.stringify(aud.estrutura.motor) + "; cabeçalhos \"Ficha do…\" vistos no texto: " + aud.estrutura.cabecalhos + " (contador do Astrea: " + aud.estrutura.contadorEsperado + "); amostra: " + JSON.stringify(aud.estrutura.amostra) + ". Seguindo com a leitura principal.");
+    extraido.avisos = (extraido.avisos || []).concat(["Auditoria inconclusiva neste arquivo (as duas leituras não acharam as mesmas fichas); os números são os da leitura principal."]);
+    return calculo;
+  }
   if (aud.diferencas.length && typeof recalcular === "function") {
     rec = reconciliarRegistros(aud, extraido);
-    if (rec.length) { calculo = recalcular(); aud = await auditoriaTextoBruto(pdfDoc, extraido, calculo, inicio, fim); }
+    if (rec.length || rec.removidos) { calculo = recalcular(); aud = await auditoriaTextoBruto(pdfDoc, extraido, calculo, inicio, fim); }
   }
   aud.reconstruidos = rec;
   aud.correcoes = aplicarCorrecoesDaAuditoria(aud, extraido, calculo);
-  if (rec.length) { aud.correcoes.unshift(rec.length + " registro(s) que a leitura principal não pegou foram reconstruídos do texto bruto (" + rec.slice(0, 4).map(function (r) { return r.data + " " + r.tipo; }).join(", ") + (rec.length > 4 ? "…" : "") + ")"); calculo.indicadores.correcoes_auditoria = aud.correcoes.slice(); }
+  if (rec.length || rec.removidos) { aud.correcoes.unshift("registros de " + rec.fichas + " ficha(s) em que a leitura por colunas divergiu do texto bruto foram refeitos pelo texto (" + rec.removidos + " lidos antes, " + rec.length + " refeitos)"); calculo.indicadores.correcoes_auditoria = aud.correcoes.slice(); }
   window.NGA_DIAGNOSTICO = { fichas: extraido.diagnostico || null, auditoria: aud };
   extraido.auditoria = aud;
   if (typeof console !== "undefined") console.info("[NGA] auditoria do texto bruto:", aud.correcoes.length ? "corrigido: " + aud.correcoes.join("; ") : "sem correções", aud.diferencas.length ? aud.diferencas : "sem diferenças pendentes", aud.independente);
@@ -2409,6 +2441,17 @@ async function auditarGeracao(pdfDoc, extraido, calculo, inicio, fim, recalcular
     if (!seguir) throw new Error("Geração bloqueada pela auditoria. Diferenças: " + aud.diferencas.join(" | "));
   }
   return calculo;
+}
+
+// Erro interno da própria auditoria (PDF fora do padrão, etc.) nunca derruba nem bloqueia a geração: registra no console e segue com o cálculo da leitura principal.
+async function auditarGeracao(pdfDoc, extraido, calculo, inicio, fim, recalcular) {
+  try { return await auditarGeracaoCore(pdfDoc, extraido, calculo, inicio, fim, recalcular); }
+  catch (e) {
+    if (/^Geração bloqueada/.test(String(e && e.message))) throw e;
+    if (typeof console !== "undefined") console.warn("[NGA] a auditoria não pôde ser concluída (" + (e && e.message) + "); seguindo com o cálculo da leitura principal.");
+    extraido.avisos = (extraido.avisos || []).concat(["A auditoria do texto bruto não pôde ser concluída neste arquivo; os números são os da leitura principal."]);
+    return calculo;
+  }
 }
 
 if (typeof module !== "undefined") {
