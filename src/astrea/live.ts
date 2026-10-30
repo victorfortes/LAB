@@ -610,7 +610,9 @@ export class LiveAstrea implements AstreaPort {
         await page.waitForTimeout(800);
         // cartão do PRAZO desta publicação (pelo título) → Acessar detalhes
         const card = page.locator('[data-test="component-clippingTreatment-eventCard"]').filter({ hasText: i.prazoTitle.slice(0, 40) }).first();
-        await card.getByText('Acessar detalhes', { exact: true }).first().click({ timeout: 10_000 });
+        // No Astrea real o 1º "Acessar detalhes" do cartão é um item ESCONDIDO do menu ⋮; o link visível tem este data-test.
+        const details = card.locator('[data-test="component-proEventAditionalInfo-accessDetailsLink"], [data-test="component-proEventAditionalInfo-accessDetails"]').or(card.getByText('Acessar detalhes', { exact: true })).filter({ visible: true }).first();
+        await details.click({ timeout: 10_000 });
         await page.waitForTimeout(1500);
       };
       const hasActivities = async () => {
