@@ -1,6 +1,6 @@
 import type { BrowserContext, Locator, Page } from 'playwright';
 import type { AutoLoginResult } from './auto-login.ts';
-import { NotMappedError, SessionExpiredError, type AstreaPort, type AstreaSchedule, type DryRunInput, type DryRunResult, type ScheduleInput, type TaskInput, type WorkflowInput, workflowName, workflowSizeFor } from './port.ts';
+import { DueDateMismatch, NotMappedError, SessionExpiredError, type AstreaPort, type AstreaSchedule, type DryRunInput, type DryRunResult, type ScheduleInput, type TaskInput, type WorkflowInput, workflowName, workflowSizeFor } from './port.ts';
 import { brToIso, parseActivitiesText, parseCalculator, parseTreatmentCards, parseDetail, parseListRow, parsePrazoModal, scheduleKey, splitScheduleKey, type ActivityRow, type ListRow } from './parse.ts';
 import { guardRequest, normalizePath } from './recon.ts';
 import { requireSelector, type SelectorMap } from './selectors.ts';
@@ -720,7 +720,7 @@ export class LiveAstrea implements AstreaPort {
       const due = page.locator(S('formDueDate')).first();
       await page.waitForFunction((el) => !!(el as HTMLInputElement).value, await due.elementHandle(), { timeout: 15_000 });
       const astreaDue = brToIso(await due.inputValue());
-      if (astreaDue !== i.dueDate) throw new Error(`Data limite do Astrea (${astreaDue}) difere da calculada pelo robô (${i.dueDate}): gravação ABORTADA`);
+      if (astreaDue !== i.dueDate) throw new DueDateMismatch(astreaDue, i.dueDate);
 
       if (i.responsible) {
         const resp = page.locator(S('formResponsible')).first();

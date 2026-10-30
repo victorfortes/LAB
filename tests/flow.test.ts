@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { ReadOnlyViolation, readOnly } from '../src/astrea/port.ts';
+import { DueDateMismatch, ReadOnlyViolation, readOnly } from '../src/astrea/port.ts';
 import { classify } from '../src/domain/classifier.ts';
 import { SimulatedAstrea } from '../src/astrea/simulated.ts';
 import { buildServices } from '../src/server/services.ts';
@@ -70,6 +70,32 @@ describe('executor (somente leitura)', () => {
     const sched = [...astrea.schedules.values()][0]!;
     expect(sched.title).toMatch(/prazo padrão de 5 dias/);
     expect(sched.title).not.toMatch(/terceiro/i);
+  });
+  test('data do Astrea mais cedo que a do robô (ele conta a partir do sábado): grava a data mais cedo, com texto coerente e auditoria', async () => {
+    const mk = { externalId: 'E1', processNumber: '0001234-56.2025.8.16.0001', clientName: 'Cliente Alfa Ltda (fictício)', availabilityDate: '2026-10-29', fullText: 'Intime-se. Cumpra-se.' };
+    const { repo, cfg } = await setup();
+    cfg.holidays = new Set(['2026-11-02']); // Finados: a contagem do robô começa em 03/11 ⇒ vence 06/11 (4 dias para o formulário)
+    const astrea = new SimulatedAstrea([mk]);
+    const amounts: number[] = [];
+    const orig = astrea.createSchedule.bind(astrea);
+    astrea.createSchedule = (async (i: any) => {
+      amounts.push(i.live.amount);
+      if (i.live.amount === 4) throw new DueDateMismatch('2026-11-03', i.dueDate); // com 4 dias o Astrea (início em 31/10) dá 03/11
+      return orig(i);
+    }) as typeof astrea.createSchedule;
+    const s = buildServices(cfg, repo, astrea);
+    await runAll(s);
+    const rec = (await repo.listRecords())[0]!;
+    expect(rec.analysis.actions.find((a) => a.deadline)!.deadline!.endTerm).toBe('2026-11-06');
+    await s.workflow.approve(rec.id, actor('operator'), true);
+    await authorizeWrites(s);
+    const out = await s.writer.write(rec.id, actor('admin'));
+    expect(amounts).toEqual([4, 5]);
+    expect(out.confirmedInAstrea).toBe(true);
+    const sched = [...astrea.schedules.values()][0]!;
+    expect(sched.dueDate).toBe('2026-11-04');
+    expect(sched.description).toContain('vencimento 04/11/2026');
+    expect((await repo.listAudit()).some((e) => e.action === 'write.date_adjusted_earlier')).toBe(true);
   });
   test('regra do escritório: texto sem prazo próprio ⇒ prazo padrão de 5 dias corridos; informativo (juntada) não ganha prazo', () => {
     const base = { processNumber: '0001234-56.2025.8.16.0001', clientName: 'X', availabilityDate: '2026-03-02' };

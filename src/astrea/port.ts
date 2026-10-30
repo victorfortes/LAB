@@ -7,6 +7,10 @@ export class SessionExpiredError extends Error {
 export class NotMappedError extends Error {
   constructor(public what: string) { super(`Não mapeado: ${what}. Execute o reconhecimento (docs/RECON-PLAYBOOK.md).`); }
 }
+/** A "Data limite" que o próprio Astrea calculou no formulário difere da esperada; nada foi gravado (formulário cancelado). */
+export class DueDateMismatch extends Error {
+  constructor(public astreaDue: string, public expectedDue: string) { super(`Data limite do Astrea (${astreaDue}) difere da calculada pelo robô (${expectedDue}): gravação ABORTADA`); }
+}
 export class ReadOnlyViolation extends Error {
   constructor(op: string) { super(`Operação de escrita bloqueada em modo somente leitura: ${op}`); }
 }

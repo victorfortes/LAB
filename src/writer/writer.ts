@@ -1,5 +1,5 @@
 import { followUpPlan, taskKey } from './tasks.ts';
-import { workflowName, workflowSizeFor } from '../astrea/port.ts';
+import { DueDateMismatch, workflowName, workflowSizeFor } from '../astrea/port.ts';
 import { createHash } from 'node:crypto';
 import { markerFor, type AstreaPort, type AstreaSchedule } from '../astrea/port.ts';
 import type { ProposedAction } from '../domain/types.ts';
@@ -202,7 +202,22 @@ export class Writer {
     return { ok, notes };
   }
 
-  private async writeOne(rec: Rec, a: ProposedAction, actor: Actor): Promise<WriteOutcome['items'][number]> {
+  /** Prevê o vencimento do Astrea com a quantidade cheia de dias; só aceita se for dia útil e não passar do vencimento do robô. */
+  private earlierDate(a: ProposedAction, e: DueDateMismatch): { action: ProposedAction; endTerm: string } | null {
+    const d = a.deadline;
+    if (!d?.endTerm || d.unit !== 'dias_corridos' || e.astreaDue >= d.endTerm) return null;
+    const used = liveAmount(d);
+    const day = 86_400_000;
+    const start = new Date(Date.parse(e.astreaDue) - (used - 1) * day);
+    const end = new Date(start.getTime() + (d.amount - 1) * day);
+    const iso = end.toISOString().slice(0, 10);
+    const dow = end.getUTCDay();
+    if (dow === 0 || dow === 6 || iso > d.endTerm || this.cfg.holidays?.has(iso)) return null;
+    const startIso = start.toISOString().slice(0, 10);
+    return { endTerm: iso, action: { ...a, deadline: { ...d, startTerm: startIso, endTerm: iso, basis: `${d.basis} Ajustado para a data mais cedo calculada pelo Astrea (${iso}), pois ele iniciou a contagem em ${startIso}.` } } };
+  }
+
+  private async writeOne(rec: Rec, a: ProposedAction, actor: Actor, retry?: { liveAmount: number }): Promise<WriteOutcome['items'][number]> {
     const key = idempotencyKey(rec, a);
     const expected = expectedSchedule(rec, a, key, this.cfg.titlePrefix ?? '');
     const now = () => new Date().toISOString();
@@ -240,7 +255,7 @@ export class Writer {
           const created = await this.astrea.createSchedule({
             ...expected, idempotencyKey: key,
             live: {
-              publicationId: rec.externalId, amount: liveAmount(a.deadline!), unit: a.deadline!.unit as 'dias_uteis' | 'dias_corridos',
+              publicationId: rec.externalId, amount: retry?.liveAmount ?? liveAmount(a.deadline!), unit: a.deadline!.unit as 'dias_uteis' | 'dias_corridos',
               kanban: this.cfg.kanbanBoard && this.cfg.kanbanColumn ? { board: this.cfg.kanbanBoard, column: this.cfg.kanbanColumn } : null,
               alertDays: this.cfg.alertDays ?? null,
             },
@@ -262,6 +277,12 @@ export class Writer {
     } catch (e) {
       evidence.push(ev('error', { message: (e as Error).message }));
       await this.repo.updateWriteOp(key, { status: 'failed', astreaId, evidence, error: (e as Error).message });
+      // Regra do escritório: se o Astrea contar um vencimento MAIS CEDO que o do robô (ex.: ele começa a contar no sábado), vale a data mais cedo.
+      const earlier = !retry && e instanceof DueDateMismatch ? this.earlierDate(a, e) : null;
+      if (earlier) {
+        await this.repo.appendAudit({ actor: actor.username, action: 'write.date_adjusted_earlier', entityType: 'record', entityId: rec.id, data: { actionId: a.id, robot: a.deadline!.endTerm, astrea: earlier.endTerm } });
+        return this.writeOne(rec, earlier.action, actor, { liveAmount: a.deadline!.amount });
+      }
       await this.repo.appendAudit({ actor: actor.username, action: 'write.failed', entityType: 'record', entityId: rec.id, data: { actionId: a.id, error: (e as Error).message } });
       return { actionId: a.id, status: 'failed', astreaId, adopted, note: `${(e as Error).message.split('\n')[0]!.slice(0, 220)} — se necessário, confira no Astrea antes de reprocessar` };
     }
