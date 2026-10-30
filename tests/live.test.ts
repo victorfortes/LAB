@@ -313,13 +313,13 @@ describe('LiveAstrea contra página-fixture (sem dados reais)', () => {
       expect(fake.workflows.length).toBe(before);
     }, 150_000);
 
-    test('aplica o workflow certo (15 dias ⇒ PRAZO 15), confirma pelas atividades e é idempotente', async () => {
+    test('aplica sempre o workflow de 5 dias (prazo de 15 dias ⇒ PRAZO 05), confirma pelas atividades e é idempotente', async () => {
       if (!up) return;
       const l = mk({ learnWrite: true });
       await l.createSchedule(input() as never);
       const r = await l.applyWorkflow({ publicationId: '9001', prazoTitle: 'Prazo para workflow', amount: 15 });
-      expect(r).toMatchObject({ workflow: 'PRAZO 15 DIAS CORRIDOS', confirmed: true, adopted: false });
-      expect(fake.workflows.at(-1)).toMatchObject({ title: 'Prazo para workflow', workflow: 'PRAZO 15 DIAS CORRIDOS' });
+      expect(r).toMatchObject({ workflow: 'PRAZO 05 DIAS CORRIDOS', confirmed: true, adopted: false });
+      expect(fake.workflows.at(-1)).toMatchObject({ title: 'Prazo para workflow', workflow: 'PRAZO 05 DIAS CORRIDOS' });
       expect(l.observedWrites.length).toBeLessThanOrEqual(6);
       const again = await mk({ learnWrite: true }).applyWorkflow({ publicationId: '9001', prazoTitle: 'Prazo para workflow', amount: 15 });
       expect(again).toMatchObject({ confirmed: true, adopted: true });

@@ -31,8 +31,10 @@ export interface WorkflowInput {
   amount: number;
 }
 export const WORKFLOW_SIZES = [5, 10, 15, 30] as const;
-/** Menor workflow com N >= dias do prazo; acima de 30, o de 30. */
-export const workflowSizeFor = (amount: number): number => WORKFLOW_SIZES.find((n) => n >= amount) ?? 30;
+/** Decisão do escritório (por enquanto): sempre o workflow de 5 dias, qualquer que seja o prazo. Para voltar a escolher pelo tamanho do prazo, troque por `null`. */
+export const FIXED_WORKFLOW_DAYS: (typeof WORKFLOW_SIZES)[number] | null = 5;
+/** Com FIXED_WORKFLOW_DAYS nulo: menor workflow com N >= dias do prazo; acima de 30, o de 30. */
+export const workflowSizeFor = (amount: number): number => FIXED_WORKFLOW_DAYS ?? WORKFLOW_SIZES.find((n) => n >= amount) ?? 30;
 export const workflowName = (n: number) => `PRAZO ${String(n).padStart(2, '0')} DIAS CORRIDOS`;
 export interface ScheduleInput {
   processNumber: string;

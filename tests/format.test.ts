@@ -71,3 +71,8 @@ describe('tarefas de acompanhamento (datas)', () => {
   });
   test('prioridade como nos workflows: 5/15 média, 10/30 baixa', () => { expect([5, 10, 15, 30, 7].map(priorityFor)).toEqual(['Média', 'Baixa', 'Média', 'Baixa', 'Média']); });
 });
+
+import { workflowName, workflowSizeFor } from '../src/astrea/port.ts';
+test('workflow: por decisão do escritório, sempre o de 5 dias', () => {
+  for (const d of [1, 5, 10, 15, 30, 45]) expect(workflowName(workflowSizeFor(d))).toBe('PRAZO 05 DIAS CORRIDOS');
+});
