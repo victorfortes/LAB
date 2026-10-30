@@ -169,7 +169,7 @@ describe('API', () => {
     void cookie;
   });
 
-  test('aprovar e lançar em lote: viewer 403; pula ambíguas sem confirmação; fila roda e informa o resultado por publicação', async () => {
+  test('aprovar e lançar em lote: viewer 403; pula as com alerta sério (mantém o alerta de prazo padrão como decisão do lote); fila roda e informa o resultado por publicação', async () => {
     const adm = (await login('adm')).cookie;
     const list = await (await call(adm, '/records')).json() as Array<any>;
     const ids = list.filter((r) => ['classified', 'needs_review', 'approved'].includes(r.state)).slice(0, 3).map((r) => r.id);
@@ -182,7 +182,6 @@ describe('API', () => {
     expect(st.running).toBe(false);
     expect(st.items).toHaveLength(ids.length);
     for (const it of st.items) expect(['done', 'failed', 'skipped']).toContain(it.status);
-    const reviewed = list.filter((r) => ids.includes(r.id) && r.state === 'needs_review').map((r) => r.id);
-    for (const it of st.items.filter((x: any) => reviewed.includes(x.id))) expect(it.status).toBe('skipped');
+    for (const it of st.items.filter((x: any) => x.note.startsWith('Precisa de decisão'))) expect(it.status).toBe('skipped');
   });
 });

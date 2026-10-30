@@ -157,8 +157,16 @@ export function createApp(s: Services, webDir = join(import.meta.dir, '..', '..'
           it.status = 'running';
           try {
             let r = await s.workflow.get(it.id);
-            if (r.state === 'needs_review' && !acknowledgeAmbiguity) { it.status = 'skipped'; it.note = 'Tem alertas: abra e confirme, ou marque a opção de confirmar alertas.'; continue; }
-            if (['classified', 'needs_review'].includes(r.state)) r = await s.workflow.approve(it.id, actor, acknowledgeAmbiguity);
+            // "Sem prazo próprio" (prazo padrão de 5 dias) é um alerta esperado: aprovar no lote já é a decisão humana. Qualquer outro alerta exige abrir a publicação (ou marcar a confirmação).
+            const reasons = [...new Set(r.analysis.actions.flatMap((a) => (a.ambiguous ? a.ambiguityReasons : [])))];
+            const hardFlags = r.analysis.flags.filter((f) => ['sugestao_astrea_divergente', 'texto_possivelmente_truncado', 'nenhum_padrao_reconhecido'].includes(f));
+            const onlyDefault = reasons.length > 0 && reasons.every((x) => x.startsWith('Sem prazo próprio')) && !hardFlags.length;
+            if (r.state === 'needs_review' && !acknowledgeAmbiguity && !onlyDefault) {
+              it.status = 'skipped';
+              it.note = `Precisa de decisão sua: ${[...reasons, ...hardFlags.map((f) => f === 'sugestao_astrea_divergente' ? 'o Astrea sugere outra data' : f.replace(/_/g, ' '))].join(' · ') || 'alerta'}. Abra a publicação ou marque "Confirmo os alertas".`;
+              continue;
+            }
+            if (['classified', 'needs_review'].includes(r.state)) r = await s.workflow.approve(it.id, actor, r.state === 'needs_review');
             if (!['approved', 'write_failed', 'divergent'].includes(r.state)) { it.status = 'skipped'; it.note = `Estado "${r.state}" não pode ser lançado.`; continue; }
             if (hasPerm(actor.role, 'write:authorize'))
               await s.workflow.createWriteAuthorization(actor, { processNumbers: [r.processNumber], expiresAt: new Date(Date.now() + 2 * 3600_000).toISOString(), note: 'Escrita autorizada em lote pelo administrador (2 h)' });
