@@ -163,7 +163,8 @@ export function createApp(s: Services, webDir = join(import.meta.dir, '..', '..'
             const onlyDefault = reasons.length > 0 && reasons.every((x) => x.startsWith('Sem prazo próprio')) && !hardFlags.length;
             if (r.state === 'needs_review' && !acknowledgeAmbiguity && !onlyDefault) {
               it.status = 'skipped';
-              it.note = `Precisa de decisão sua: ${[...reasons, ...hardFlags.map((f) => f === 'sugestao_astrea_divergente' ? 'o Astrea sugere outra data' : f.replace(/_/g, ' '))].join(' · ') || 'alerta'}. Abra a publicação ou marque "Confirmo os alertas".`;
+              const why = [...reasons.filter((x) => !x.startsWith('Sem prazo próprio')), ...hardFlags.map((f) => (f === 'sugestao_astrea_divergente' ? 'o Astrea sugere outra data' : f === 'texto_possivelmente_truncado' ? 'texto cortado' : 'nenhum padrão reconhecido'))].map((x) => x.replace(/\.$/, '').slice(0, 70));
+              it.note = `Precisa da sua decisão (${why.slice(0, 2).join('; ') || 'alerta'}${why.length > 2 ? '…' : ''}). Clique em "Revisar e decidir".`;
               continue;
             }
             if (['classified', 'needs_review'].includes(r.state)) r = await s.workflow.approve(it.id, actor, r.state === 'needs_review');
