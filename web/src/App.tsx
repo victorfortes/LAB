@@ -158,6 +158,8 @@ function Dashboard({ me, cfg, onLogout }: { me: Me; cfg: Cfg; onLogout: () => vo
   const [launches, setLaunches] = useState<Launch[]>([]);
   const [toasts, setToasts] = useState<Array<{ id: number; kind: string; text: string }>>([]);
   const [now, setNow] = useState(Date.now());
+  const [bl, setBl] = useState<{ running: boolean; items: Array<{ id: string; processNumber: string; status: string; note: string }> }>({ running: false, items: [] });
+  const [ackAmb, setAckAmb] = useState(false);
   const h = useHealth();
   const can = (p: string) => me.permissions.includes(p);
   const notify: Notify = useCallback((m) => { const id = Date.now() + Math.random(); setToasts((t) => [...t, { id, ...m }]); setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 8000); }, []);
@@ -170,6 +172,12 @@ function Dashboard({ me, cfg, onLogout }: { me: Me; cfg: Cfg; onLogout: () => vo
   }, []);
   useEffect(() => { void refresh(); }, [refresh]);
   const active = run?.status === 'running';
+  useEffect(() => { void api('/batch-launch-status').then(setBl).catch(() => {}); }, []);
+  useEffect(() => {
+    if (!bl.running) return;
+    const t = setInterval(async () => { try { const b = await api('/batch-launch-status'); setBl(b); if (!b.running) void refresh(); } catch { /* tenta de novo */ } }, 3000);
+    return () => clearInterval(t);
+  }, [bl.running, refresh]);
   useEffect(() => { if (!active) return; const t = setInterval(() => { setNow(Date.now()); void refresh(); }, 1000); return () => clearInterval(t); }, [active, refresh]);
 
   const act = async (fn: () => Promise<any>, ok?: string) => {
@@ -293,6 +301,12 @@ function Dashboard({ me, cfg, onLogout }: { me: Me; cfg: Cfg; onLogout: () => vo
 
       {sel.size > 0 && (
         <div className="batchbar"><b>{sel.size}</b> selecionada(s)
+          {['decidir', 'lancar'].includes(cur.key) && <button className="btn primary sm" disabled={!can('records:approve') || bl.running} onClick={() => act(async () => {
+            const b = await api('/records/batch/launch', 'POST', { ids: [...sel], acknowledgeAmbiguity: ackAmb }); setSel(new Set());
+            setBl(await api('/batch-launch-status'));
+            notify({ kind: 'ok', text: `Lançamento em lote iniciado: ${b.total} publicação(ões), uma por vez (1 a 2 min cada). Acompanhe no painel.` });
+          })}>{cur.key === 'decidir' ? 'Aprovar e lançar no Astrea' : 'Lançar no Astrea'}</button>}
+          {cur.key === 'decidir' && <label className="small" style={{ display: 'flex', gap: 5, alignItems: 'center' }}><input type="checkbox" checked={ackAmb} onChange={(e) => setAckAmb(e.target.checked)} />Confirmo os alertas das que têm ambiguidade</label>}
           {cur.key === 'decidir' && <button className="btn gold sm" disabled={!can('records:approve')} onClick={() => act(async () => {
             const r = await api('/records/batch/approve', 'POST', { ids: [...sel] }); setSel(new Set());
             notify({ kind: r.skipped.length ? 'warn' : 'ok', text: `${r.approved.length} aprovada(s); ${r.skipped.length} precisam ser abertas e aprovadas uma a uma` });
@@ -304,6 +318,15 @@ function Dashboard({ me, cfg, onLogout }: { me: Me; cfg: Cfg; onLogout: () => vo
             notify({ kind: r.skipped.length ? 'warn' : 'ok', text: `${r.rejected.length} dispensada(s) — não aparecem mais para lançar${r.skipped.length ? `; ${r.skipped.length} não puderam ser dispensadas` : ''}` });
           })}>Dispensar as selecionadas</button>
           <button className="btn ghost sm" onClick={() => setSel(new Set())}>Limpar</button></div>)}
+
+      {bl.items.length > 0 && (() => {
+        const done = bl.items.filter((i) => ['done', 'failed', 'skipped'].includes(i.status)).length;
+        return <div className="batchbar" style={{ bottom: sel.size ? 64 : 16, flexDirection: 'column', alignItems: 'stretch', maxWidth: 560, maxHeight: '45vh', overflow: 'auto' }}>
+          <div className="row"><b>{bl.running ? `Lançando… ${done} de ${bl.items.length}` : `Lote finalizado: ${bl.items.filter((i) => i.status === 'done').length} lançada(s), ${bl.items.filter((i) => i.status === 'failed').length} com erro, ${bl.items.filter((i) => i.status === 'skipped').length} puladas`}</b><div className="spacer" />
+            {!bl.running && <button className="btn ghost sm" onClick={() => setBl({ running: false, items: [] })}>Fechar</button>}</div>
+          {bl.items.map((i) => <div key={i.id} className="small"><span className="mono">{i.processNumber}</span> — {({ waiting: 'aguardando', running: 'lançando…', done: 'lançada ✓', failed: 'ERRO', skipped: 'pulada' } as Record<string, string>)[i.status]}{i.note ? ` · ${i.note}` : ''}</div>)}
+        </div>;
+      })()}
 
       <div className="toasts">{toasts.map((t) => <div key={t.id} className={`toast ${t.kind}`} onClick={() => setToasts((x) => x.filter((y) => y.id !== t.id))}>{t.text}</div>)}</div>
       {vaultOpen && <VaultModal onClose={() => setVaultOpen(false)} notify={notify} />}

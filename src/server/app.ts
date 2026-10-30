@@ -9,7 +9,7 @@ import type { Actor } from '../runner/runner.ts';
 import { NotMappedError, ReadOnlyViolation, SessionExpiredError } from '../astrea/port.ts';
 import { verifyPassword } from '../security/auth.ts';
 import { log } from '../security/mask.ts';
-import { Forbidden, require as requirePerm, ROLE_PERMISSIONS } from '../security/rbac.ts';
+import { can as hasPerm, Forbidden, require as requirePerm, ROLE_PERMISSIONS } from '../security/rbac.ts';
 import { maskEmail } from '../security/vault.ts';
 import { RunInProgress, VersionConflict } from '../store/repo.ts';
 import { scheduleNotes, scheduleTitle } from '../writer/format.ts';
@@ -137,6 +137,41 @@ export function createApp(s: Services, webDir = join(import.meta.dir, '..', '..'
     const { ids } = z.object({ ids: z.array(z.string()).min(1).max(500) }).parse(req.body);
     res.json(await s.workflow.approveBatch(ids, A(req)));
   });
+  // "Aprovar e lançar" em lote: fila em segundo plano (cada lançamento leva 1–2 min e o robô só faz um por vez).
+  type BatchItem = { id: string; processNumber: string; status: 'waiting' | 'running' | 'done' | 'failed' | 'skipped'; note: string };
+  const batch: { running: boolean; startedAt: string | null; items: BatchItem[] } = { running: false, startedAt: null, items: [] };
+  api.post('/records/batch/launch', async (req: Req, res) => {
+    const { ids, acknowledgeAmbiguity } = z.object({ ids: z.array(z.string()).min(1).max(200), acknowledgeAmbiguity: z.boolean().default(false) }).parse(req.body);
+    const actor = A(req);
+    requirePerm(actor.role, 'records:approve');
+    if (batch.running) throw new AppError('batch_running', 'Já existe um lançamento em lote em andamento. Aguarde terminar.', 409);
+    const items: BatchItem[] = [];
+    for (const id of ids) {
+      const r = await s.workflow.get(id);
+      items.push({ id, processNumber: r.processNumber, status: 'waiting', note: '' });
+    }
+    batch.running = true; batch.startedAt = new Date().toISOString(); batch.items = items;
+    void (async () => {
+      try {
+        for (const it of items) {
+          it.status = 'running';
+          try {
+            let r = await s.workflow.get(it.id);
+            if (r.state === 'needs_review' && !acknowledgeAmbiguity) { it.status = 'skipped'; it.note = 'Tem alertas: abra e confirme, ou marque a opção de confirmar alertas.'; continue; }
+            if (['classified', 'needs_review'].includes(r.state)) r = await s.workflow.approve(it.id, actor, acknowledgeAmbiguity);
+            if (!['approved', 'write_failed', 'divergent'].includes(r.state)) { it.status = 'skipped'; it.note = `Estado "${r.state}" não pode ser lançado.`; continue; }
+            if (hasPerm(actor.role, 'write:authorize'))
+              await s.workflow.createWriteAuthorization(actor, { processNumbers: [r.processNumber], expiresAt: new Date(Date.now() + 2 * 3600_000).toISOString(), note: 'Escrita autorizada em lote pelo administrador (2 h)' });
+            const out = await s.writer.write(it.id, actor);
+            if (out.confirmedInAstrea) { it.status = 'done'; it.note = out.treatedNote ?? 'Prazo lançado e conferido no Astrea.'; }
+            else { it.status = 'failed'; it.note = `Não confirmado no Astrea. ${out.items?.[0]?.note ?? ''}`.trim(); }
+          } catch (e) { it.status = 'failed'; it.note = (e as Error).message; }
+        }
+      } finally { batch.running = false; }
+    })();
+    res.status(202).json({ started: true, total: items.length });
+  });
+  api.get('/batch-launch-status', (_req, res) => res.json(batch));
   // "Dispensar": encerra publicações que não precisam de lançamento (ex.: o prazo já existe no Astrea). Em lote, com motivo obrigatório; fica na auditoria.
   api.post('/records/batch/reject', async (req: Req, res) => {
     requirePerm(A(req).role, 'records:approve');

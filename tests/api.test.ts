@@ -168,4 +168,21 @@ describe('API', () => {
     expect((await call(view, '/runs', 'POST')).status).toBe(403);
     void cookie;
   });
+
+  test('aprovar e lançar em lote: viewer 403; pula ambíguas sem confirmação; fila roda e informa o resultado por publicação', async () => {
+    const adm = (await login('adm')).cookie;
+    const list = await (await call(adm, '/records')).json() as Array<any>;
+    const ids = list.filter((r) => ['classified', 'needs_review', 'approved'].includes(r.state)).slice(0, 3).map((r) => r.id);
+    expect(ids.length).toBeGreaterThan(0);
+    expect((await call((await login('view')).cookie, '/records/batch/launch', 'POST', { ids })).status).toBe(403);
+    expect((await call(adm, '/records/batch/launch', 'POST', { ids: [] })).status).toBe(400);
+    expect((await call(adm, '/records/batch/launch', 'POST', { ids })).status).toBe(202);
+    let st: any;
+    for (let i = 0; i < 100; i++) { st = await (await call(adm, '/batch-launch-status')).json(); if (!st.running) break; await Bun.sleep(100); }
+    expect(st.running).toBe(false);
+    expect(st.items).toHaveLength(ids.length);
+    for (const it of st.items) expect(['done', 'failed', 'skipped']).toContain(it.status);
+    const reviewed = list.filter((r) => ids.includes(r.id) && r.state === 'needs_review').map((r) => r.id);
+    for (const it of st.items.filter((x: any) => reviewed.includes(x.id))) expect(it.status).toBe('skipped');
+  });
 });
