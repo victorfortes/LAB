@@ -609,10 +609,22 @@ export class LiveAstrea implements AstreaPort {
         await main.locator('text=/Divulgado em:/').first().waitFor({ timeout: Math.min(45_000, this.opts.timeoutMs) });
         await page.waitForTimeout(800);
         // cartão do PRAZO desta publicação (pelo título) → Acessar detalhes
-        const card = page.locator('[data-test="component-clippingTreatment-eventCard"]').filter({ hasText: i.prazoTitle.slice(0, 40) }).first();
-        // No Astrea real o 1º "Acessar detalhes" do cartão é um item ESCONDIDO do menu ⋮; o link visível tem este data-test.
-        const details = card.locator('[data-test="component-proEventAditionalInfo-accessDetailsLink"], [data-test="component-proEventAditionalInfo-accessDetails"]').or(card.getByText('Acessar detalhes', { exact: true })).filter({ visible: true }).first();
-        await details.click({ timeout: 10_000 });
+        const cards = page.locator('[data-test="component-clippingTreatment-eventCard"]');
+        // Pelo título; se o texto do cartão não bater (acentos/travessão/truncamento), cai para o cartão criado pelo robô (marcador [NGA:) — desde que seja um só.
+        const norm = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/gi, ' ').trim().toLowerCase();
+        const want = norm(i.prazoTitle).slice(0, 30);
+        const texts = await cards.allInnerTexts();
+        let idx = texts.findIndex((t) => norm(t).includes(want));
+        if (idx < 0) { const byMarker = texts.map((t, k) => (t.includes('[NGA:') ? k : -1)).filter((k) => k >= 0); if (byMarker.length === 1) idx = byMarker[0]!; }
+        if (idx < 0) throw new Error(`Não achei o cartão do prazo "${i.prazoTitle.slice(0, 50)}" na publicação (${texts.length} cartão(ões)).`);
+        const card = cards.nth(idx);
+        // Astrea real: o link "Acessar detalhes ›" só aparece quando as observações são cortadas; senão vale o menu ⋮ do cartão (o item do menu fica escondido até abrir).
+        const link = card.locator('[data-test="component-proEventAditionalInfo-accessDetailsLink"], [data-test="component-proEventAditionalInfo-accessDetails"]').filter({ visible: true }).first();
+        if (await link.waitFor({ state: 'visible', timeout: 4000 }).then(() => true, () => false)) await link.click({ timeout: 10_000 });
+        else {
+          await card.locator('[data-testid="dropdown-icon"]').first().click({ timeout: 10_000 });
+          await card.locator('[data-test="dropdownItem-treatmentDetails"]').filter({ visible: true }).first().click({ timeout: 10_000 });
+        }
         await page.waitForTimeout(1500);
       };
       const hasActivities = async () => {
