@@ -1,0 +1,5 @@
+{
+  "_comment": "Feriados nacionais 2026 e dias sem expediente forense de aplicação geral (YYYY-MM-DD). Feriados estaduais/municipais e suspensões de cada tribunal NÃO estão aqui. 'verifiedBy' continua null: só preencha (nome de quem conferiu) após a Controladoria validar a lista e os feriados locais; sem isso todo cálculo é sinalizado e exige análise humana.",
+  "verifiedBy": null,
+  "dates": ["2026-01-01", "2026-02-16", "2026-02-17", "2026-04-03", "2026-04-21", "2026-05-01", "2026-06-04", "2026-09-07", "2026-10-12", "2026-11-02", "2026-11-15", "2026-11-20", "2026-12-25"]
+}

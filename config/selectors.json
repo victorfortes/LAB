@@ -1,0 +1,164 @@
+{
+  "_comment": "Somente seletores/rótulos CONFIRMADOS por observação (ver docs/ASTREA-MAP.md). Cada entrada cita a evidência. Não adicionar sem observar.",
+  "version": 1,
+  "confirmedAgainstRecon": "2026-10-21 Claude in Chrome read_page/get_page_text em conta real (somente leitura)",
+  "read": {
+    "loggedInIndicator": {
+      "selector": "nav a[href=\"#/main/clippings\"]",
+      "evidence": "ASTREA-MAP.md > Observado diretamente: link 'Publicações' href=#/main/clippings no menu lateral (só existe logado)",
+      "confirmedAt": "2026-10-21"
+    },
+    "listArticle": {
+      "selector": "main article",
+      "evidence": "ASTREA-MAP.md > Linha da lista: cada publicação é um <article> dentro de <main> em #/main/clippings",
+      "confirmedAt": "2026-10-21"
+    },
+    "listStatusChip": {
+      "selector": "text=/status:\\s*N[ãa]o tratada/i",
+      "evidence": "ASTREA-MAP.md > Lista: chip 'status: Não tratada' (nome acessível observado)",
+      "confirmedAt": "2026-10-21"
+    },
+    "listEmptyState": {
+      "selector": "text=/Nenhuma publica[cç][aã]o encontrada/i",
+      "evidence": "ASTREA-MAP.md > Publicações vazia: 'Nenhuma publicação encontrada'",
+      "confirmedAt": "2026-10-21"
+    },
+    "openPublicationButton": {
+      "selector": "button:has-text(\"Acessar publicação\")",
+      "evidence": "ASTREA-MAP.md > Linha da lista: botão 'Acessar publicação' (read_page: button > generic 'Acessar publicação')",
+      "confirmedAt": "2026-10-21"
+    },
+    "detailMain": {
+      "selector": "main",
+      "evidence": "ASTREA-MAP.md > Tela da publicação #/main/clippings-treatment?id=<id>: get_page_text com fonte <main>",
+      "confirmedAt": "2026-10-21"
+    },
+    "globalSearchInput": {
+      "selector": "input[placeholder=\"Pesquisar contato, processo ou tarefa\"]",
+      "evidence": "ASTREA-MAP.md > Agenda/Processo: textbox 'Pesquisar contato, processo ou tarefa' (read_page)",
+      "confirmedAt": "2026-10-21"
+    },
+    "folderActivitiesTab": {
+      "selector": "a:text-is(\"Atividades\")",
+      "evidence": "ASTREA-MAP.md > Ficha do processo: links Resumo/Atividades/Histórico (find, 2026-10-21)",
+      "confirmedAt": "2026-10-21"
+    },
+    "folderClosedToggle": {
+      "selector": "a:has-text(\"concluídas\")",
+      "evidence": "ASTREA-MAP.md > Aba Atividades: links 'N abertas' / 'N concluídas' (find)",
+      "confirmedAt": "2026-10-21"
+    },
+    "modalReadyMarker": {
+      "selector": "text=/N[úu]mero do processo:/",
+      "evidence": "ASTREA-MAP.md > Modal de detalhe: campo 'Número do processo:' existe só no modal (a ficha usa 'Processo'); os rótulos de tipo das linhas também são headings",
+      "confirmedAt": "2026-10-21"
+    },
+    "listCount": {
+      "selector": "text=/Mostrando\\s+\\d+\\s+publica/i",
+      "evidence": "ASTREA-MAP.md > Lista: 'Mostrando 8 publicações' (read_page, 2026-10-21). O estado vazio pode aparecer brevemente durante o carregamento",
+      "confirmedAt": "2026-10-21"
+    },
+    "loginEmail": {
+      "selector": "input[placeholder=\"Digite seu email\"]",
+      "evidence": "ASTREA-MAP.md > Tela de login (screenshot 2026-10-24): campo 'Digite seu email'",
+      "confirmedAt": "2026-10-24"
+    },
+    "loginPassword": {
+      "selector": "input[placeholder=\"Digite sua senha\"]",
+      "evidence": "ASTREA-MAP.md > Tela de login (screenshot 2026-10-24): campo 'Digite sua senha'",
+      "confirmedAt": "2026-10-24"
+    },
+    "loginSubmit": {
+      "selector": "text=/^\\s*entrar\\s*$/i",
+      "evidence": "ASTREA-MAP.md > Tela de login (screenshot 2026-10-24): botão ENTRAR",
+      "confirmedAt": "2026-10-24"
+    }
+  },
+  "write": {
+    "formTitle": {
+      "selector": "input[placeholder=\"Digite o título do prazo\"]",
+      "evidence": "ASTREA-MAP.md > Formulário 'Adicionar prazo' (publicação): textbox 'Digite o título do prazo' (read_page)",
+      "confirmedAt": "2026-10-21"
+    },
+    "formAmount": {
+      "selector": "input[type=\"number\"][placeholder=\"0\"]",
+      "evidence": "ASTREA-MAP.md > Formulário 'Adicionar prazo' (publicação): number 'Prazo' (1º) e 'Alerta' (2º), ambos placeholder 0 (read_page)",
+      "confirmedAt": "2026-10-21"
+    },
+    "formUnit": {
+      "selector": "select:has(option[value=\"workingDays\"])",
+      "evidence": "ASTREA-MAP.md > Formulário 'Adicionar prazo' (publicação): combobox 'Dias úteis' value=workingDays / runningDays (read_page)",
+      "confirmedAt": "2026-10-21"
+    },
+    "formDueDate": {
+      "selector": "input[placeholder=\"__/__/____\"]",
+      "evidence": "ASTREA-MAP.md > Formulário 'Adicionar prazo' (publicação): textbox '__/__/____' Data limite (read_page)",
+      "confirmedAt": "2026-10-21"
+    },
+    "formNotes": {
+      "selector": "[placeholder=\"Digite observações sobre o prazo\"]",
+      "evidence": "ASTREA-MAP.md > Formulário 'Adicionar prazo' (publicação): textbox 'Digite observações sobre o prazo' (read_page)",
+      "confirmedAt": "2026-10-21"
+    },
+    "formKanbanBoard": {
+      "selector": "select:has(option:text-is(\"Nenhum\"))",
+      "evidence": "ASTREA-MAP.md > Formulário 'Adicionar prazo' (publicação): combobox 'Kanban Padrão' com opção 'Nenhum' (read_page)",
+      "confirmedAt": "2026-10-21"
+    },
+    "formCancel": {
+      "selector": "a:text-is(\"Cancelar\")",
+      "evidence": "ASTREA-MAP.md > Formulário 'Adicionar prazo' (publicação): link 'Cancelar' (find ref_565)",
+      "confirmedAt": "2026-10-21"
+    },
+    "formDiscardConfirm": {
+      "selector": "text=/SAIR MESMO ASSIM/i",
+      "evidence": "ASTREA-MAP.md > diálogo 'Sair do prazo sem salvar?' (modal '+ Prazo')",
+      "confirmedAt": "2026-10-21"
+    },
+    "formResponsible": {
+      "selector": "input[placeholder=\"Digite o nome do responsável\"]",
+      "evidence": "ASTREA-MAP.md > Formulário 'Adicionar prazo' (publicação): textbox 'Digite o nome do responsável' (read_page)",
+      "confirmedAt": "2026-10-21"
+    },
+    "formSavedToast": {
+      "selector": "text=/O prazo foi adicionado/i",
+      "evidence": "ASTREA-MAP.md > Gravação real de teste (2026-10-21): toast 'O prazo foi adicionado'",
+      "confirmedAt": "2026-10-21"
+    },
+    "addDeadlineSubmit": {
+      "selector": "a:text-is(\"Salvar\")",
+      "evidence": "ASTREA-MAP.md > Formulário 'Adicionar prazo': botão SALVAR (gravação real de teste 2026-10-21; Etapa 1 autorizada pelo responsável em 2026-10-22)",
+      "confirmedAt": "2026-10-22"
+    },
+    "taskDescription": {
+      "selector": "textarea[name=\"description\"]",
+      "evidence": "Observado no Astrea real em 2026-10-28 (publicação > Tratamentos > Adicionar tarefa): formulário preenchido e cancelado, nada salvo",
+      "confirmedAt": "2026-10-28"
+    },
+    "taskDueDate": {
+      "selector": "input[name=\"dueDate\"]",
+      "evidence": "Observado no Astrea real em 2026-10-28 (publicação > Tratamentos > Adicionar tarefa): formulário preenchido e cancelado, nada salvo",
+      "confirmedAt": "2026-10-28"
+    },
+    "taskList": {
+      "selector": "select[name=\"idCurrentTaskList\"]",
+      "evidence": "Observado no Astrea real em 2026-10-28 (publicação > Tratamentos > Adicionar tarefa): formulário preenchido e cancelado, nada salvo",
+      "confirmedAt": "2026-10-28"
+    },
+    "taskPriority": {
+      "selector": "select[name=\"priority\"]",
+      "evidence": "Observado no Astrea real em 2026-10-28 (publicação > Tratamentos > Adicionar tarefa): formulário preenchido e cancelado, nada salvo",
+      "confirmedAt": "2026-10-28"
+    },
+    "taskBoard": {
+      "selector": "select[name=\"kanbanId\"]",
+      "evidence": "Observado no Astrea real em 2026-10-28 (publicação > Tratamentos > Adicionar tarefa): formulário preenchido e cancelado, nada salvo",
+      "confirmedAt": "2026-10-28"
+    },
+    "taskColumn": {
+      "selector": "select[name=\"kanbanColumnId\"]",
+      "evidence": "Observado no Astrea real em 2026-10-28 (publicação > Tratamentos > Adicionar tarefa): formulário preenchido e cancelado, nada salvo",
+      "confirmedAt": "2026-10-28"
+    }
+  }
+}
