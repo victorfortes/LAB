@@ -172,7 +172,7 @@ export function createApp(s: Services, webDir = join(import.meta.dir, '..', '..'
               await s.workflow.createWriteAuthorization(actor, { processNumbers: [r.processNumber], expiresAt: new Date(Date.now() + 2 * 3600_000).toISOString(), note: 'Escrita autorizada em lote pelo administrador (2 h)' });
             const out = await s.writer.write(it.id, actor);
             if (out.confirmedInAstrea) { it.status = 'done'; it.note = out.treatedNote ?? 'Prazo lançado e conferido no Astrea.'; }
-            else { it.status = 'failed'; it.note = `Não confirmado no Astrea. ${out.items?.[0]?.note ?? ''}`.trim(); }
+            else { it.status = 'failed'; it.note = `Não confirmado no Astrea. ${(out.items?.find((x) => x.status !== 'skipped' && x.status !== 'confirmed') ?? out.items?.[0])?.note ?? ''}`.trim(); }
           } catch (e) { it.status = 'failed'; it.note = (e as Error).message; }
         }
       } finally { batch.running = false; }

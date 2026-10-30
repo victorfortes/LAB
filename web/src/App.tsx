@@ -474,7 +474,7 @@ function Detail({ row, me, cfg, onClose, onChange, notify }: { row: Row; me: Me;
             const launch = () => run(async () => {
               if (can('write:authorize')) await api('/write-authorizations', 'POST', { processNumbers: [r.processNumber], expiresAt: new Date(Date.now() + 2 * 3600_000).toISOString(), note: 'Escrita autorizada pelo administrador (2 h)' });
               const out = await api(`/records/${id}/write`, 'POST');
-              if (!out.confirmedInAstrea) throw new Error(`O prazo NÃO foi confirmado no Astrea. ${out.items?.[0]?.note ?? 'Veja os detalhes.'}`);
+              if (!out.confirmedInAstrea) throw new Error(`O prazo NÃO foi confirmado no Astrea. ${(out.items?.find((x: any) => x.status !== 'skipped' && x.status !== 'confirmed') ?? out.items?.[0])?.note ?? 'Veja os detalhes.'}`);
               if (out.tasks?.length) notify({ kind: out.treated === false ? 'warn' : 'ok', text: out.tasks.join(' ') });
               if (out.treatedNote) notify({ kind: out.treated ? 'ok' : 'warn', text: out.treatedNote });
             }, 'Prazo lançado e conferido no Astrea');
