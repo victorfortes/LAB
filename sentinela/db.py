@@ -1,0 +1,212 @@
+"""Banco SQLite com migrações versionadas (esquema relacional portável para PostgreSQL)."""
+import sqlite3
+
+MIGRACOES = [
+    ("0001_base", """
+    CREATE TABLE clientes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        razao_social TEXT NOT NULL,
+        nome_fantasia TEXT,
+        cnpj_matriz TEXT NOT NULL UNIQUE,
+        grupo_economico TEXT,
+        advogado_responsavel TEXT,
+        equipe TEXT,
+        status_monitoramento TEXT NOT NULL DEFAULT 'ativo',
+        tribunais_prioritarios TEXT NOT NULL DEFAULT '[]',
+        frequencia_horas INTEGER NOT NULL DEFAULT 24,
+        ultima_verificacao TEXT,
+        criado_em TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE TABLE cliente_cnpjs (
+        cliente_id INTEGER NOT NULL REFERENCES clientes(id) ON DELETE CASCADE,
+        cnpj TEXT NOT NULL,
+        tipo TEXT NOT NULL CHECK (tipo IN ('matriz','filial')),
+        PRIMARY KEY (cliente_id, cnpj)
+    );
+    CREATE TABLE cliente_nomes (
+        cliente_id INTEGER NOT NULL REFERENCES clientes(id) ON DELETE CASCADE,
+        nome TEXT NOT NULL,
+        nome_norm TEXT NOT NULL,
+        tipo TEXT NOT NULL CHECK (tipo IN ('razao_social','fantasia','anterior','alternativo')),
+        PRIMARY KEY (cliente_id, nome_norm)
+    );
+    CREATE TABLE execucoes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        gatilho TEXT NOT NULL,
+        inicio TEXT NOT NULL,
+        fim TEXT,
+        status TEXT NOT NULL DEFAULT 'em_andamento',
+        resumo TEXT
+    );
+    CREATE TABLE consultas (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        execucao_id INTEGER REFERENCES execucoes(id),
+        cliente_id INTEGER REFERENCES clientes(id),
+        fonte TEXT NOT NULL,
+        chave TEXT NOT NULL,
+        janela_inicio TEXT,
+        janela_fim TEXT,
+        status TEXT NOT NULL CHECK (status IN ('ok','falha','truncada')),
+        total_fonte INTEGER,
+        itens_lidos INTEGER,
+        erro TEXT,
+        iniciada_em TEXT NOT NULL,
+        concluida_em TEXT
+    );
+    CREATE INDEX idx_consultas_chave ON consultas(fonte, chave, janela_inicio, janela_fim, status);
+    CREATE TABLE saude_conectores (
+        fonte TEXT PRIMARY KEY,
+        estado TEXT NOT NULL,
+        ultimo_sucesso TEXT,
+        ultima_falha TEXT,
+        ultimo_erro TEXT,
+        falhas_consecutivas INTEGER NOT NULL DEFAULT 0,
+        atualizado_em TEXT NOT NULL
+    );
+    CREATE TABLE comunicacoes (
+        id INTEGER PRIMARY KEY,
+        fonte TEXT NOT NULL,
+        numero_processo TEXT NOT NULL,
+        tribunal TEXT,
+        tipo TEXT,
+        data_disponibilizacao TEXT,
+        classe TEXT,
+        orgao TEXT,
+        link TEXT,
+        texto TEXT,
+        destinatarios TEXT NOT NULL,
+        coletado_em TEXT NOT NULL
+    );
+    CREATE INDEX idx_com_proc ON comunicacoes(numero_processo);
+    CREATE TABLE processos (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        numero_processo TEXT NOT NULL UNIQUE,
+        tribunal TEXT,
+        classe TEXT,
+        orgao TEXT,
+        grau TEXT,
+        sistema TEXT,
+        assuntos TEXT,
+        data_ajuizamento TEXT,
+        datajud_status TEXT NOT NULL DEFAULT 'pendente',
+        primeira_identificacao TEXT NOT NULL,
+        ultima_verificacao TEXT NOT NULL
+    );
+    CREATE TABLE correspondencias (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        cliente_id INTEGER NOT NULL REFERENCES clientes(id),
+        processo_id INTEGER NOT NULL REFERENCES processos(id),
+        comunicacao_id INTEGER REFERENCES comunicacoes(id),
+        nivel INTEGER NOT NULL,
+        classificacao TEXT NOT NULL CHECK (classificacao IN ('confirmada','provavel','inconclusiva','descartada')),
+        polo TEXT,
+        nome_na_fonte TEXT,
+        evidencia TEXT NOT NULL,
+        fonte TEXT NOT NULL,
+        estado_validacao TEXT NOT NULL DEFAULT 'automatico',
+        categoria_data TEXT NOT NULL DEFAULT 'indeterminada',
+        identificada_em TEXT NOT NULL,
+        ultima_verificacao TEXT NOT NULL,
+        UNIQUE (cliente_id, processo_id)
+    );
+    """),
+    ("0002_validacao", """
+    ALTER TABLE clientes ADD COLUMN confirmar_por_nome_exato INTEGER NOT NULL DEFAULT 0;
+    CREATE TABLE validacoes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        correspondencia_id INTEGER NOT NULL REFERENCES correspondencias(id),
+        usuario TEXT NOT NULL,
+        decisao TEXT NOT NULL CHECK (decisao IN ('confirmada','descartada')),
+        classificacao_anterior TEXT NOT NULL,
+        justificativa TEXT,
+        decidida_em TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    """),
+    ("0003_plataforma", """
+    CREATE TABLE usuarios (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        email TEXT NOT NULL UNIQUE,
+        nome TEXT NOT NULL,
+        senha_hash TEXT NOT NULL,
+        papel TEXT NOT NULL CHECK (papel IN ('admin','advogado','leitura')),
+        ativo INTEGER NOT NULL DEFAULT 1,
+        criado_em TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    ALTER TABLE correspondencias ADD COLUMN responsavel_id INTEGER REFERENCES usuarios(id);
+    ALTER TABLE correspondencias ADD COLUMN prioridade TEXT;
+    CREATE TABLE jobs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        tipo TEXT NOT NULL,
+        params TEXT NOT NULL DEFAULT '{}',
+        status TEXT NOT NULL DEFAULT 'na_fila' CHECK (status IN ('na_fila','executando','concluido','falhou')),
+        origem TEXT NOT NULL DEFAULT 'manual',
+        tentativas INTEGER NOT NULL DEFAULT 0,
+        resultado TEXT,
+        criado_em TEXT NOT NULL,
+        iniciado_em TEXT,
+        concluido_em TEXT
+    );
+    CREATE TABLE alertas (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        chave_dedup TEXT NOT NULL UNIQUE,
+        tipo TEXT NOT NULL,
+        canal TEXT NOT NULL,
+        correspondencia_id INTEGER REFERENCES correspondencias(id),
+        status TEXT NOT NULL CHECK (status IN ('enviado','falha','ignorado')),
+        erro TEXT,
+        payload TEXT NOT NULL,
+        lido INTEGER NOT NULL DEFAULT 0,
+        criado_em TEXT NOT NULL,
+        enviado_em TEXT
+    );
+    CREATE TABLE configuracoes (chave TEXT PRIMARY KEY, valor TEXT NOT NULL, atualizado_em TEXT NOT NULL DEFAULT (datetime('now')));
+    CREATE TABLE analises (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        processo_id INTEGER NOT NULL REFERENCES processos(id),
+        gerada_em TEXT NOT NULL,
+        modelo TEXT NOT NULL,
+        campos TEXT NOT NULL,
+        resumo TEXT,
+        prioridade TEXT NOT NULL,
+        urgencia_aparente INTEGER NOT NULL DEFAULT 0,
+        requer_analise_imediata INTEGER NOT NULL DEFAULT 0,
+        documentos TEXT NOT NULL
+    );
+    CREATE TABLE auditoria (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        usuario TEXT,
+        acao TEXT NOT NULL,
+        entidade TEXT,
+        entidade_id TEXT,
+        detalhe TEXT,
+        em TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    """),
+]
+
+
+def conectar(caminho: str = "data/sentinela.db") -> sqlite3.Connection:
+    con = sqlite3.connect(caminho, timeout=30, check_same_thread=False)
+    con.row_factory = sqlite3.Row
+    con.execute("PRAGMA foreign_keys = ON")
+    con.execute("PRAGMA journal_mode = WAL")
+    migrar(con)
+    return con
+
+
+def migrar(con: sqlite3.Connection) -> None:
+    con.execute("CREATE TABLE IF NOT EXISTS schema_migracoes (nome TEXT PRIMARY KEY, aplicada_em TEXT NOT NULL DEFAULT (datetime('now')))")
+    feitas = {r[0] for r in con.execute("SELECT nome FROM schema_migracoes")}
+    for nome, sql in MIGRACOES:
+        if nome not in feitas:
+            con.executescript(sql)
+            con.execute("INSERT INTO schema_migracoes(nome) VALUES (?)", (nome,))
+            con.commit()
+
+
+def abrir(caminho: str) -> sqlite3.Connection:
+    """Conexão leve (sem migrar) para uso por requisição."""
+    con = sqlite3.connect(caminho, timeout=30, check_same_thread=False)
+    con.row_factory = sqlite3.Row
+    con.execute("PRAGMA foreign_keys = ON")
+    return con

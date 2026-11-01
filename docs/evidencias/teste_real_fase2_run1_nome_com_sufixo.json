@@ -1,0 +1,190 @@
+{
+ "data_teste": "2026-10-29",
+ "execucao_1": {
+  "execucao_id": 1,
+  "status": "sucesso",
+  "clientes": 1,
+  "consultas_executadas": 3,
+  "consultas_com_falha": 0,
+  "consultas_truncadas": 0,
+  "consultas_puladas_por_dedup": 0,
+  "correspondencias_novas": 22,
+  "correspondencias_atualizadas": 0,
+  "datajud": {
+   "ok": 8,
+   "nao_encontrado": 0,
+   "falha": 0
+  }
+ },
+ "classificacao": {
+  "confirmada": 8,
+  "descartada": 2,
+  "inconclusiva": 2,
+  "provavel": 10
+ },
+ "execucao_2_mesma_janela": {
+  "execucao_id": 2,
+  "status": "sucesso",
+  "clientes": 1,
+  "consultas_executadas": 0,
+  "consultas_com_falha": 0,
+  "consultas_truncadas": 0,
+  "consultas_puladas_por_dedup": 3,
+  "correspondencias_novas": 0,
+  "correspondencias_atualizadas": 0,
+  "datajud": {
+   "ok": 7,
+   "nao_encontrado": 1,
+   "falha": 0
+  }
+ },
+ "totais_tabelas": {
+  "comunicacoes": 30,
+  "processos": 22,
+  "correspondencias": 22,
+  "consultas": 3
+ },
+ "duplicidades_correspondencia": 0,
+ "saude": [
+  {
+   "fonte": "djen",
+   "estado": "operacional",
+   "ultimo_sucesso": "2026-10-30T16:51:33",
+   "ultima_falha": null,
+   "ultimo_erro": null,
+   "falhas_consecutivas": 0,
+   "atualizado_em": "2026-10-30T16:51:33"
+  },
+  {
+   "fonte": "datajud",
+   "estado": "operacional",
+   "ultimo_sucesso": "2026-10-30T17:01:15",
+   "ultima_falha": null,
+   "ultimo_erro": null,
+   "falhas_consecutivas": 0,
+   "atualizado_em": "2026-10-30T17:01:15"
+  }
+ ],
+ "amostra_sem_nomes_de_partes": [
+  {
+   "numero_processo": "00004558920265060121",
+   "tribunal": "TRT6",
+   "data_ajuizamento": "2026-04-07",
+   "sistema": "PJe",
+   "datajud_status": "ok",
+   "classificacao": "confirmada",
+   "nivel": 1,
+   "polo": "P",
+   "categoria_data": "processo_antigo",
+   "fonte": "djen"
+  },
+  {
+   "numero_processo": "50137327820258130056",
+   "tribunal": "TJMG",
+   "data_ajuizamento": "2025-10-29",
+   "sistema": "PJe",
+   "datajud_status": "ok",
+   "classificacao": "confirmada",
+   "nivel": 1,
+   "polo": "P",
+   "categoria_data": "processo_antigo",
+   "fonte": "djen"
+  },
+  {
+   "numero_processo": "00004962620268160154",
+   "tribunal": "TJPR",
+   "data_ajuizamento": "2026-02-19",
+   "sistema": "Eproc",
+   "datajud_status": "ok",
+   "classificacao": "confirmada",
+   "nivel": 1,
+   "polo": "P",
+   "categoria_data": "processo_antigo",
+   "fonte": "djen"
+  },
+  {
+   "numero_processo": "50255744920248130231",
+   "tribunal": "TJMG",
+   "data_ajuizamento": "2024-09-30",
+   "sistema": "PJe",
+   "datajud_status": "ok",
+   "classificacao": "confirmada",
+   "nivel": 1,
+   "polo": "P",
+   "categoria_data": "processo_antigo",
+   "fonte": "djen"
+  },
+  {
+   "numero_processo": "50013814720258130097",
+   "tribunal": "TJMG",
+   "data_ajuizamento": "2025-08-08",
+   "sistema": "PJe",
+   "datajud_status": "ok",
+   "classificacao": "confirmada",
+   "nivel": 1,
+   "polo": "P",
+   "categoria_data": "processo_antigo",
+   "fonte": "djen"
+  },
+  {
+   "numero_processo": "01888064120098130236",
+   "tribunal": "TJMG",
+   "data_ajuizamento": "2009-11-06",
+   "sistema": "PJe",
+   "datajud_status": "ok",
+   "classificacao": "confirmada",
+   "nivel": 1,
+   "polo": "P",
+   "categoria_data": "processo_antigo",
+   "fonte": "djen"
+  },
+  {
+   "numero_processo": "50045581820258130647",
+   "tribunal": "TJMG",
+   "data_ajuizamento": "2025-06-18",
+   "sistema": "PJe",
+   "datajud_status": "ok",
+   "classificacao": "confirmada",
+   "nivel": 1,
+   "polo": "P",
+   "categoria_data": "processo_antigo",
+   "fonte": "djen"
+  },
+  {
+   "numero_processo": "50129464920258130439",
+   "tribunal": "TJMG",
+   "data_ajuizamento": "2025-10-02",
+   "sistema": "PJe",
+   "datajud_status": "ok",
+   "classificacao": "confirmada",
+   "nivel": 1,
+   "polo": "P",
+   "categoria_data": "processo_antigo",
+   "fonte": "djen"
+  },
+  {
+   "numero_processo": "00008887920265230005",
+   "tribunal": "TRT23",
+   "data_ajuizamento": null,
+   "sistema": null,
+   "datajud_status": "pendente",
+   "classificacao": "provavel",
+   "nivel": 3,
+   "polo": "P",
+   "categoria_data": "indeterminada",
+   "fonte": "djen"
+  },
+  {
+   "numero_processo": "00018061620265080130",
+   "tribunal": "TRT8",
+   "data_ajuizamento": null,
+   "sistema": null,
+   "datajud_status": "pendente",
+   "classificacao": "provavel",
+   "nivel": 3,
+   "polo": "P",
+   "categoria_data": "indeterminada",
+   "fonte": "djen"
+  }
+ ]
+}

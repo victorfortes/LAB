@@ -1,0 +1,281 @@
+"""Motor de monitoramento: consulta as fontes, identifica o cliente nas partes, deduplica e persiste."""
+import json
+import sqlite3
+import threading
+from concurrent.futures import ThreadPoolExecutor
+from datetime import date, datetime, timedelta
+from typing import Dict, List, Optional
+
+from . import clientes as _clientes
+from . import cnpj as _cnpj
+from . import matcher
+from .conectores.djen import ConectorDJEN
+from .conectores.datajud import ConectorDataJud
+from .http import ErroFonte
+
+RANK = {"descartada": 1, "inconclusiva": 2, "provavel": 3, "confirmada": 4}
+ESTADO_AUTO = {"confirmada": "automatico", "provavel": "pendente", "inconclusiva": "pendente", "descartada": "descartado_auto"}
+CHUNK_DIAS = 3
+LOTE_DATAJUD = 50
+
+
+def agora_iso() -> str:
+    return datetime.now().isoformat(timespec="seconds")
+
+
+def registrar_saude(con: sqlite3.Connection, lock: threading.Lock, fonte: str, ok: bool, erro: str) -> None:
+    with lock:
+        agora = agora_iso()
+        if ok:
+            con.execute("INSERT INTO saude_conectores(fonte,estado,ultimo_sucesso,falhas_consecutivas,atualizado_em) "
+                        "VALUES (?, 'operacional', ?, 0, ?) ON CONFLICT(fonte) DO UPDATE SET estado='operacional',"
+                        "ultimo_sucesso=excluded.ultimo_sucesso, falhas_consecutivas=0, atualizado_em=excluded.atualizado_em",
+                        (fonte, agora, agora))
+        else:
+            con.execute("INSERT INTO saude_conectores(fonte,estado,ultima_falha,ultimo_erro,falhas_consecutivas,atualizado_em) "
+                        "VALUES (?, 'degradado', ?, ?, 1, ?) ON CONFLICT(fonte) DO UPDATE SET "
+                        "estado=CASE WHEN falhas_consecutivas+1>=3 THEN 'indisponivel' ELSE 'degradado' END,"
+                        "ultima_falha=excluded.ultima_falha, ultimo_erro=excluded.ultimo_erro,"
+                        "falhas_consecutivas=falhas_consecutivas+1, atualizado_em=excluded.atualizado_em",
+                        (fonte, agora, erro, agora))
+        con.commit()
+
+
+def _chunks(ini: date, fim: date) -> List[tuple]:
+    out, cur = [], ini
+    while cur <= fim:
+        f = min(cur + timedelta(days=CHUNK_DIAS - 1), fim)
+        out.append((cur, f))
+        cur = f + timedelta(days=1)
+    return out
+
+
+def _normalizar_item(it: Dict) -> Dict:
+    return {"id": it["id"], "fonte": "djen", "numero_processo": it.get("numero_processo") or "",
+            "tribunal": it.get("siglaTribunal"), "tipo": it.get("tipoComunicacao"),
+            "data_disponibilizacao": it.get("data_disponibilizacao"), "classe": it.get("nomeClasse"),
+            "orgao": it.get("nomeOrgao"), "link": it.get("link"), "texto": it.get("texto") or "",
+            "destinatarios": [{"nome": d.get("nome"), "polo": d.get("polo")} for d in it.get("destinatarios", [])]}
+
+
+class Motor:
+    def __init__(self, con: sqlite3.Connection, djen: ConectorDJEN, datajud: ConectorDataJud, dias_retroativos: int = 7,
+                 dias_nova: int = 15, trabalhadores: int = 3, hoje: Optional[date] = None,
+                 limite_enriquecimento: int = 200):
+        self.con, self.djen, self.datajud = con, djen, datajud
+        self.dias_retro, self.dias_nova, self.trab = dias_retroativos, dias_nova, trabalhadores
+        self.hoje = hoje or date.today()
+        self.limite_enr = limite_enriquecimento
+        self.trab_enr = 8
+
+    # ---------- planejamento ----------
+    def _consultas_do_cliente(self, c: Dict) -> List[Dict]:
+        vistos, qs = set(), []
+        for n in c["nomes"]:
+            if n["nome_norm"] not in vistos:
+                vistos.add(n["nome_norm"])
+                qs.append(("nomeParte", n["nome_norm"]))  # sem sufixo societário: a fonte grafa "SIA", "S/A", "LTDA" de formas diversas
+        for x in c["cnpjs"]:
+            qs.append(("texto", _cnpj.formatar(x["cnpj"])))
+        return [{"param": p, "valor": v, "chave": "%s:%s" % (p, v)} for p, v in qs]
+
+    def _janela(self, c, q, desde, ate, forcar) -> Optional[tuple]:
+        fim = ate or self.hoje
+        if desde:
+            return (desde, fim)
+        r = self.con.execute("SELECT max(janela_fim) m, max(concluida_em) c FROM consultas WHERE fonte='djen' AND chave=? "
+                             "AND status='ok'", (q["chave"],)).fetchone()
+        if r["m"]:
+            if not forcar and r["c"]:
+                ult = datetime.fromisoformat(r["c"])
+                # frequência diária = no máximo uma vez por dia civil (evita pular o dia quando o horário de ontem foi mais tarde)
+                recente = ult.date() >= self.hoje if c["frequencia_horas"] <= 24 else ult > datetime.now() - timedelta(hours=c["frequencia_horas"])
+                if recente:
+                    return None  # consulta recente: evita repetição desnecessária
+            return (date.fromisoformat(r["m"]) - timedelta(days=1), fim)  # 1 dia de sobreposição por publicações tardias
+        return (fim - timedelta(days=self.dias_retro), fim)
+
+    def _coberto(self, chave: str, a: date, b: date) -> bool:
+        """Janela já consultada com sucesso e encerrada (concluída depois do último dia consultado)."""
+        return self.con.execute(
+            "SELECT 1 FROM consultas WHERE fonte='djen' AND chave=? AND status='ok' AND janela_inicio<=? AND janela_fim>=? "
+            "AND date(concluida_em)>?", (chave, a.isoformat(), b.isoformat(), b.isoformat())).fetchone() is not None
+
+    # ---------- coleta (rede; roda em threads, sem tocar o banco) ----------
+    def _coletar(self, c: Dict, plano: List[tuple]) -> List[Dict]:
+        resultados, vistos = [], {}
+        for q, a, b in plano:
+            if True:
+                r = {"q": q, "ini": a.isoformat(), "fim": b.isoformat(), "inicio": agora_iso(), "achados": []}
+                try:
+                    itens, total, trunc = self.djen.consultar(q["param"], q["valor"], r["ini"], r["fim"])
+                    r.update(status="truncada" if trunc else "ok", total=total, lidos=len(itens), erro=None)
+                    for it in itens:
+                        com = _normalizar_item(it)
+                        if com["id"] in vistos or len(com["numero_processo"]) != 20:
+                            continue
+                        vistos[com["id"]] = True
+                        m = matcher.avaliar(c, com)
+                        if m:
+                            r["achados"].append((com, m))
+                except (ErroFonte, ValueError, KeyError) as e:
+                    r.update(status="falha", total=None, lidos=0, erro=str(e))
+                resultados.append(r)
+        return resultados
+
+    # ---------- persistência ----------
+    def _persistir(self, exec_id: int, c: Dict, resultados: List[Dict]) -> Dict[str, int]:
+        con, agora, cont = self.con, agora_iso(), {"novas": 0, "atualizadas": 0}
+        for r in resultados:
+            con.execute("INSERT INTO consultas(execucao_id,cliente_id,fonte,chave,janela_inicio,janela_fim,status,total_fonte,"
+                        "itens_lidos,erro,iniciada_em,concluida_em) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                        (exec_id, c["id"], "djen", r["q"]["chave"], r["ini"], r["fim"], r["status"], r["total"], r["lidos"],
+                         r["erro"], r["inicio"], agora))
+            for com, m in r["achados"]:
+                con.execute("INSERT OR IGNORE INTO comunicacoes(id,fonte,numero_processo,tribunal,tipo,data_disponibilizacao,classe,"
+                            "orgao,link,texto,destinatarios,coletado_em) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                            (com["id"], com["fonte"], com["numero_processo"], com["tribunal"], com["tipo"],
+                             com["data_disponibilizacao"], com["classe"], com["orgao"], com["link"], com["texto"],
+                             json.dumps(com["destinatarios"], ensure_ascii=False), agora))
+                con.execute("INSERT OR IGNORE INTO processos(numero_processo,tribunal,classe,orgao,primeira_identificacao,"
+                            "ultima_verificacao) VALUES (?,?,?,?,?,?)",
+                            (com["numero_processo"], com["tribunal"], com["classe"], com["orgao"], agora, agora))
+                pid = con.execute("SELECT id FROM processos WHERE numero_processo=?", (com["numero_processo"],)).fetchone()[0]
+                ev = json.dumps({**m["evidencia"], "comunicacao_id": com["id"], "tipo_comunicacao": com["tipo"],
+                                 "data_disponibilizacao": com["data_disponibilizacao"], "consulta": r["q"]["chave"]},
+                                ensure_ascii=False)
+                ex = con.execute("SELECT id,classificacao,estado_validacao FROM correspondencias WHERE cliente_id=? AND processo_id=?",
+                                 (c["id"], pid)).fetchone()
+                if ex is None:
+                    con.execute("INSERT INTO correspondencias(cliente_id,processo_id,comunicacao_id,nivel,classificacao,polo,"
+                                "nome_na_fonte,evidencia,fonte,estado_validacao,identificada_em,ultima_verificacao) "
+                                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                                (c["id"], pid, com["id"], m["nivel"], m["classificacao"], m["polo"], m["nome_na_fonte"], ev,
+                                 "djen", ESTADO_AUTO[m["classificacao"]], agora, agora))
+                    cont["novas"] += 1
+                elif RANK[m["classificacao"]] > RANK[ex["classificacao"]] and ex["estado_validacao"] in ESTADO_AUTO.values():
+                    con.execute("UPDATE correspondencias SET comunicacao_id=?,nivel=?,classificacao=?,polo=?,nome_na_fonte=?,"
+                                "evidencia=?,estado_validacao=?,ultima_verificacao=? WHERE id=?",
+                                (com["id"], m["nivel"], m["classificacao"], m["polo"], m["nome_na_fonte"], ev,
+                                 ESTADO_AUTO[m["classificacao"]], agora, ex["id"]))
+                    cont["atualizadas"] += 1
+                else:
+                    con.execute("UPDATE correspondencias SET ultima_verificacao=? WHERE id=?", (agora, ex["id"]))
+        if resultados and all(r["status"] in ("ok", "truncada") for r in resultados):
+            con.execute("UPDATE clientes SET ultima_verificacao=? WHERE id=?", (agora, c["id"]))
+        con.commit()
+        return cont
+
+    # ---------- enriquecimento DataJud ----------
+    def enriquecer_pendentes(self) -> Dict[str, int]:
+        con, res = self.con, {"ok": 0, "nao_encontrado": 0, "falha": 0}
+        rows = con.execute("SELECT DISTINCT p.id,p.numero_processo,p.tribunal FROM processos p JOIN correspondencias c "
+                           "ON c.processo_id=p.id WHERE c.classificacao!='descartada' AND p.datajud_status IN ('pendente','falha') "
+                           "ORDER BY (c.classificacao='confirmada') DESC, p.id LIMIT ?", (self.limite_enr,)).fetchall()
+        por_trib: Dict[str, list] = {}
+        for p in rows:
+            por_trib.setdefault(p["tribunal"], []).append(p)
+        lotes = [(t, ps[i:i + LOTE_DATAJUD]) for t, ps in por_trib.items() for i in range(0, len(ps), LOTE_DATAJUD)]
+
+        def buscar(lote):
+            t, ps = lote
+            try:
+                return ps, self.datajud.obter_lote([p["numero_processo"] for p in ps], t), None
+            except ErroFonte as e:
+                return ps, None, e
+        with ThreadPoolExecutor(max_workers=self.trab_enr) as ex:  # rede em paralelo; banco só nesta thread
+            for ps, dados, err in ex.map(buscar, lotes):
+                agora = agora_iso()
+                for p in ps:
+                    d = None if dados is None else dados.get(p["numero_processo"])
+                    if err is not None:
+                        con.execute("UPDATE processos SET datajud_status='falha',ultima_verificacao=? WHERE id=?", (agora, p["id"]))
+                        res["falha"] += 1
+                    elif d is None:
+                        con.execute("UPDATE processos SET datajud_status='nao_encontrado',ultima_verificacao=? WHERE id=?", (agora, p["id"]))
+                        res["nao_encontrado"] += 1
+                    else:
+                        con.execute("UPDATE processos SET datajud_status='ok',data_ajuizamento=?,grau=?,sistema=?,assuntos=?,"
+                                    "classe=COALESCE(?,classe),orgao=COALESCE(?,orgao),ultima_verificacao=? WHERE id=?",
+                                    (d["data_ajuizamento"], d["grau"], d["sistema"], json.dumps(d["assuntos"], ensure_ascii=False),
+                                     d["classe"], d["orgao"], agora, p["id"]))
+                        res["ok"] += 1
+                con.commit()
+        self.classificar_datas()
+        con.commit()
+        return res
+
+    def classificar_datas(self) -> None:
+        """Distingue distribuição nova de processo antigo localizado agora (data de ajuizamento x data de identificação)."""
+        for r in self.con.execute("SELECT c.id,c.identificada_em,p.data_ajuizamento FROM correspondencias c "
+                                  "JOIN processos p ON p.id=c.processo_id").fetchall():
+            if not r["data_ajuizamento"]:
+                cat = "indeterminada"
+            else:
+                dias = (datetime.fromisoformat(r["identificada_em"]).date() - date.fromisoformat(r["data_ajuizamento"])).days
+                cat = "nova_distribuicao" if dias <= self.dias_nova else "processo_antigo"
+            self.con.execute("UPDATE correspondencias SET categoria_data=? WHERE id=?", (cat, r["id"]))
+
+    # ---------- execução ----------
+    def executar(self, gatilho: str = "manual", cliente_ids: Optional[List[int]] = None, desde: Optional[date] = None,
+                 ate: Optional[date] = None, forcar: bool = False) -> Dict:
+        con = self.con
+        exec_id = con.execute("INSERT INTO execucoes(gatilho,inicio) VALUES (?,?)", (gatilho, agora_iso())).lastrowid
+        con.commit()
+        cs = [c for c in _clientes.ativos(con) if not cliente_ids or c["id"] in cliente_ids]
+        planos, puladas = [], 0
+        for c in cs:
+            plano = []
+            for q in self._consultas_do_cliente(c):
+                j = self._janela(c, q, desde, ate, forcar)
+                if j is None:
+                    puladas += 1
+                    continue
+                for a, b in _chunks(*j):
+                    if not forcar and desde and self._coberto(q["chave"], a, b):
+                        puladas += 1
+                    else:
+                        plano.append((q, a, b))
+            planos.append((c, plano))
+        return self._rodar(exec_id, planos, puladas, len(cs))
+
+    def _rodar(self, exec_id: int, planos: List[tuple], puladas: int, n_clientes: int) -> Dict:
+        con = self.con
+        with ThreadPoolExecutor(max_workers=self.trab) as ex:
+            futuros = [(c, ex.submit(self._coletar, c, pl)) for c, pl in planos if pl]
+            resultados = [(c, f.result()) for c, f in futuros]
+        tot = {"novas": 0, "atualizadas": 0}
+        todas = []
+        for c, rs in resultados:
+            k = self._persistir(exec_id, c, rs)
+            tot["novas"] += k["novas"]; tot["atualizadas"] += k["atualizadas"]
+            todas.extend(rs)
+        enr = self.enriquecer_pendentes()
+        falhas = sum(1 for r in todas if r["status"] == "falha")
+        status = "sucesso" if falhas == 0 else ("falha" if falhas == len(todas) else "parcial")
+        resumo = {"clientes": n_clientes, "consultas_executadas": len(todas), "consultas_com_falha": falhas,
+                  "consultas_truncadas": sum(1 for r in todas if r["status"] == "truncada"),
+                  "consultas_puladas_por_dedup": puladas, "correspondencias_novas": tot["novas"],
+                  "correspondencias_atualizadas": tot["atualizadas"], "datajud": enr}
+        con.execute("UPDATE execucoes SET fim=?,status=?,resumo=? WHERE id=?",
+                    (agora_iso(), status, json.dumps(resumo, ensure_ascii=False), exec_id))
+        con.commit()
+        return {"execucao_id": exec_id, "status": status, **resumo}
+
+    def reprocessar_falhas(self, horas: int = 48) -> Dict:
+        """Refaz consultas que falharam e ainda não foram cobertas por uma consulta bem-sucedida."""
+        con = self.con
+        desde = (datetime.now() - timedelta(hours=horas)).isoformat(timespec="seconds")
+        falhas = con.execute("SELECT DISTINCT cliente_id,chave,janela_inicio,janela_fim FROM consultas f WHERE status='falha' "
+                             "AND concluida_em>=? AND NOT EXISTS (SELECT 1 FROM consultas o WHERE o.cliente_id=f.cliente_id "
+                             "AND o.chave=f.chave AND o.status IN ('ok','truncada') AND o.janela_inicio<=f.janela_inicio "
+                             "AND o.janela_fim>=f.janela_fim)", (desde,)).fetchall()
+        exec_id = con.execute("INSERT INTO execucoes(gatilho,inicio) VALUES ('reprocessamento',?)", (agora_iso(),)).lastrowid
+        con.commit()
+        por_cliente: Dict[int, list] = {}
+        for f in falhas:
+            param, valor = f["chave"].split(":", 1)
+            por_cliente.setdefault(f["cliente_id"], []).append(
+                ({"param": param, "valor": valor, "chave": f["chave"]}, date.fromisoformat(f["janela_inicio"]), date.fromisoformat(f["janela_fim"])))
+        planos = [(_clientes.carregar(con, cid), pl) for cid, pl in por_cliente.items()]
+        return self._rodar(exec_id, planos, 0, len(planos))
