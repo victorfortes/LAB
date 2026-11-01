@@ -4,7 +4,7 @@
 set -euo pipefail
 RAIZ="$(cd "$(dirname "$0")/../.." && pwd)"
 AGENTES="$HOME/Library/LaunchAgents"
-mkdir -p "$AGENTES" "$RAIZ/data"
+mkdir -p "$AGENTES" "$RAIZ/data" "$HOME/Library/Logs/NGA-Sentinela"
 gerar() {  # $1=nome  $2=comando python
 cat > "$AGENTES/br.adv.nga.sentinela.$1.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -18,7 +18,7 @@ cat > "$AGENTES/br.adv.nga.sentinela.$1.plist" <<PLIST
   <key>WorkingDirectory</key><string>$RAIZ</string>
   <key>EnvironmentVariables</key><dict><key>SENTINELA_PORT</key><string>8000</string></dict>
   <key>RunAtLoad</key><true/><key>KeepAlive</key><true/><key>ThrottleInterval</key><integer>15</integer>
-  <key>StandardOutPath</key><string>$RAIZ/data/$1.log</string><key>StandardErrorPath</key><string>$RAIZ/data/$1.log</string>
+  <key>StandardOutPath</key><string>$HOME/Library/Logs/NGA-Sentinela/$1.log</string><key>StandardErrorPath</key><string>$HOME/Library/Logs/NGA-Sentinela/$1.log</string>
 </dict></plist>
 PLIST
 launchctl unload "$AGENTES/br.adv.nga.sentinela.$1.plist" 2>/dev/null || true
