@@ -28,10 +28,12 @@ function aviso(msg) { alert(msg); }
 
 /* ---------- login ---------- */
 function renderLogin(erro) {
-  $app.innerHTML = `<form class="login" id="f"><img class="logo" src="/static/logo.png" alt="NGA"><div class="marca">Sentinela</div><div class="sub">Monitoramento de novas ações</div>
-    <label>E-mail</label><input name="email" type="email" required autocomplete="username">
-    <label>Senha</label><input name="senha" type="password" required autocomplete="current-password">
-    <div class="erro">${esc(erro || "")}</div><button style="width:100%">Entrar</button></form>`;
+  document.title = "NGA Sentinela";
+  $app.innerHTML = `<div class="auth"><div class="auth-brand"><img src="/static/logo.png" alt="NGA ADV"><p class="tag2">NGA LAB // INOVAÇÃO E IA</p>
+    <h1>Nenhuma ação<br>passa <em>despercebida.</em></h1><p class="intro">Monitoramento diário de novas ações judiciais contra os clientes do escritório.<br>Alerta no dia, prova da origem, trilha de auditoria.</p></div>
+    <form class="auth-card" id="f"><span class="eyebrow">ACESSO RESTRITO</span><h2>Entrar no Sentinela</h2>
+    <label>E-mail</label><input name="email" type="email" required autocomplete="username"><label>Senha</label><input name="senha" type="password" required autocomplete="current-password">
+    <div class="erro">${esc(erro || "")}</div><button>Entrar</button></form></div>`;
   document.getElementById("f").onsubmit = async (e) => {
     e.preventDefault();
     const f = new FormData(e.target);
@@ -45,33 +47,66 @@ function renderLogin(erro) {
 
 /* ---------- estrutura ---------- */
 const MENU = [["dashboard", "Dashboard"], ["clientes", "Clientes"], ["processos", "Novos processos"], ["validacao", "Central de validação"], ["fontes", "Monitoramento de fontes"], ["config", "Configurações"]];
+let _topoTimer = null;
 function moldura(ativo, html) {
-  $app.innerHTML = `<div class="layout"><nav><img class="logo" src="/static/logo.png" alt="NGA"><div class="sub">Sentinela</div>
-    ${MENU.map(([k, t]) => `<a href="#/${k}" class="${ativo === k ? "ativo" : ""}">${t}</a>`).join("")}
-    <div class="rodape">${esc(eu.nome)}<br><span class="mudo">${esc(eu.papel)}</span><br><button class="sec" id="sair">Sair</button></div></nav>
+  const nome = (MENU.find((m) => m[0] === ativo) || ["", "Processo"])[1];
+  $app.innerHTML = `<aside><a class="wordmark" href="#/dashboard"><img src="/static/logo.png" alt="NGA ADV"><span>SENTINELA</span></a>
+    <div class="labmark">NGA <span>LAB</span><small>MONITORAMENTO JUDICIAL</small></div><div class="navcaption">NAVEGAÇÃO</div>
+    <nav>${MENU.map(([k, t]) => `<a href="#/${k}" class="${ativo === k ? "ativo" : ""}">${t}${k === "processos" ? `<span class="pulso" id="navhoje" hidden></span>` : ""}</a>`).join("")}</nav>
+    <div class="account"><div class="avatar">${esc((eu.nome || "?")[0])}</div><div><strong>${esc(eu.nome)}</strong><small>${esc(eu.papel)}</small></div><button id="sair">Sair</button></div></aside>
+    <div class="shell"><header class="topo"><div>NGA LAB<span class="sep">/</span>SENTINELA<span class="sep">/</span><b>${esc(nome.toUpperCase())}</b></div><div class="status" id="topostatus"><i></i><span>verificando worker…</span></div></header>
     <main>${html}</main></div>`;
   document.getElementById("sair").onclick = sair;
+  atualizarTopo();
+  if (!_topoTimer) _topoTimer = setInterval(atualizarTopo, 30000);
+}
+async function atualizarTopo() {
+  try {
+    const [s, h] = await Promise.all([api("/sistema"), api("/processos?ajuizado_hoje=1&limite=1")]);
+    const el = document.getElementById("topostatus");
+    if (el) {
+      const w = s.worker;
+      el.className = "status" + (w.ativo ? "" : " off");
+      el.innerHTML = w.ativo ? `<i></i><span>WORKER ATIVO · batimento há ${w.segundos_desde_batimento}s · próxima pesquisa ${esc(fmtData(s.agendamento.proxima_execucao))}</span>` : `<i></i><span>WORKER PARADO — nenhuma pesquisa automática está ocorrendo</span>`;
+    }
+    const n = document.getElementById("navhoje");
+    if (n) { n.hidden = !h.total; n.textContent = h.total; }
+    document.title = (h.total ? `(${h.total}) ` : "") + "NGA Sentinela";
+  } catch (e) { /* topo é informativo */ }
 }
 const carregando = (a) => moldura(a, `<p class="mudo">Carregando…</p>`);
+const hero = (eb, tit, sub, acao) => `<div class="hero"><div><span class="eyebrow">${eb}</span><h1>${tit}</h1>${sub ? `<p class="sub">${sub}</p>` : ""}</div>${acao || ""}</div>`;
 const falhou = (a, e) => moldura(a, `<div class="faixa falha_total">Erro: ${esc(e.message)}</div>`);
 
 /* ---------- dashboard ---------- */
 async function pgDashboard() {
   carregando("dashboard");
   try {
-    const [d, al] = await Promise.all([api("/dashboard"), api("/alertas")]);
-    const k = (n, t) => `<div class="kpi"><div class="n">${esc(n)}</div><div class="t">${esc(t)}</div></div>`;
-    const ue = d.ultima_execucao;
-    moldura("dashboard", `<div class="cabeca"><div><h1>Dashboard</h1><div class="mudo peq">Última execução: ${ue ? `${fmtData(ue.inicio)} · ${tag(ue.status)}` : "nenhuma"}</div></div>
-      ${pode("advogado") ? `<button id="rodar">Executar pesquisa agora</button>` : ""}</div>
-      <div class="faixa ${esc(d.estado_pesquisa.codigo)}">${esc(d.estado_pesquisa.texto)}</div>
-      <div class="grade">${k(d.identificados_hoje, "Processos identificados hoje")}${k(d.identificados_semana, "Identificados na semana")}${k(d.identificados_mes, "Identificados no mês")}
-      ${k(d.clientes_monitorados, "Clientes monitorados")}${k(d.novas_acoes_confirmadas, "Novas ações confirmadas")}${k(d.pendentes_validacao, "Pendentes de validação")}
-      ${k(d.falhas_consultas_24h, "Falhas de consulta (24 h)")}${k(d.consultas_a_reprocessar, "Consultas a reprocessar")}${k(d.tribunais_com_dados, "Tribunais com dados recebidos")}${k(d.tribunais_com_conector_validado, "Tribunais com conector validado")}</div>
+    const [d, al, sis] = await Promise.all([api("/dashboard"), api("/alertas"), api("/sistema")]);
+    const k = (n, t, extra, cls) => `<article class="${cls || ""}"><span>${esc(t)}</span><strong>${esc(n)}</strong><small>${esc(extra || "")}</small></article>`;
+    const ue = d.ultima_execucao, hj = d.ajuizados_hoje, w = sis.worker;
+    const blocoHoje = hj.length ? `<section class="hoje"><div class="cab"><div class="num">${hj.length}</div><div class="tit"><small>ATENÇÃO — AÇÕES AJUIZADAS NO DIA DA BUSCA</small>${hj.length === 1 ? "Nova ação ajuizada hoje" : "Novas ações ajuizadas hoje"}</div></div>
+        <div class="lista">${hj.map((i) => `<a class="item" href="#/processo/${i.id}"><b>${esc(i.numero_processo)}</b> ${tag(i.classificacao)} ${i.prioridade ? tag(i.prioridade) : ""}<span>${esc(i.cliente)} · ${esc(i.tribunal)}${i.classe ? " · " + esc(i.classe) : ""}</span></a>`).join("")}</div></section>`
+      : `<section class="hoje vazio"><div class="cab"><div class="num">0</div><div class="tit"><small>AJUIZADAS NO DIA DA BUSCA</small>Nenhuma ação ajuizada hoje foi identificada até agora</div></div>
+        <p class="mudo peq" style="margin:12px 0 0">${d.ajuizados_ontem ? `Ontem: ${d.ajuizados_ontem}. ` : ""}Atenção: DJEN e DataJud costumam registrar uma ação horas ou dias depois da distribuição; esta faixa se acende assim que uma aparecer.</p></section>`;
+    const cad = sis.dias.map((x) => `<div class="${esc(x.resultado)}" title="${esc(x.dia)}: ${esc(x.resultado)} (${x.execucoes} execução(ões))"><b>${x.resultado === "sucesso" ? "✓" : x.resultado === "sem_execucao" ? "–" : "!"}</b>${esc(x.dia.slice(8))}/${esc(x.dia.slice(5, 7))}</div>`).join("");
+    moldura("dashboard", hero("VISÃO GERAL", "Seu painel de <em>vigilância.</em>", `Última execução: ${ue ? `${fmtData(ue.inicio)} · ${esc(ROT[ue.status] || ue.status)}` : "nenhuma"}`,
+        pode("advogado") ? `<button id="rodar">Executar pesquisa agora</button>` : "") +
+      blocoHoje +
+      `<div class="faixa ${esc(d.estado_pesquisa.codigo)}">${esc(d.estado_pesquisa.texto)}</div>
+      <div class="summarygrid">${k(d.identificados_hoje, "Identificados hoje", "primeira vez que o Sentinela os viu", "highlight")}${k(d.identificados_semana, "Identificados na semana")}${k(d.identificados_mes, "Identificados no mês")}
+      ${k(d.clientes_monitorados, "Clientes monitorados")}${k(d.novas_acoes_confirmadas, "Novas ações confirmadas", "confirmadas e ajuizadas recentemente")}${k(d.pendentes_validacao, "Pendentes de validação", "aguardam conferência")}
+      ${k(d.falhas_consultas_24h, "Falhas de consulta (24 h)")}${k(d.consultas_a_reprocessar, "Consultas a reprocessar")}${k(d.tribunais_com_dados, "Tribunais com dados recebidos")}${k(d.tribunais_com_conector_validado, "Tribunais com conector validado", "nenhum validado individualmente")}</div>
       <p class="mudo peq">${esc(d.nota_tribunais)}</p>
+      <h2>Operação contínua</h2><div class="panel"><div class="lin" style="gap:26px;align-items:flex-start">
+        <div><h3>Worker</h3><span class="tag ${w.ativo ? "operacional" : "falha"}">${w.ativo ? "ATIVO" : "PARADO"}</span>
+          <div class="peq mudo" style="margin-top:8px">Último batimento: ${esc(fmtData(w.ultimo_batimento))}${w.segundos_desde_batimento != null ? ` (há ${w.segundos_desde_batimento}s)` : ""}<br>Rodando desde: ${esc(fmtData(w.iniciado_em))}<br>Próxima pesquisa: <b>${esc(fmtData(sis.agendamento.proxima_execucao))}</b><br>Jobs na fila: ${sis.jobs_na_fila}</div></div>
+        <div style="flex:1;min-width:300px"><h3>Últimos 14 dias de pesquisa automática</h3><div class="cadencia">${cad}</div>
+          <p class="peq mudo" style="margin:10px 0 0">✓ pesquisa concluída · ! falha/parcial · – nenhuma execução (Mac desligado ou worker parado).</p></div></div>
+        ${sis.aviso ? `<div class="faixa falha_total" style="margin:14px 0 0">${esc(sis.aviso)}</div>` : ""}</div>
       <h2>Alertas recentes</h2>${tabelaAlertas(al.slice(0, 8))}`);
     const b = document.getElementById("rodar");
-    if (b) b.onclick = async () => { try { const hoje = new Date(); hoje.setDate(hoje.getDate() - 3); const r = await api("/jobs", { method: "POST", body: { tipo: "executar", params: { desde: hoje.toISOString().slice(0, 10) } } }); aviso("Pesquisa enfileirada (job " + r.job_id + "). O worker a executará em instantes."); } catch (e) { aviso(e.message); } };
+    if (b) b.onclick = async () => { try { const r = await api("/jobs", { method: "POST", body: { tipo: "executar", params: {} } }); aviso("Pesquisa enfileirada (job " + r.job_id + "). O worker a executará em instantes."); } catch (e) { aviso(e.message); } };
   } catch (e) { falhou("dashboard", e); }
 }
 function tabelaAlertas(al) {
@@ -152,12 +187,12 @@ async function pgCliente(id) {
 function tabelaProcessos(itens) {
   if (!itens.length) return `<p class="mudo">Nenhum processo para os filtros.</p>`;
   return `<div class="tabela-rolar"><table><thead><tr><th>Processo</th><th>Cliente</th><th>Tribunal</th><th>Classe</th><th>Distribuição</th><th>Identificado</th><th>Situação</th><th>Prioridade</th><th>Responsável</th></tr></thead><tbody>
-    ${itens.map((i) => `<tr class="clic" data-p="${i.id}"><td>${esc(i.numero_processo)}</td><td>${esc(i.cliente)}</td><td>${esc(i.tribunal)}</td><td>${esc(i.classe || "—")}</td>
-    <td>${fmtDia(i.data_ajuizamento)}<br>${tag(i.categoria_data)}</td><td>${fmtDia(i.identificada_em)}</td><td>${tag(i.classificacao)}<br><span class="peq mudo">${esc(ROT[i.estado_validacao] || i.estado_validacao)}</span></td>
+    ${itens.map((i) => `<tr class="clic${i.dias_ajuiz === 0 ? " dia-hoje" : ""}" data-p="${i.id}"><td>${esc(i.numero_processo)}</td><td>${esc(i.cliente)}</td><td>${esc(i.tribunal)}</td><td>${esc(i.classe || "—")}</td>
+    <td>${i.dias_ajuiz === 0 ? `<span class="selo-hoje">AJUIZADO HOJE</span><br>` : i.dias_ajuiz === 1 ? `<span class="selo-ontem">ONTEM</span><br>` : ""}${fmtDia(i.data_ajuizamento)}<br>${tag(i.categoria_data)}</td><td>${fmtDia(i.identificada_em)}</td><td>${tag(i.classificacao)}<br><span class="peq mudo">${esc(ROT[i.estado_validacao] || i.estado_validacao)}</span></td>
     <td>${i.prioridade ? tag(i.prioridade) : "—"}</td><td>${esc(i.responsavel || "—")}</td></tr>`).join("")}</tbody></table></div>`;
 }
 function bindProcessos() { document.querySelectorAll("tr[data-p]").forEach((tr) => (tr.onclick = () => (location.hash = "#/processo/" + tr.dataset.p))); }
-const filtros = { classificacao: "", categoria: "", cliente_id: "", tribunal: "", de: "", ate: "", classe: "", prioridade: "", responsavel_id: "", valor_min: "", valor_max: "", pagina: 1 };
+const filtros = { classificacao: "", categoria: "", cliente_id: "", tribunal: "", de: "", ate: "", classe: "", prioridade: "", responsavel_id: "", valor_min: "", valor_max: "", ajuizado_hoje: "", pagina: 1 };
 async function pgProcessos() {
   carregando("processos");
   try {
@@ -174,11 +209,11 @@ async function pgProcessos() {
       <div><label>Valor mín.</label><input name="valor_min" size="9" value="${esc(filtros.valor_min)}"></div><div><label>Valor máx.</label><input name="valor_max" size="9" value="${esc(filtros.valor_max)}"></div>
       <div><label>Risco</label>${sel("prioridade", [["alta", "Alta"], ["media", "Média"], ["baixa", "Baixa"]], filtros.prioridade)}</div>
       <div><label>Responsável</label>${sel("responsavel_id", us.map((u) => [u.id, u.nome]), filtros.responsavel_id)}</div>
-      <button>Filtrar</button><button type="button" class="sec" id="lim">Limpar</button></form>
+      <div><label style="display:flex;gap:7px;align-items:center;margin:0 0 9px"><input type="checkbox" name="ajuizado_hoje" value="1" ${filtros.ajuizado_hoje ? "checked" : ""}> Só ajuizados hoje</label></div><button>Filtrar</button><button type="button" class="sec" id="lim">Limpar</button></form>
       ${tabelaProcessos(r.itens)}
       <div class="lin" style="margin-top:10px"><button class="sec" id="ant" ${filtros.pagina <= 1 ? "disabled" : ""}>← Anterior</button><span class="mudo peq">Página ${filtros.pagina}</span><button class="sec" id="prox" ${filtros.pagina * 50 >= r.total ? "disabled" : ""}>Próxima →</button></div>`);
     bindProcessos();
-    document.getElementById("ff").onsubmit = (e) => { e.preventDefault(); const f = new FormData(e.target); for (const k of Object.keys(filtros)) if (f.has(k)) filtros[k] = f.get(k); filtros.pagina = 1; pgProcessos(); };
+    document.getElementById("ff").onsubmit = (e) => { e.preventDefault(); const f = new FormData(e.target); for (const k of Object.keys(filtros)) if (k !== "pagina") filtros[k] = f.has(k) ? f.get(k) : ""; filtros.pagina = 1; pgProcessos(); };
     document.getElementById("lim").onclick = () => { for (const k of Object.keys(filtros)) filtros[k] = ""; filtros.pagina = 1; pgProcessos(); };
     document.getElementById("ant").onclick = () => { filtros.pagina--; pgProcessos(); };
     document.getElementById("prox").onclick = () => { filtros.pagina++; pgProcessos(); };
@@ -192,7 +227,7 @@ async function pgProcesso(id) {
     const campo = (k, rot) => { const c = a?.campos?.[k]; if (!c) return ""; const v = Array.isArray(c.valor) ? c.valor.join("; ") : c.valor === true ? "Sim" : c.valor === false ? "Não" : c.valor;
       return `<dt>${rot}</dt><dd>${v == null || v === "" ? "<span class='mudo'>não disponível</span>" : esc(k === "valor_causa" ? brl(c.valor) : v)}<span class="origem ${esc(c.origem)}" title="${esc(c.nota || "")}">${esc({ fonte: "fonte", inferencia: "inferência", nao_verificado: "não verificado" }[c.origem])}</span></dd>`; };
     moldura("processos", `<div class="cabeca"><div><a href="#/processos">← Processos</a><h1>${esc(d.numero_processo)}</h1>
-      <div class="lin">${tag(d.classificacao)} ${tag(d.categoria_data)} ${tag(d.estado_validacao)} ${d.prioridade ? "Prioridade " + tag(d.prioridade) : ""}</div></div>
+      ${d.data_ajuizamento === new Date().toLocaleDateString("en-CA") ? `<div class="faixa falha_parcial" style="border-color:#f0a32e;box-shadow:0 0 30px #f0a32e30"><span class="selo-hoje">AJUIZADO HOJE</span> &nbsp;Esta ação foi distribuída hoje. Priorize a conferência e a ciência do responsável.</div>` : ""}<div class="lin">${tag(d.classificacao)} ${tag(d.categoria_data)} ${tag(d.estado_validacao)} ${d.prioridade ? "Prioridade " + tag(d.prioridade) : ""}</div></div>
       ${pode("advogado") ? `<div class="lin"><select id="resp"><option value="">Sem responsável</option>${us.filter((u) => u.ativo).map((u) => `<option value="${u.id}" ${u.id === d.responsavel_id ? "selected" : ""}>${esc(u.nome)}</option>`).join("")}</select><button class="sec" id="atr">Atribuir</button><button class="sec" id="ana">Gerar análise</button></div>` : ""}</div>
       <div class="cartao"><h3>Dados processuais</h3><dl class="dl"><dt>Cliente</dt><dd>${esc(d.cliente)} <span class="mudo peq">${esc(fmtCnpj(d.cnpj_matriz))}</span></dd><dt>Tribunal</dt><dd>${esc(d.tribunal)}</dd><dt>Órgão julgador</dt><dd>${esc(d.orgao || "—")}</dd>
       <dt>Classe</dt><dd>${esc(d.classe || "—")}</dd><dt>Assuntos</dt><dd>${esc(d.assuntos.join("; ") || "—")}</dd><dt>Sistema / grau</dt><dd>${esc(d.sistema || "—")} / ${esc(d.grau || "—")}</dd>

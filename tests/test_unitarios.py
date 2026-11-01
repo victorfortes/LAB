@@ -213,3 +213,18 @@ class TestValidacaoENome(Base):
         # nova execução não rebaixa nem sobrescreve decisão humana
         m.executar(desde=date(2026, 10, 28), forcar=True)
         self.assertEqual(self.con.execute("SELECT classificacao FROM correspondencias").fetchone()[0], "confirmada")
+
+
+class TestMigracaoConcorrente(unittest.TestCase):
+    def test_duas_conexoes_migrando_ao_mesmo_tempo(self):
+        import tempfile, threading
+        caminho = os.path.join(tempfile.mkdtemp(), "m.db")
+        erros = []
+        def go():
+            try: db.conectar(caminho).close()
+            except Exception as e: erros.append(e)
+        ts = [threading.Thread(target=go) for _ in range(4)]
+        [t.start() for t in ts]; [t.join() for t in ts]
+        self.assertEqual(erros, [])
+        con = db.conectar(caminho)
+        self.assertEqual(con.execute("SELECT count(*) FROM schema_migracoes").fetchone()[0], len(db.MIGRACOES))

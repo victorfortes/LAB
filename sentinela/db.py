@@ -182,6 +182,15 @@ MIGRACOES = [
         em TEXT NOT NULL DEFAULT (datetime('now'))
     );
     """),
+    ("0004_batimento", """
+    CREATE TABLE worker_status (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        pid INTEGER,
+        iniciado_em TEXT,
+        ultimo_batimento TEXT,
+        versao TEXT
+    );
+    """),
 ]
 
 
@@ -189,19 +198,37 @@ def conectar(caminho: str = "data/sentinela.db") -> sqlite3.Connection:
     con = sqlite3.connect(caminho, timeout=30, check_same_thread=False)
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA foreign_keys = ON")
-    con.execute("PRAGMA journal_mode = WAL")
+    try:
+        con.execute("PRAGMA journal_mode = WAL")  # persistente; se outra conexão está trocando o modo, o resultado é o mesmo
+    except sqlite3.OperationalError:
+        pass
     migrar(con)
     return con
 
 
 def migrar(con: sqlite3.Connection) -> None:
+    """Aplica migrações pendentes dentro de uma transação exclusiva: API e worker podem subir ao mesmo tempo."""
     con.execute("CREATE TABLE IF NOT EXISTS schema_migracoes (nome TEXT PRIMARY KEY, aplicada_em TEXT NOT NULL DEFAULT (datetime('now')))")
-    feitas = {r[0] for r in con.execute("SELECT nome FROM schema_migracoes")}
-    for nome, sql in MIGRACOES:
-        if nome not in feitas:
-            con.executescript(sql)
-            con.execute("INSERT INTO schema_migracoes(nome) VALUES (?)", (nome,))
-            con.commit()
+    con.commit()
+    modo = con.isolation_level
+    con.isolation_level = None
+    try:
+        con.execute("BEGIN IMMEDIATE")
+        try:
+            feitas = {r[0] for r in con.execute("SELECT nome FROM schema_migracoes")}
+            for nome, sql in MIGRACOES:
+                if nome in feitas:
+                    continue
+                for stmt in sql.split(";"):
+                    if stmt.strip():
+                        con.execute(stmt)
+                con.execute("INSERT INTO schema_migracoes(nome) VALUES (?)", (nome,))
+            con.execute("COMMIT")
+        except Exception:
+            con.execute("ROLLBACK")
+            raise
+    finally:
+        con.isolation_level = modo
 
 
 def abrir(caminho: str) -> sqlite3.Connection:

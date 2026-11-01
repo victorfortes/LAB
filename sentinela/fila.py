@@ -1,12 +1,15 @@
 """Fila de jobs em banco, agendador diário e worker independente do frontend."""
 import json
+import os
 import sqlite3
+import threading
 import time
 from datetime import date, datetime, timedelta
 from typing import Callable, Dict, Optional
 
 from . import analise, config as _config, notificacoes
 from .motor import Motor
+from . import __version__ as _VERSAO
 
 MAX_TENTATIVAS = 3
 JOB_TRAVADO_MIN = 120
@@ -122,8 +125,44 @@ def agendar(con: sqlite3.Connection, agora: Optional[datetime] = None) -> Dict[s
     return feito
 
 
+def proxima_execucao(con: sqlite3.Connection, agora: Optional[datetime] = None) -> Optional[str]:
+    agora = agora or datetime.now()
+    cfg = _config.obter(con, "agendamento")
+    if not cfg["ativo"]:
+        return None
+    hh, mm = (int(x) for x in cfg["hora"].split(":"))
+    hoje_h = agora.replace(hour=hh, minute=mm, second=0, microsecond=0)
+    ja = con.execute("SELECT 1 FROM jobs WHERE origem='agendador' AND tipo='executar' AND date(criado_em)=?", (agora.date().isoformat(),)).fetchone()
+    alvo = hoje_h if (agora < hoje_h or not ja) else hoje_h + timedelta(days=1)
+    return alvo.isoformat(timespec="minutes")
+
+
+def iniciar_batimento(caminho: str, parar: threading.Event, intervalo: float = 10.0) -> threading.Thread:
+    """Thread que carimba 'estou vivo' mesmo durante jobs longos. O painel usa isso para provar que o worker está ativo."""
+    inicio = agora_iso()
+
+    def laco():
+        c = sqlite3.connect(caminho, timeout=30)
+        while not parar.is_set():
+            try:
+                c.execute("INSERT INTO worker_status(id,pid,iniciado_em,ultimo_batimento,versao) VALUES (1,?,?,?,?) ON CONFLICT(id) DO UPDATE SET "
+                          "pid=excluded.pid,iniciado_em=excluded.iniciado_em,ultimo_batimento=excluded.ultimo_batimento,versao=excluded.versao",
+                          (os.getpid(), inicio, agora_iso(), _VERSAO))
+                c.commit()
+            except sqlite3.Error:
+                pass
+            parar.wait(intervalo)
+        c.close()
+    t = threading.Thread(target=laco, daemon=True, name="batimento")
+    t.start()
+    return t
+
+
 def laco_worker(con, motor, ia=None, intervalo: float = 20.0, parar: Callable[[], bool] = lambda: False, **kw) -> None:
     print("worker iniciado:", recuperar_travados(con), flush=True)
+    caminho = con.execute("PRAGMA database_list").fetchone()[2]
+    fim = threading.Event()
+    iniciar_batimento(caminho, fim)
     while not parar():
         agendar(con)
         while rodar_proximo(con, motor, ia, **kw) is not None:

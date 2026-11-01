@@ -117,7 +117,13 @@ def dashboard(u=Depends(usuario_atual), con: sqlite3.Connection = Depends(get_co
         estado = {"codigo": "ok_com_novos" if novos else "ok_sem_novos",
                   "texto": ("Pesquisa concluída com sucesso: %d possível(is) nova(s) ação(ões) nas últimas 24 h." % novos) if novos
                   else "Pesquisa concluída com sucesso: nenhuma nova ação encontrada nas fontes consultadas (cobertura limitada às fontes validadas)."}
+    aj_base = ("FROM correspondencias c JOIN processos p ON p.id=c.processo_id JOIN clientes cl ON cl.id=c.cliente_id "
+               "WHERE c.classificacao!='descartada' AND p.data_ajuizamento=?")
+    aj_cols = "SELECT c.id,c.classificacao,c.estado_validacao,c.prioridade,p.numero_processo,p.tribunal,p.classe,p.orgao,p.data_ajuizamento,cl.razao_social cliente "
+    aj_hoje = [dict(r) for r in con.execute(aj_cols + aj_base + " ORDER BY (c.classificacao='confirmada') DESC, p.id DESC LIMIT 30", (hoje.isoformat(),))]
+    aj_ontem = con.execute("SELECT count(*) " + aj_base, ((hoje - timedelta(days=1)).isoformat(),)).fetchone()[0]
     return {
+        "ajuizados_hoje": aj_hoje, "ajuizados_ontem": aj_ontem,
         "estado_pesquisa": estado, "ultima_execucao": dict(ult) if ult else None,
         "identificados_hoje": contar(hoje), "identificados_semana": contar(hoje - timedelta(days=7)), "identificados_mes": contar(hoje - timedelta(days=30)),
         "clientes_monitorados": con.execute("SELECT count(*) FROM clientes WHERE status_monitoramento='ativo'").fetchone()[0],
@@ -259,7 +265,7 @@ async def importar(arquivo: UploadFile = File(...), u=Depends(exigir("advogado")
 def listar_processos(cliente_id: Optional[int] = None, tribunal: Optional[str] = None, de: Optional[str] = None, ate: Optional[str] = None,
                      classe: Optional[str] = None, prioridade: Optional[str] = None, responsavel_id: Optional[int] = None,
                      classificacao: Optional[str] = None, categoria: Optional[str] = None, estado: Optional[str] = None,
-                     valor_min: Optional[float] = None, valor_max: Optional[float] = None, limite: int = 100, pagina: int = 1,
+                     valor_min: Optional[float] = None, valor_max: Optional[float] = None, ajuizado_hoje: Optional[int] = None, limite: int = 100, pagina: int = 1,
                      u=Depends(usuario_atual), con: sqlite3.Connection = Depends(get_con)):
     where, args = ["1=1"], []
     def f(cond, v):
@@ -273,14 +279,16 @@ def listar_processos(cliente_id: Optional[int] = None, tribunal: Optional[str] =
         where.append(val + ">=?"); args.append(valor_min)
     if valor_max is not None:
         where.append(val + "<=?"); args.append(valor_max)
+    if ajuizado_hoje:
+        where.append("p.data_ajuizamento=date('now','localtime')")
     limite = max(1, min(limite, 500))
     base = ("FROM correspondencias c JOIN processos p ON p.id=c.processo_id JOIN clientes cl ON cl.id=c.cliente_id "
             "LEFT JOIN usuarios r ON r.id=c.responsavel_id WHERE " + " AND ".join(where))
     total = con.execute("SELECT count(*) " + base, args).fetchone()[0]
     rows = con.execute("SELECT c.id,c.classificacao,c.nivel,c.polo,c.categoria_data,c.estado_validacao,c.prioridade,c.identificada_em,"
                        "c.ultima_verificacao,p.numero_processo,p.tribunal,p.classe,p.orgao,p.data_ajuizamento,p.datajud_status,cl.razao_social cliente,"
-                       "cl.id cliente_id,r.nome responsavel," + val + " valor_causa " + base +
-                       " ORDER BY (c.classificacao='confirmada') DESC, c.identificada_em DESC LIMIT ? OFFSET ?",
+                       "cl.id cliente_id,r.nome responsavel,CAST(julianday(date('now','localtime'))-julianday(p.data_ajuizamento) AS INTEGER) dias_ajuiz," + val + " valor_causa " + base +
+                       " ORDER BY (p.data_ajuizamento=date('now','localtime')) DESC, (c.classificacao='confirmada') DESC, c.identificada_em DESC LIMIT ? OFFSET ?",
                        args + [limite, (max(pagina, 1) - 1) * limite]).fetchall()
     return {"total": total, "itens": [dict(r) for r in rows]}
 
@@ -485,13 +493,44 @@ def auditoria(u=Depends(exigir("admin")), con: sqlite3.Connection = Depends(get_
     return [dict(r) for r in con.execute("SELECT * FROM auditoria ORDER BY id DESC LIMIT 200")]
 
 
+@app.get("/api/sistema")
+def sistema(u=Depends(usuario_atual), con: sqlite3.Connection = Depends(get_con)):
+    """Prova de funcionamento contínuo: batimento do worker, próxima execução e histórico diário dos últimos 14 dias."""
+    w = con.execute("SELECT * FROM worker_status WHERE id=1").fetchone()
+    seg = None
+    if w and w["ultimo_batimento"]:
+        seg = int((datetime.now() - datetime.fromisoformat(w["ultimo_batimento"])).total_seconds())
+    ativo = seg is not None and seg < 60
+    dias = []
+    for i in range(13, -1, -1):
+        d = (date.today() - timedelta(days=i)).isoformat()
+        rows = con.execute("SELECT status,count(*) n FROM execucoes WHERE date(inicio)=? AND gatilho IN ('agendado','manual','teste_real') GROUP BY status", (d,)).fetchall()
+        st = {r["status"]: r["n"] for r in rows}
+        res = "sem_execucao" if not st else ("falha" if st.get("falha") and not st.get("sucesso") else ("parcial" if st.get("parcial") or st.get("falha") or st.get("interrompida") else "sucesso"))
+        dias.append({"dia": d, "resultado": res, "execucoes": sum(st.values())})
+    cfg = _config.obter(con, "agendamento")
+    return {"worker": {"ativo": ativo, "segundos_desde_batimento": seg, "ultimo_batimento": w["ultimo_batimento"] if w else None,
+                       "iniciado_em": w["iniciado_em"] if w else None, "pid": w["pid"] if w else None},
+            "agendamento": {"ativo": cfg["ativo"], "hora": cfg["hora"], "proxima_execucao": fila.proxima_execucao(con)},
+            "jobs_na_fila": con.execute("SELECT count(*) FROM jobs WHERE status='na_fila'").fetchone()[0],
+            "dias": dias,
+            "aviso": None if ativo else "O worker não está enviando batimento: nenhuma pesquisa automática ocorrerá até ele voltar. Se o Mac dormiu ou foi reiniciado, o worker precisa ser iniciado de novo."}
+
+
 @app.get("/api/saude")
 def saude():
     return {"status": "ok", "versao": app.version}
 
 
 # ---------- frontend estático ----------
-app.mount("/static", StaticFiles(directory=os.path.join(WEB, "static")), name="static")
+class _SemCache(StaticFiles):
+    async def get_response(self, path, scope):
+        r = await super().get_response(path, scope)
+        r.headers["Cache-Control"] = "no-cache"
+        return r
+
+
+app.mount("/static", _SemCache(directory=os.path.join(WEB, "static")), name="static")
 
 
 @app.get("/")

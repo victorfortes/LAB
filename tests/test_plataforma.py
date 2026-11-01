@@ -261,3 +261,53 @@ class TestFrequenciaDiaria(Base):
         self.assertGreater(r["consultas_executadas"], 0)
         r2 = m.executar()   # já rodou hoje: não repete
         self.assertEqual(r2["consultas_executadas"], 0)
+
+
+class TestDestaqueDoDiaEContinuidade(TestAPI):
+    def test_ajuizado_hoje_dashboard_filtro_e_prioridade(self):
+        clientes.cadastrar(self.con, "Acme Indústria Ltda", CNPJ_OK)
+        hoje = date.today().strftime("%Y%m%d") + "090000"
+        m = self.motor(djen([item(1, texto="CNPJ 47.960.950/0001-21")]), dj_ok(hoje))
+        m.executar(desde=date.today())
+        h = self.h("adv@x.com")
+        d = self.c.get("/api/dashboard", headers=h).json()
+        self.assertEqual(len(d["ajuizados_hoje"]), 1)
+        lst = self.c.get("/api/processos?ajuizado_hoje=1", headers=h).json()
+        self.assertEqual((lst["total"], lst["itens"][0]["dias_ajuiz"]), (1, 0))
+        cid = lst["itens"][0]["id"]
+        analise.analisar(self.con, cid, None)
+        self.assertEqual(self.con.execute("SELECT prioridade FROM correspondencias").fetchone()[0], "alta")
+        alerta = notificacoes.texto(notificacoes.montar(self.con, cid, "nova_acao_confirmada"))[0]
+        self.assertIn("AJUIZADA HOJE", alerta)
+        # processo de ontem não é destacado
+        self.con.execute("UPDATE processos SET data_ajuizamento=date('now','localtime','-1 day')"); self.con.commit()
+        self.assertEqual(self.c.get("/api/processos?ajuizado_hoje=1", headers=h).json()["total"], 0)
+
+    def test_batimento_do_worker_prova_funcionamento(self):
+        h = self.h("adv@x.com")
+        s0 = self.c.get("/api/sistema", headers=h).json()
+        self.assertFalse(s0["worker"]["ativo"])           # sem worker: o painel avisa
+        self.assertIsNotNone(s0["aviso"])
+        parar = __import__("threading").Event()
+        t = fila.iniciar_batimento(os.path.join(self.tmp, "t.db"), parar, intervalo=0.2)
+        __import__("time").sleep(0.6)
+        s1 = self.c.get("/api/sistema", headers=h).json()
+        parar.set(); t.join(2)
+        self.assertTrue(s1["worker"]["ativo"])
+        self.assertEqual(len(s1["dias"]), 14)
+        self.assertIsNotNone(s1["agendamento"]["proxima_execucao"])
+
+    def test_processo_novo_ausente_no_datajud_e_reconsultado_depois(self):
+        clientes.cadastrar(self.con, "Acme Indústria Ltda", CNPJ_OK)
+        estado = {"achou": False}
+        def dj(*a):
+            if not estado["achou"]:
+                return resp({"hits": {"hits": []}})
+            return dj_ok(date.today().strftime("%Y%m%d") + "100000")(*a)
+        m = self.motor(djen([item(1, texto="CNPJ 47.960.950/0001-21")]), dj)
+        m.executar(desde=date.today())
+        self.assertEqual(self.con.execute("SELECT datajud_status FROM processos").fetchone()[0], "nao_encontrado")
+        estado["achou"] = True   # o DataJud passou a ter o processo no dia seguinte
+        self.con.execute("UPDATE processos SET ultima_verificacao=datetime('now','localtime','-1 day')"); self.con.commit()
+        self.assertEqual(m.enriquecer_pendentes()["ok"], 1)
+        self.assertEqual(self.con.execute("SELECT categoria_data FROM correspondencias").fetchone()[0], "nova_distribuicao")

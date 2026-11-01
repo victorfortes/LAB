@@ -170,7 +170,9 @@ class Motor:
     def enriquecer_pendentes(self) -> Dict[str, int]:
         con, res = self.con, {"ok": 0, "nao_encontrado": 0, "falha": 0}
         rows = con.execute("SELECT DISTINCT p.id,p.numero_processo,p.tribunal FROM processos p JOIN correspondencias c "
-                           "ON c.processo_id=p.id WHERE c.classificacao!='descartada' AND p.datajud_status IN ('pendente','falha') "
+                           "ON c.processo_id=p.id WHERE c.classificacao!='descartada' AND (p.datajud_status IN ('pendente','falha') OR "
+                           "(p.datajud_status='nao_encontrado' AND date(p.primeira_identificacao)>=date('now','-14 day') "
+                           "AND date(p.ultima_verificacao)<date('now','localtime'))) "
                            "ORDER BY (c.classificacao='confirmada') DESC, p.id LIMIT ?", (self.limite_enr,)).fetchall()
         por_trib: Dict[str, list] = {}
         for p in rows:

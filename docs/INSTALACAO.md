@@ -27,3 +27,9 @@ Colocar atrás de proxy reverso com HTTPS (Caddy/Nginx). Não exponha a porta 80
 - **Painel em JS puro, sem React/TypeScript**: não há Node neste ambiente. O painel é servido pela própria API, sem build.
 - **Fila em banco** (tabela `jobs`) em vez de Redis/Celery: menos infraestrutura, suficiente para o volume.
 - Autenticação por token assinado (HMAC) e senhas PBKDF2; três papéis (admin, advogado, leitura); auditoria de ações.
+
+## Funcionamento contínuo no Mac
+`bash scripts/macos/instalar_servico.sh` registra API e worker no launchd (sobem no login, reiniciam se caírem, `caffeinate -i`
+impede suspensão por ociosidade). Remover: `bash scripts/macos/remover_servico.sh`. Fechar a tampa do notebook ou desligar o Mac
+ainda interrompe a pesquisa: o painel mostra o batimento do worker, o histórico de 14 dias e avisa quando há lacuna. A retomada
+cobre o período perdido (cada consulta continua do último sucesso). Para operação sem depender do Mac, instalar em servidor.

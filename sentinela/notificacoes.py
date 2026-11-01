@@ -38,6 +38,8 @@ def texto(a: Dict) -> (str, str):
     if a["tipo"] == "falha_consulta":
         return "NGA Sentinela: falha nas consultas", a["detalhe"]
     cab = "NOVA AÇÃO CONTRA CLIENTE" if a["definitivo"] else "POSSÍVEL NOVA AÇÃO (CONFERIR)"
+    if a.get("data_distribuicao") == datetime.now().date().isoformat():
+        cab = "AJUIZADA HOJE — " + cab
     corpo = "\n".join("%s: %s" % (k, v) for k, v in [
         ("Cliente", a["cliente"]), ("Processo", a["numero_processo"]), ("Tribunal", a["tribunal"]),
         ("Distribuição", a["data_distribuicao"] or "não verificada"), ("Natureza", a["natureza"] or "não informada"),

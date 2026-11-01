@@ -113,6 +113,8 @@ def _classificar(fatos: Dict, texto: str, urg_ia: bool, cfg: Dict) -> (str, bool
         pontos += 1; motivos.append("valor da causa médio")
     if fatos["tutela_provisoria"]["valor"]:
         pontos += 2; motivos.append("indício de tutela provisória")
+    if fatos["data_distribuicao"]["valor"] == datetime.now().date().isoformat():
+        pontos += 3; motivos.append("ajuizado hoje")
     if urg_ia:
         pontos += 1; motivos.append("urgência apontada pela IA")
     nivel = "alta" if pontos >= 3 else ("media" if pontos >= 1 else "baixa")
