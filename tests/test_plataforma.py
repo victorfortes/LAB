@@ -403,5 +403,41 @@ class TestPesquisaManualEConsultaRuim(TestAPI):
         self.assertGreater(nao, 10)
 
 
+class TestNomeOficialPeloCNPJ(Base):
+    class Registro:
+        def __init__(self, nome): self.nome = nome
+        def consultar(self, cnpj): return {"razao_social": self.nome, "nome_fantasia": "", "situacao": "ATIVA"} if self.nome else None
+
+    def test_nome_curto_digitado_e_substituido_pela_razao_social_oficial(self):
+        cid = clientes.cadastrar(self.con, "Petro Tanque", CNPJ_OK)
+        rel = clientes.completar_nomes_pelo_registro(self.con, cid, self.Registro("PETRO TANQUE METALURGICA LTDA"))
+        self.assertEqual(rel["desativados"], ["Petro Tanque"])
+        c = clientes.carregar(self.con, cid)
+        self.assertEqual([n["nome_norm"] for n in c["nomes"]], ["PETRO TANQUE METALURGICA"])
+        self.assertEqual(c["razao_social"], "PETRO TANQUE METALURGICA LTDA")
+        from sentinela import matcher
+        com = {"texto": "", "destinatarios": [{"nome": "PETRO TANQUE METALÚRGICA LTDA", "polo": "P"}]}
+        self.assertEqual(matcher.avaliar(c, com)["nivel"], 3)
+
+    def test_fonte_fora_do_ar_ou_cnpj_inexistente_nao_quebra(self):
+        cid = clientes.cadastrar(self.con, "Acme Indústria Ltda", CNPJ_OK)
+        class Quebra:
+            def consultar(self, c): raise RuntimeError("fora do ar")
+        self.assertEqual(len(clientes.completar_nomes_pelo_registro(self.con, cid, Quebra())["erros"]), 1)
+        self.assertEqual(clientes.completar_nomes_pelo_registro(self.con, cid, self.Registro(None))["oficiais"], [])
+        self.assertEqual(len(clientes.carregar(self.con, cid)["nomes"]), 1)
+
+    def test_busca_inicial_completa_nome_antes_de_pesquisar(self):
+        cid = clientes.cadastrar(self.con, "Petro Tanque", CNPJ_OK)
+        urls = []
+        def tr(m, url, h, c, t):
+            urls.append(url); return resp({"status": "success", "count": 0, "items": []})
+        mt = self.motor(tr); mt.registro = self.Registro("PETRO TANQUE METALURGICA LTDA")
+        fila.enfileirar(self.con, "executar", {"cliente_ids": [cid], "desde": date.today().isoformat()}, "busca_inicial")
+        fila.rodar_proximo(self.con, mt)
+        self.assertTrue(any("PETRO+TANQUE+METALURGICA" in u or "PETRO%20TANQUE%20METALURGICA" in u for u in urls))
+        self.assertFalse(any(u.endswith("nomeParte=PETRO+TANQUE") or "nomeParte=PETRO+TANQUE&" in u for u in urls))
+
+
 if __name__ == "__main__":
     unittest.main()

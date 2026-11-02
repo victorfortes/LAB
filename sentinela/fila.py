@@ -75,6 +75,10 @@ def _pipeline_pos_execucao(con, resumo, ia, **kw) -> Dict:
 def executar_job(con: sqlite3.Connection, motor: Motor, job: sqlite3.Row, ia=None, **kw) -> Dict:
     p = json.loads(job["params"])
     if job["tipo"] == "executar":
+        if job["origem"] == "busca_inicial" and getattr(motor, "registro", None):
+            from . import clientes as _cl
+            for cid in p.get("cliente_ids") or []:   # razão social oficial pelo CNPJ, antes de pesquisar por nome
+                _cl.completar_nomes_pelo_registro(con, cid, motor.registro)
         r = motor.executar("agendado" if job["origem"] == "agendador" else "manual", p.get("cliente_ids"),
                            date.fromisoformat(p["desde"]) if p.get("desde") else None,
                            date.fromisoformat(p["ate"]) if p.get("ate") else None, bool(p.get("forcar")))

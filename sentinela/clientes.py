@@ -71,10 +71,45 @@ def importar_csv(con: sqlite3.Connection, caminho: str) -> Dict[str, object]:
 def carregar(con: sqlite3.Connection, cid: int) -> Dict[str, object]:
     c = dict(con.execute("SELECT * FROM clientes WHERE id=?", (cid,)).fetchone())
     c["cnpjs"] = [dict(r) for r in con.execute("SELECT cnpj,tipo FROM cliente_cnpjs WHERE cliente_id=?", (cid,))]
-    c["nomes"] = [dict(r) for r in con.execute("SELECT nome,nome_norm,tipo FROM cliente_nomes WHERE cliente_id=?", (cid,))]
+    c["nomes"] = [dict(r) for r in con.execute("SELECT nome,nome_norm,tipo FROM cliente_nomes WHERE cliente_id=? AND ativo=1", (cid,))]
     return c
 
 
 def ativos(con: sqlite3.Connection) -> List[Dict[str, object]]:
     ids = [r[0] for r in con.execute("SELECT id FROM clientes WHERE status_monitoramento='ativo' ORDER BY id")]
     return [carregar(con, i) for i in ids]
+
+
+def completar_nomes_pelo_registro(con: sqlite3.Connection, cid: int, registro) -> Dict[str, object]:
+    """Consulta a razão social oficial de cada CNPJ do cliente e a adiciona aos nomes pesquisados.
+    Se o nome que a pessoa digitou é só uma parte da razão social oficial (ex.: "PETRO TANQUE" x "PETRO TANQUE METALURGICA LTDA"),
+    ele deixa de ser pesquisado: o nome curto traz homônimos e não casa com o nome que consta nos processos."""
+    rel = {"cliente_id": cid, "oficiais": [], "desativados": [], "erros": []}
+    oficiais = []
+    for r in con.execute("SELECT cnpj FROM cliente_cnpjs WHERE cliente_id=?", (cid,)).fetchall():
+        try:
+            d = registro.consultar(r["cnpj"])
+        except Exception as e:  # fonte indisponível não impede a pesquisa pelo que já está cadastrado
+            rel["erros"].append("%s: %s" % (r["cnpj"], e))
+            continue
+        if d:
+            oficiais.append(d["razao_social"])
+    for nome in oficiais:
+        norm = _nomes.normalizar(nome)
+        antes = con.execute("SELECT 1 FROM cliente_nomes WHERE cliente_id=? AND nome_norm=?", (cid, norm)).fetchone()
+        if not antes:
+            _add_nome(con, cid, nome, "razao_social")
+            rel["oficiais"].append(nome)
+    toks_of = [set(_nomes.normalizar(n).split()) for n in oficiais]
+    for n in con.execute("SELECT nome,nome_norm FROM cliente_nomes WHERE cliente_id=? AND ativo=1", (cid,)).fetchall():
+        t = set(n["nome_norm"].split())
+        if any(t < o for o in toks_of):
+            con.execute("UPDATE cliente_nomes SET ativo=0 WHERE cliente_id=? AND nome_norm=?", (cid, n["nome_norm"]))
+            rel["desativados"].append(n["nome"])
+    if oficiais:
+        atual = con.execute("SELECT razao_social,nome_fantasia FROM clientes WHERE id=?", (cid,)).fetchone()
+        if set(_nomes.normalizar(atual["razao_social"]).split()) < set(_nomes.normalizar(oficiais[0]).split()):
+            con.execute("UPDATE clientes SET razao_social=?,nome_fantasia=COALESCE(nome_fantasia,?) WHERE id=?",
+                        (oficiais[0], atual["razao_social"], cid))
+    con.commit()
+    return rel

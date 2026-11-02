@@ -70,6 +70,7 @@ class Motor:
                  dias_nova: int = 15, trabalhadores: int = 3, hoje: Optional[date] = None,
                  limite_enriquecimento: int = 200):
         self.con, self.djen, self.datajud = con, djen, datajud
+        self.registro = None  # ConectorRegistroCNPJ (opcional): completa a razão social oficial do cliente
         self.dias_retro, self.dias_nova, self.trab = dias_retroativos, dias_nova, trabalhadores
         self.hoje = hoje or date.today()
         self.limite_enr = limite_enriquecimento
