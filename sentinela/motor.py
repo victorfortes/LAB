@@ -18,6 +18,7 @@ ESTADO_AUTO = {"confirmada": "automatico", "provavel": "pendente", "inconclusiva
 CHUNK_DIAS = 3
 LOTE_DATAJUD = 50
 NOME_MIN_CARACTERES = 4      # nome mais curto que isso (ex.: "NB") não é pesquisado por nome: devolve milhares de homônimos e a fonte recusa
+RESCAN_DIAS = 7              # cada pesquisa diária relê os últimos 7 dias (publicações tardias no DJEN)
 FALHAS_SEGUIDAS_ABORTA = 3   # numa execução, após 3 janelas seguidas falhando na mesma consulta, as demais não são tentadas
 TENTATIVAS_REPROCESSO = 6    # depois disso, a consulta que continua falhando só é refeita uma vez por dia
 
@@ -65,6 +66,19 @@ def _normalizar_item(it: Dict) -> Dict:
             "destinatarios": [{"nome": d.get("nome"), "polo": d.get("polo")} for d in it.get("destinatarios", [])]}
 
 
+def consultas_do_cliente(c: Dict) -> List[Dict]:
+    vistos, qs = set(), []
+    for n in c["nomes"]:
+        if n["nome_norm"] not in vistos:
+            vistos.add(n["nome_norm"])
+            if nome_generico(n["nome_norm"]):
+                continue  # esse cliente continua monitorado pelo CNPJ (busca textual)
+            qs.append(("nomeParte", n["nome_norm"]))  # sem sufixo societário: a fonte grafa "SIA", "S/A", "LTDA" de formas diversas
+    for x in c["cnpjs"]:
+        qs.append(("texto", _cnpj.formatar(x["cnpj"])))
+    return [{"param": p, "valor": v, "chave": "%s:%s" % (p, v)} for p, v in qs]
+
+
 class Motor:
     def __init__(self, con: sqlite3.Connection, djen: ConectorDJEN, datajud: ConectorDataJud, dias_retroativos: int = 7,
                  dias_nova: int = 15, trabalhadores: int = 3, hoje: Optional[date] = None,
@@ -78,16 +92,7 @@ class Motor:
 
     # ---------- planejamento ----------
     def _consultas_do_cliente(self, c: Dict) -> List[Dict]:
-        vistos, qs = set(), []
-        for n in c["nomes"]:
-            if n["nome_norm"] not in vistos:
-                vistos.add(n["nome_norm"])
-                if nome_generico(n["nome_norm"]):
-                    continue  # esse cliente continua monitorado pelo CNPJ (busca textual)
-                qs.append(("nomeParte", n["nome_norm"]))  # sem sufixo societário: a fonte grafa "SIA", "S/A", "LTDA" de formas diversas
-        for x in c["cnpjs"]:
-            qs.append(("texto", _cnpj.formatar(x["cnpj"])))
-        return [{"param": p, "valor": v, "chave": "%s:%s" % (p, v)} for p, v in qs]
+        return consultas_do_cliente(c)
 
     def _aposentar_consultas_obsoletas(self, c: Dict) -> None:
         """Falhas de consultas que o plano atual do cliente não faz mais (ex.: nome curto demais) deixam de contar como pendentes."""
@@ -110,7 +115,8 @@ class Motor:
                 recente = ult.date() >= self.hoje if c["frequencia_horas"] <= 24 else ult > datetime.now() - timedelta(hours=c["frequencia_horas"])
                 if recente:
                     return None  # consulta recente: evita repetição desnecessária
-            return (date.fromisoformat(r["m"]) - timedelta(days=1), fim)  # 1 dia de sobreposição por publicações tardias
+            # sobreposição: relê os últimos RESCAN_DIAS dias a cada pesquisa, porque o DJEN indexa publicações com atraso
+            return (min(date.fromisoformat(r["m"]) - timedelta(days=1), fim - timedelta(days=RESCAN_DIAS - 1)), fim)
         return (fim - timedelta(days=self.dias_retro), fim)
 
     def _coberto(self, chave: str, a: date, b: date) -> bool:
@@ -146,24 +152,35 @@ class Motor:
                                        "erro": "não tentada: %d falhas seguidas nesta consulta" % FALHAS_SEGUIDAS_ABORTA})
                     self._tick()
                     continue
-                r = {"q": q, "ini": a.isoformat(), "fim": b.isoformat(), "inicio": agora_iso(), "achados": []}
-                try:
-                    itens, total, trunc = self.djen.consultar(q["param"], q["valor"], r["ini"], r["fim"])
-                    r.update(status="truncada" if trunc else "ok", total=total, lidos=len(itens), erro=None)
-                    for it in itens:
-                        com = _normalizar_item(it)
-                        if com["id"] in vistos or len(com["numero_processo"]) != 20:
-                            continue
-                        vistos[com["id"]] = True
-                        m = matcher.avaliar(c, com)
-                        if m:
-                            r["achados"].append((com, m))
-                except (ErroFonte, ValueError, KeyError) as e:
-                    r.update(status="falha", total=None, lidos=0, erro=str(e))
+                r = self._ler_janela(c, q, a, b, vistos)
+                if r["status"] == "truncada" and a < b:
+                    # a fonte limita a 10.000 itens por consulta: refaz dia a dia para não perder nada
+                    subs = [self._ler_janela(c, q, a + timedelta(days=i), a + timedelta(days=i), vistos) for i in range((b - a).days + 1)]
+                    resultados.extend(subs)
+                    seguidas[q["chave"]] = 0 if all(x["status"] != "falha" for x in subs) else seguidas.get(q["chave"], 0) + 1
+                    self._tick()
+                    continue
                 seguidas[q["chave"]] = seguidas.get(q["chave"], 0) + 1 if r["status"] == "falha" else 0
                 resultados.append(r)
                 self._tick()
         return resultados
+
+    def _ler_janela(self, c: Dict, q: Dict, a: date, b: date, vistos: Dict) -> Dict:
+        r = {"q": q, "ini": a.isoformat(), "fim": b.isoformat(), "inicio": agora_iso(), "achados": []}
+        try:
+            itens, total, trunc = self.djen.consultar(q["param"], q["valor"], r["ini"], r["fim"])
+            r.update(status="truncada" if trunc else "ok", total=total, lidos=len(itens), erro=None)
+            for it in itens:
+                com = _normalizar_item(it)
+                if com["id"] in vistos or len(com["numero_processo"]) != 20:
+                    continue
+                vistos[com["id"]] = True
+                m = matcher.avaliar(c, com)
+                if m:
+                    r["achados"].append((com, m))
+        except (ErroFonte, ValueError, KeyError) as e:
+            r.update(status="falha", total=None, lidos=0, erro=str(e))
+        return r
 
     # ---------- persistência ----------
     def _persistir(self, exec_id: int, c: Dict, resultados: List[Dict]) -> Dict[str, int]:
@@ -340,6 +357,21 @@ class Motor:
                     (agora_iso(), status, json.dumps(resumo, ensure_ascii=False), exec_id))
         con.commit()
         return {"execucao_id": exec_id, "status": status, **resumo}
+
+    def preencher_lacunas(self, dias: int = 95) -> Dict:
+        """Refaz os dias que o registro de cobertura aponta como não lidos (ex.: Mac desligado, fonte fora do ar)."""
+        from . import cobertura
+        con = self.con
+        lac = cobertura.lacunas(con, self.hoje, dias)
+        exec_id = con.execute("INSERT INTO execucoes(gatilho,inicio) VALUES ('preenchimento',?)", (agora_iso(),)).lastrowid
+        con.commit()
+        por_cliente: Dict[int, tuple] = {}
+        for g in lac:
+            c = por_cliente.setdefault(g["cliente_id"], (_clientes.carregar(con, g["cliente_id"]), []))
+            q = next((x for x in consultas_do_cliente(c[0]) if x["chave"] == g["chave"]), None)
+            if q:
+                c[1].extend((q, a, b) for a, b in _chunks(date.fromisoformat(g["ini"]), date.fromisoformat(g["fim"])))
+        return self._rodar(exec_id, list(por_cliente.values()), 0, len(por_cliente))
 
     def reprocessar_falhas(self, horas: int = 48) -> Dict:
         """Refaz consultas que falharam e ainda não foram cobertas por uma consulta bem-sucedida."""

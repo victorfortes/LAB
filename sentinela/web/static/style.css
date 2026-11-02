@@ -182,3 +182,16 @@ details.ajuda{border:1px solid var(--line);border-radius:8px;margin:0 0 14px;bac
 details.ajuda summary{cursor:pointer;padding:14px 18px;font-size:14px;color:var(--mut)}details.ajuda[open] summary{color:var(--ink);border-bottom:1px solid var(--line)}
 details.ajuda>*:not(summary){margin-left:18px;margin-right:18px}details.ajuda>ul{padding-left:18px;line-height:1.9;font-size:14px;color:#b9c4d2}details.ajuda>:last-child{margin-bottom:18px}details.ajuda>.summarygrid{margin-top:18px}
 @media(max-width:760px){.cli{grid-template-columns:1fr}.barras .v{font-size:9px}}
+
+/* garantia de cobertura */
+.tira{display:flex;gap:2px;flex:1;min-width:260px}.tira i,.legenda i{display:block;flex:1;height:22px;border-radius:2px;background:#2a3544}
+.tira i.coberto,.legenda i.coberto{background:#3fbf94}.tira i.provisorio,.legenda i.provisorio{background:#7fd9bd66}
+.tira i.em_curso{background:#f0a32e55}.tira i.lacuna,.legenda i.lacuna{background:#f4685c}.tira i.incompleto,.legenda i.incompleto{background:#f0a32e}
+.tira i.sem_historico,.legenda i.sem_historico{background:#1a2230}
+.cobcli{display:grid;grid-template-columns:minmax(220px,1fr) 2fr;gap:18px;align-items:center;padding:12px 0;border-bottom:1px solid var(--line)}.cobcli:last-of-type{border-bottom:0}
+.cobcli .nome b{display:block}.cobcli .nome small{color:var(--mut);font-size:11.5px;word-break:break-all}
+.legenda{display:flex;gap:18px;flex-wrap:wrap;margin-bottom:10px;font-size:12px;color:var(--mut)}.legenda span{display:flex;gap:7px;align-items:center}.legenda i{flex:none;width:14px;height:14px}
+.summarygrid .ruim{border-color:#f69c9350;background:linear-gradient(120deg,#f69c9318,#0c1119)}.summarygrid .ruim strong{color:var(--red)}
+.cres{font:11px var(--mono);padding:3px 8px;border-radius:4px;border:1px solid var(--line)}.cres.ok{color:var(--green);border-color:#69d6b03b}.cres.alerta{color:var(--amber2);border-color:#f0a32e55}.cres.info{color:var(--mut)}
+.ajuda-txt{line-height:1.7;font-size:14px;color:#b9c4d2}.ajuda-txt ul{margin:6px 0 14px;padding-left:20px}
+@media(max-width:760px){.cobcli{grid-template-columns:1fr}}

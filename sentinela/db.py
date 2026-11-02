@@ -200,6 +200,25 @@ MIGRACOES = [
     ("0007_nome_ativo", """
     ALTER TABLE cliente_nomes ADD COLUMN ativo INTEGER NOT NULL DEFAULT 1;
     """),
+    ("0008_cobertura", """
+    CREATE TABLE controle_processos (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        cliente_id INTEGER NOT NULL REFERENCES clientes(id) ON DELETE CASCADE,
+        numero_processo TEXT NOT NULL,
+        observacao TEXT,
+        criado_por TEXT,
+        criado_em TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+        resultado TEXT,
+        detalhe TEXT,
+        verificado_em TEXT,
+        UNIQUE (cliente_id, numero_processo)
+    );
+    CREATE TABLE relatorios_cobertura (
+        dia TEXT PRIMARY KEY,
+        gerado_em TEXT NOT NULL,
+        conteudo TEXT NOT NULL
+    );
+    """),
 ]
 
 

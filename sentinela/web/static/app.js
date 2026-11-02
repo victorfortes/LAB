@@ -46,7 +46,7 @@ function renderLogin(erro) {
 }
 
 /* ---------- estrutura ---------- */
-const MENU = [["dashboard", "Dashboard"], ["clientes", "Clientes"], ["processos", "Novos processos"], ["validacao", "Central de validação"], ["fontes", "Monitoramento de fontes"], ["config", "Configurações"]];
+const MENU = [["dashboard", "Dashboard"], ["clientes", "Clientes"], ["processos", "Novos processos"], ["cobertura", "Garantia de cobertura"], ["validacao", "Central de validação"], ["fontes", "Monitoramento de fontes"], ["config", "Configurações"]];
 let _topoTimer = null;
 function moldura(ativo, html) {
   const nome = (MENU.find((m) => m[0] === ativo) || ["", "Processo"])[1];
@@ -329,6 +329,46 @@ async function pgProcesso(id) {
 }
 
 /* ---------- central de validação ---------- */
+const COB_ROT = { coberto: "Lido e conferido", provisorio: "Lido, ainda sendo relido", em_curso: "Dia em curso", lacuna: "NÃO lido (lacuna)", incompleto: "Lido incompleto", sem_historico: "Fora do histórico buscado" };
+const CTRL_ROT = { capturado: ["Capturado", "ok"], recuperado: ["Falha nossa — recuperado agora", "alerta"], revisar: ["Revisar nomes", "alerta"], fora_da_fonte: ["Fora da fonte (DJEN não publica)", "info"], erro: ["Erro ao verificar", "alerta"] };
+async function pgCobertura() {
+  carregando("cobertura");
+  try {
+    const d = await api("/cobertura?dias=45");
+    const t = d.total, lac = d.lacunas || [];
+    const veredito = d.integra ? ["verde", "Nenhuma lacuna: todos os dias de todos os clientes foram lidos por completo."] : ["vermelho", `${t.lacuna + t.incompleto} dia(s) de cliente SEM leitura completa. O sistema já está refazendo; confira abaixo.`];
+    const ctl = d.controle, base = ctl.filter((x) => ["capturado", "recuperado", "revisar"].includes(x.resultado));
+    const recall = base.length ? Math.round(1000 * base.filter((x) => x.resultado === "capturado").length / base.length) / 10 : null;
+    const faixa = (c) => `<div class="tira">${c.dias.map((x) => `<i class="${esc(x.status)}" title="${esc(fmtDia(x.dia))} — ${esc(COB_ROT[x.status])}"></i>`).join("")}</div>`;
+    moldura("cobertura", hero("PROVA DE COBERTURA", "Estamos lendo <em>tudo?</em>", "Registro, dia a dia, do que foi realmente lido em cada fonte para cada cliente. O que não está provado aparece como lacuna.",
+        pode("advogado") ? `<button id="lac">Preencher lacunas agora</button>` : "") +
+      `<div class="semaforo ${veredito[0]}"><i></i><span>${esc(veredito[1])}</span></div>
+      <div class="summarygrid placar">${[["Lidos e conferidos", t.coberto, "highlight"], ["Ainda sendo relidos", t.provisorio + t.em_curso, ""], ["Lacunas", t.lacuna, t.lacuna ? "ruim" : ""], ["Leituras incompletas", t.incompleto, t.incompleto ? "ruim" : ""]]
+        .map(([n, v, c]) => `<article class="${c}"><span>${n}</span><strong>${v}</strong><small>dias de cliente, últimos ${d.dias} dias</small></article>`).join("")}</div>
+      <h2>Dia a dia por cliente</h2><div class="panel">
+        <div class="legenda">${["coberto", "provisorio", "lacuna", "incompleto", "sem_historico"].map((k) => `<span><i class="${k}"></i>${esc(COB_ROT[k])}</span>`).join("")}</div>
+        ${d.clientes.map((c) => `<div class="cobcli"><div class="nome"><b>${esc(c.cliente)}</b><small>${c.pct_coberto == null ? "sem histórico ainda" : c.pct_coberto + "% dos dias já conferidos"} · ${c.consultas.length} consulta(s): ${esc(c.consultas.join(" · "))}</small></div>${faixa(c)}</div>`).join("")}
+        <p class="mudo peq" style="margin:14px 0 0">Esquerda = mais antigo, direita = hoje. Cada pesquisa diária relê os últimos ${d.rescan_dias} dias, porque o DJEN às vezes publica com atraso.</p></div>
+      ${lac.length ? `<h2>Lacunas abertas</h2><div class="panel">${lac.map((g) => `<div class="lin"><b>${esc((d.clientes.find((c) => c.cliente_id === g.cliente_id) || {}).cliente || g.cliente_id)}</b><span class="mudo">${esc(g.chave)}</span><span>${esc(fmtDia(g.ini))} a ${esc(fmtDia(g.fim))}</span></div>`).join("")}<p class="mudo peq" style="margin:10px 0 0">O agendador refaz estas janelas sozinho a cada 30 minutos.</p></div>` : ""}
+      <h2>Teste de captura (processos-controle)</h2>
+      <p class="mudo peq" style="margin:-6px 0 14px">A prova mais forte: cadastre números de processos que vocês SABEM que existem contra o cliente (de outra fonte: carteira, e-mail do cliente, cautelar). O sistema confere se foram capturados. Se algum não foi, ele inclui na hora e mostra aqui como falha.</p>
+      <div class="panel">
+        <div class="lin" style="gap:26px;margin-bottom:12px"><div><span class="mudo peq">Taxa de captura medida</span><br><b style="font:600 40px var(--cond);color:var(--amber2)">${recall == null ? "—" : recall + "%"}</b></div>
+          <div class="mudo peq" style="max-width:520px">${base.length ? `${base.filter((x) => x.resultado === "capturado").length} de ${base.length} processos-controle verificáveis já estavam na base.` : "Nenhum processo-controle verificado ainda: a taxa de captura real só existe depois de cadastrar alguns."} Os “fora da fonte” não entram na conta: o DJEN não os publica.</div></div>
+        ${ctl.length ? `<div class="tabela-rolar"><table><thead><tr><th>Cliente</th><th>Processo</th><th>Resultado</th><th>Detalhe</th><th></th></tr></thead><tbody>${ctl.map((x) => { const r = CTRL_ROT[x.resultado] || ["Ainda não verificado", "info"]; return `<tr><td>${esc(x.cliente)}</td><td>${esc(x.numero_processo)}</td><td><span class="cres ${r[1]}">${esc(r[0])}</span></td><td class="peq mudo">${esc(x.detalhe || "")}${x.verificado_em ? "<br>" + esc(fmtData(x.verificado_em)) : ""}</td><td>${pode("advogado") ? `<button class="sec" data-del="${x.id}">remover</button>` : ""}</td></tr>`; }).join("")}</tbody></table></div>` : ""}
+        ${pode("advogado") ? `<div class="lin" style="gap:10px;margin-top:14px;flex-wrap:wrap"><select id="ccli">${d.clientes.map((c) => `<option value="${c.cliente_id}">${esc(c.cliente)}</option>`).join("")}</select>
+          <input id="cnum" placeholder="0000000-00.0000.0.00.0000" style="min-width:260px"><button id="cadd">Adicionar</button><button id="cver" class="sec">Verificar agora</button></div>` : ""}</div>
+      <h2>O que isto garante — e o que não garante</h2>
+      <div class="panel ajuda-txt"><b>Garante:</b><ul><li>Que cada dia de publicação do DJEN foi lido por inteiro, para cada nome e CNPJ de cada cliente (lidos = total informado pela fonte; nada cortado pelo limite de 10.000).</li><li>Que dias não lidos (computador desligado, fonte fora do ar) aparecem como lacuna e são refeitos sozinhos.</li><li>Que as publicações tardias são pegas: cada pesquisa relê os últimos ${d.rescan_dias} dias.</li></ul>
+        <b>Não garante (limites das fontes públicas):</b><ul><li>Processo que ainda não gerou nenhuma comunicação no DJEN (ex.: acabou de ser distribuído e o réu não foi citado) só aparece quando o DJEN publicar algo.</li><li>Tribunais ou processos que não alimentam o DJEN (segredo de justiça, alguns sistemas).</li><li>Cliente com nome muito curto é pesquisado só por CNPJ.</li></ul>
+        Por isso existe o teste de captura: ele mede, com processos reais conhecidos, quanto escapa.</div>`);
+    const post = async (tipo, msg) => { try { await api("/jobs", { method: "POST", body: { tipo, params: {} } }); aviso(msg); } catch (e) { aviso(e.message); } };
+    const l = document.getElementById("lac"); if (l) l.onclick = () => post("preencher_lacunas", "Preenchimento enfileirado: o worker refaz os dias sem leitura.");
+    const v = document.getElementById("cver"); if (v) v.onclick = async () => { await post("verificar_controle", "Verificação enfileirada. Atualize em instantes."); };
+    const a = document.getElementById("cadd"); if (a) a.onclick = async () => { try { await api("/controle", { method: "POST", body: { cliente_id: +document.getElementById("ccli").value, numero_processo: document.getElementById("cnum").value } }); pgCobertura(); } catch (e) { aviso(e.message); } };
+    document.querySelectorAll("[data-del]").forEach((b) => (b.onclick = async () => { if (confirm("Remover este processo-controle?")) { await api("/controle/" + b.dataset.del, { method: "DELETE" }); pgCobertura(); } }));
+  } catch (e) { falhou("cobertura", e); }
+}
 async function pgValidacao() {
   carregando("validacao");
   try {
@@ -392,7 +432,7 @@ async function rotear() {
   if (!tok()) return renderLogin();
   if (!eu) { try { eu = await api("/eu"); } catch (e) { return renderLogin(); } }
   const [, p, id] = (location.hash || "#/dashboard").split("/");
-  const rotas = { dashboard: pgDashboard, clientes: pgClientes, processos: pgProcessos, validacao: pgValidacao, fontes: pgFontes, config: pgConfig };
+  const rotas = { dashboard: pgDashboard, clientes: pgClientes, processos: pgProcessos, cobertura: pgCobertura, validacao: pgValidacao, fontes: pgFontes, config: pgConfig };
   if (p === "cliente" && id) return pgCliente(id);
   if (p === "processo" && id) return pgProcesso(id);
   (rotas[p] || pgDashboard)();

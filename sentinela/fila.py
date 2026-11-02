@@ -57,6 +57,11 @@ def recuperar_travados(con: sqlite3.Connection) -> Dict[str, int]:
 def _pipeline_pos_execucao(con, resumo, ia, **kw) -> Dict:
     """Depois de buscar: analisa o que é novo, alerta sem duplicar e avisa se houve falha de consulta."""
     analisadas = 0
+    try:
+        from . import cobertura
+        cobertura.gravar_relatorio(con)
+    except Exception as e:  # o relatório de prova não pode derrubar a pesquisa
+        print("falha ao gravar relatório de cobertura:", e, flush=True)
     if resumo.get("execucao_id"):
         con.execute("UPDATE execucoes SET progresso=? WHERE id=?", (json.dumps(
             {"pct": 96, "fase": "analise", "texto": "Analisando processos novos e gerando alertas…", "atualizado_em": agora_iso()},
@@ -86,6 +91,12 @@ def executar_job(con: sqlite3.Connection, motor: Motor, job: sqlite3.Row, ia=Non
     if job["tipo"] == "reprocessar_falhas":
         r = motor.reprocessar_falhas()
         return {"execucao": r, **_pipeline_pos_execucao(con, r, ia, **kw)}
+    if job["tipo"] == "preencher_lacunas":
+        r = motor.preencher_lacunas()
+        return {"execucao": r, **_pipeline_pos_execucao(con, r, ia, **kw)}
+    if job["tipo"] == "verificar_controle":
+        from . import cobertura
+        return {"controle": cobertura.verificar_controle(con, motor)}
     if job["tipo"] == "alertas":
         return {"alertas": notificacoes.processar_pendentes(con, **kw)}
     if job["tipo"] == "analisar":
@@ -131,6 +142,26 @@ def agendar(con: sqlite3.Connection, agora: Optional[datetime] = None) -> Dict[s
     if pend and not aberto and (not ult or datetime.fromisoformat(ult) <= agora - timedelta(minutes=cfg["reprocessar_a_cada_min"])):
         enfileirar(con, "reprocessar_falhas", {}, "agendador", agora)
         feito["reprocessar"] = True
+    feito["lacunas"] = False
+    try:
+        from . import cobertura
+        aberto = con.execute("SELECT 1 FROM jobs WHERE tipo='preencher_lacunas' AND status IN ('na_fila','executando')").fetchone()
+        ult = con.execute("SELECT max(criado_em) FROM jobs WHERE tipo='preencher_lacunas'").fetchone()[0]
+        if (not aberto and (not ult or datetime.fromisoformat(ult) <= agora - timedelta(minutes=cfg["reprocessar_a_cada_min"]))
+                and cobertura.lacunas(con, agora.date())):
+            enfileirar(con, "preencher_lacunas", {}, "agendador", agora)
+            feito["lacunas"] = True
+    except Exception as e:
+        print("falha ao checar lacunas:", e, flush=True)
+    # vigia: a pesquisa do dia deveria ter terminado até 3 h depois do horário agendado
+    if (agora.hour, agora.minute) >= (min(hh + 3, 23), mm):
+        ok = con.execute("SELECT 1 FROM execucoes WHERE date(inicio)=? AND status IN ('sucesso','parcial') AND gatilho IN ('agendado','manual')",
+                         (agora.date().isoformat(),)).fetchone()
+        if not ok:
+            notificacoes.emitir(con, {"tipo": "falha_consulta", "definitivo": False, "cliente": "(sistema)", "correspondencia_id": None,
+                                      "detalhe": "A pesquisa de %s NÃO foi concluída até %02d:%02d. Nada foi perdido enquanto as lacunas forem "
+                                                 "preenchidas, mas verifique o computador/worker." % (agora.date().strftime("%d/%m/%Y"), min(hh + 3, 23), mm)},
+                                "atraso:" + agora.date().isoformat())
     return feito
 
 

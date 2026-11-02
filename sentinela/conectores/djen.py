@@ -19,8 +19,10 @@ class ConectorDJEN:
         """parametro: 'nomeParte' ou 'texto'. Datas ISO. Devolve (itens, total_informado, truncado)."""
         itens, pagina, total = [], 1, None
         while pagina <= TETO_FONTE // POR_PAGINA:
-            qs = urlencode({parametro: valor, "dataDisponibilizacaoInicio": ini, "dataDisponibilizacaoFim": fim,
-                            "itensPorPagina": POR_PAGINA, "pagina": pagina})
+            par = {parametro: valor, "itensPorPagina": POR_PAGINA, "pagina": pagina}
+            if ini and fim:   # sem datas = histórico inteiro do processo (usado em consulta por numeroProcesso)
+                par.update(dataDisponibilizacaoInicio=ini, dataDisponibilizacaoFim=fim)
+            qs = urlencode(par)
             d = self.http.requisitar("GET", "%s?%s" % (URL, qs))
             if not isinstance(d, dict) or d.get("status") != "success":
                 raise ValueError("resposta inesperada do DJEN")

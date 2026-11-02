@@ -439,5 +439,83 @@ class TestNomeOficialPeloCNPJ(Base):
         self.assertFalse(any(u.endswith("nomeParte=PETRO+TANQUE") or "nomeParte=PETRO+TANQUE&" in u for u in urls))
 
 
+class TestGarantiaDeCobertura(Base):
+    def _q(self, url):
+        from urllib.parse import urlparse, parse_qs
+        return {k: v[0] for k, v in parse_qs(urlparse(url).query).items()}
+
+    def test_matriz_aponta_lacuna_e_preenchimento_automatico_fecha(self):
+        from datetime import timedelta
+        from sentinela import cobertura
+        cid = clientes.cadastrar(self.con, "Acme Indústria Ltda", CNPJ_OK)
+        mt = self.motor(lambda m, u, h, c, t: resp({"status": "success", "count": 0, "items": []}))
+        hoje = date.today()
+        mt.executar("manual", desde=hoje - timedelta(days=12), forcar=True)
+        # simula o Mac desligado: apaga a leitura de 4 dias no meio e adia a leitura dos demais para "depois do dia"
+        self.con.execute("UPDATE consultas SET concluida_em=datetime('now','localtime','+1 day')")
+        self.con.execute("DELETE FROM consultas WHERE chave LIKE 'texto:%' AND janela_inicio=?", ((hoje - timedelta(days=12)).isoformat(),))
+        self.con.commit()
+        m0 = cobertura.matriz(self.con, dias=12)
+        self.assertGreater(m0["total"]["coberto"], 0)
+        # abre um buraco real: remove a janela do meio
+        meio = self.con.execute("SELECT id FROM consultas WHERE chave LIKE 'texto:%' ORDER BY janela_inicio LIMIT 1 OFFSET 2").fetchone()[0]
+        self.con.execute("DELETE FROM consultas WHERE id=?", (meio,)); self.con.commit()
+        lac = cobertura.lacunas(self.con, hoje)
+        self.assertTrue(lac and lac[0]["cliente_id"] == cid)
+        self.assertFalse(cobertura.matriz(self.con, dias=12)["integra"])
+        r = mt.preencher_lacunas()
+        self.assertEqual(r["consultas_com_falha"], 0)
+        self.assertEqual(cobertura.lacunas(self.con, hoje), [])
+
+    def test_janela_truncada_e_refeita_dia_a_dia(self):
+        clientes.cadastrar(self.con, "Acme Indústria Ltda", CNPJ_OK)
+        chamadas = []
+        def tr(m, url, h, c, t):
+            q = self._q(url); chamadas.append(q)
+            if q["dataDisponibilizacaoInicio"] != q["dataDisponibilizacaoFim"] and "texto" in q:
+                return resp({"status": "success", "count": 10000, "items": []})   # fonte diz ter 10.000, entrega 0
+            return resp({"status": "success", "count": 0, "items": []})
+        mt = self.motor(tr)
+        mt.executar("manual", desde=date.today() - __import__("datetime").timedelta(days=5), forcar=True)
+        dias = {(q["dataDisponibilizacaoInicio"]) for q in chamadas if q["dataDisponibilizacaoInicio"] == q["dataDisponibilizacaoFim"]}
+        self.assertGreaterEqual(len(dias), 3)   # refez por dia
+        self.assertEqual(self.con.execute("SELECT count(*) FROM consultas WHERE status='truncada' AND janela_inicio!=janela_fim").fetchone()[0], 0)
+
+    def test_pesquisa_diaria_relê_os_ultimos_7_dias(self):
+        from datetime import timedelta
+        clientes.cadastrar(self.con, "Acme Indústria Ltda", CNPJ_OK)
+        mt = self.motor(lambda m, u, h, c, t: resp({"status": "success", "count": 0, "items": []}))
+        mt.executar("manual", desde=date.today() - timedelta(days=30), forcar=True)
+        self.con.execute("UPDATE consultas SET concluida_em=datetime('now','localtime','-1 day')"); self.con.commit()
+        self.con.execute("DELETE FROM consultas WHERE date(concluida_em)!=date('now','localtime','-1 day')")
+        mt.executar("agendado")
+        ini = min(r[0] for r in self.con.execute("SELECT janela_inicio FROM consultas WHERE date(concluida_em)=date('now','localtime')"))
+        self.assertLessEqual(ini, (date.today() - timedelta(days=6)).isoformat())
+
+    def test_processos_controle_capturado_recuperado_e_fora_da_fonte(self):
+        from sentinela import cobertura
+        cid = clientes.cadastrar(self.con, "Acme Indústria Ltda", CNPJ_OK)
+        n_ok, n_perdido, n_fora = NUM, "00000000020268160001", "00000000020268160002"
+        pid = self.con.execute("INSERT INTO processos(numero_processo,tribunal,primeira_identificacao,ultima_verificacao) VALUES (?,?,datetime('now'),datetime('now'))", (n_ok, "TJPR")).lastrowid
+        self.con.execute("INSERT INTO correspondencias(cliente_id,processo_id,nivel,classificacao,evidencia,fonte,identificada_em,ultima_verificacao) VALUES (?,?,1,'confirmada','{}','djen',datetime('now'),datetime('now'))", (cid, pid))
+        for n in (n_ok, n_perdido, n_fora):
+            cobertura.adicionar_controle(self.con, cid, n)
+        self.con.commit()
+        def tr(m, url, h, c, t):
+            q = self._q(url)
+            if q.get("numeroProcesso") == n_perdido:
+                return resp({"status": "success", "count": 1, "items": [dict(item(7, texto="CNPJ 47.960.950/0001-21"), numero_processo=n_perdido)]})
+            return resp({"status": "success", "count": 0, "items": []})
+        r = cobertura.verificar_controle(self.con, self.motor(tr))
+        self.assertEqual((r["capturado"], r["recuperado"], r["fora_da_fonte"]), (1, 1, 1))
+        self.assertEqual(r["recall_pct"], 50.0)
+        self.assertTrue(self.con.execute("SELECT 1 FROM correspondencias c JOIN processos p ON p.id=c.processo_id WHERE p.numero_processo=?", (n_perdido,)).fetchone())
+
+    def test_vigia_alerta_quando_pesquisa_do_dia_nao_rodou(self):
+        clientes.cadastrar(self.con, "Acme Indústria Ltda", CNPJ_OK)
+        fila.agendar(self.con, datetime.now().replace(hour=23, minute=59))
+        self.assertEqual(self.con.execute("SELECT count(*) FROM alertas WHERE chave_dedup LIKE 'falha_consulta:%atraso:%'").fetchone()[0] > 0, True)
+
+
 if __name__ == "__main__":
     unittest.main()

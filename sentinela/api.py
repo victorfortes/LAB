@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import analise, clientes, config as _config, db, fila, matriz, seguranca, validacao
+from . import analise, clientes, cobertura, config as _config, db, fila, matriz, seguranca, validacao
 
 CAMINHO_DB = lambda: os.environ.get("SENTINELA_DB", "data/sentinela.db")
 WEB = os.path.join(os.path.dirname(__file__), "web")
@@ -431,7 +431,7 @@ class JobIn(BaseModel):
 
 @app.post("/api/jobs", status_code=201)
 def novo_job(d: JobIn, u=Depends(exigir("advogado")), con: sqlite3.Connection = Depends(get_con)):
-    if d.tipo not in ("executar", "reprocessar_falhas", "alertas"):
+    if d.tipo not in ("executar", "reprocessar_falhas", "alertas", "preencher_lacunas", "verificar_controle"):
         raise HTTPException(422, "tipo inválido")
     params = dict(d.params)
     if d.tipo == "executar":
@@ -468,6 +468,51 @@ def progresso(u=Depends(usuario_atual), con: sqlite3.Connection = Depends(get_co
                 "texto": "Pesquisa concluída" if ok else "A pesquisa falhou: " + (f["resultado"] or "")[:200],
                 "concluido_em": f["concluido_em"], "resumo": r}
     return {"estado": "ocioso", "pct": 0}
+
+
+# ---------- garantia de cobertura ----------
+@app.get("/api/cobertura")
+def cobertura_api(dias: int = 30, u=Depends(usuario_atual), con: sqlite3.Connection = Depends(get_con)):
+    m = cobertura.matriz(con, dias=max(7, min(dias, 120)))
+    m["lacunas"] = cobertura.lacunas(con)
+    ult = con.execute("SELECT * FROM execucoes WHERE gatilho IN ('agendado','manual','preenchimento') AND status IN ('sucesso','parcial') "
+                      "ORDER BY id DESC LIMIT 1").fetchone()
+    m["ultima_pesquisa_valida"] = dict(ult) if ult else None
+    m["controle"] = [dict(r) for r in con.execute("SELECT c.*,cl.razao_social cliente FROM controle_processos c JOIN clientes cl ON cl.id=c.cliente_id ORDER BY c.id DESC")]
+    m["rescan_dias"] = 7
+    return m
+
+
+class ControleIn(BaseModel):
+    cliente_id: int
+    numero_processo: str
+    observacao: str = ""
+
+
+@app.post("/api/controle", status_code=201)
+def controle_novo(d: ControleIn, u=Depends(exigir("advogado")), con: sqlite3.Connection = Depends(get_con)):
+    try:
+        cid = cobertura.adicionar_controle(con, d.cliente_id, d.numero_processo, d.observacao, u["email"])
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    except sqlite3.IntegrityError:
+        raise HTTPException(409, "processo-controle já cadastrado para este cliente")
+    con.commit()
+    auditar(con, u, "controle_criado", "controle", cid, d.dict())
+    return {"id": cid}
+
+
+@app.delete("/api/controle/{cid}")
+def controle_apagar(cid: int, u=Depends(exigir("advogado")), con: sqlite3.Connection = Depends(get_con)):
+    con.execute("DELETE FROM controle_processos WHERE id=?", (cid,)); con.commit()
+    auditar(con, u, "controle_removido", "controle", cid, {})
+    return {"ok": True}
+
+
+@app.get("/api/cobertura/relatorios")
+def cobertura_relatorios(u=Depends(usuario_atual), con: sqlite3.Connection = Depends(get_con)):
+    return [{"dia": r["dia"], "gerado_em": r["gerado_em"], **{k: v for k, v in json.loads(r["conteudo"]).items() if k in ("integra", "total", "lacunas")}}
+            for r in con.execute("SELECT * FROM relatorios_cobertura ORDER BY dia DESC LIMIT 60")]
 
 
 @app.get("/api/jobs")
