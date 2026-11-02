@@ -100,10 +100,10 @@ def dashboard(u=Depends(usuario_atual), con: sqlite3.Connection = Depends(get_co
                            "WHERE c.classificacao!='descartada' AND p.data_ajuizamento>=? AND p.data_ajuizamento<=?",
                            (desde.isoformat(), hoje.isoformat())).fetchone()[0]
     ult = con.execute("SELECT * FROM execucoes WHERE gatilho!='reprocessamento' ORDER BY id DESC LIMIT 1").fetchone()
-    falhas24 = con.execute("SELECT count(*) FROM consultas WHERE status='falha' AND concluida_em>=?",
+    falhas24 = con.execute("SELECT count(*) FROM consultas WHERE status='falha' AND desistida=0 AND concluida_em>=?",
                            ((datetime.now() - timedelta(hours=24)).isoformat(timespec="seconds"),)).fetchone()[0]
     pendentes_falha = con.execute("SELECT count(*) FROM (SELECT DISTINCT cliente_id,chave,janela_inicio,janela_fim FROM consultas f "
-                                  "WHERE status='falha' AND NOT EXISTS (SELECT 1 FROM consultas o WHERE o.cliente_id=f.cliente_id AND o.chave=f.chave "
+                                  "WHERE status='falha' AND desistida=0 AND NOT EXISTS (SELECT 1 FROM consultas o WHERE o.cliente_id=f.cliente_id AND o.chave=f.chave "
                                   "AND o.status IN ('ok','truncada') AND o.janela_inicio<=f.janela_inicio AND o.janela_fim>=f.janela_fim))").fetchone()[0]
     if ult is None:
         estado = {"codigo": "nunca_executou", "texto": "Nenhuma pesquisa executada ainda."}
@@ -145,6 +145,9 @@ def dashboard(u=Depends(usuario_atual), con: sqlite3.Connection = Depends(get_co
         "LEFT JOIN processos p ON p.id=c.processo_id WHERE cl.status_monitoramento='ativo' GROUP BY cl.id ORDER BY ult30 DESC,total DESC",
         ((hoje - timedelta(days=29)).isoformat(), hoje.isoformat()))]
     return {
+        "clientes_so_cnpj": [dict(r) for r in con.execute(
+            "SELECT cl.id,cl.razao_social FROM clientes cl WHERE cl.status_monitoramento='ativo' AND NOT EXISTS ("
+            "SELECT 1 FROM cliente_nomes n WHERE n.cliente_id=cl.id AND length(replace(n.nome_norm,' ',''))>=4)")],
         "serie_dias": serie_dias, "serie_meses": serie_meses, "por_cliente": por_cliente,
         "ajuizadas_total": con.execute("SELECT count(DISTINCT p.id) " + base_aj).fetchone()[0],
         "sem_data_ajuizamento": con.execute("SELECT count(DISTINCT p.id) FROM processos p JOIN correspondencias c ON c.processo_id=p.id "

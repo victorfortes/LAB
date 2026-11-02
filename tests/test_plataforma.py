@@ -355,5 +355,20 @@ class TestContagemSoAjuizadosHoje(TestAPI):
         self.assertEqual((d["identificados_hoje"], d["identificados_semana"], d["identificados_mes"]), (1, 2, 2))
 
 
+class TestNomeGenericoNaoDerrubaPesquisa(Base):
+    def test_nome_curto_so_pesquisa_por_cnpj_e_falhas_antigas_saem_da_pendencia(self):
+        cid = clientes.cadastrar(self.con, "NB", CNPJ_OK)
+        m = self.motor(djen([]))
+        chaves = [q["chave"] for q in m._consultas_do_cliente(clientes.carregar(self.con, cid))]
+        self.assertEqual(chaves, ["texto:47.960.950/0001-21"])
+        self.con.execute("INSERT INTO execucoes(gatilho,inicio) VALUES ('manual','2026-01-01T00:00:00')")
+        self.con.execute("INSERT INTO consultas(execucao_id,cliente_id,fonte,chave,janela_inicio,janela_fim,status,erro,iniciada_em,concluida_em) "
+                         "VALUES (1,?,'djen','nomeParte:NB','2026-10-01','2026-10-03','falha','HTTP 500',datetime('now'),datetime('now'))", (cid,))
+        self.con.commit()
+        r = m.reprocessar_falhas()
+        self.assertEqual(r["consultas_executadas"], 0)   # a consulta do nome "NB" foi aposentada, não refeita
+        self.assertEqual(self.con.execute("SELECT desistida FROM consultas WHERE chave='nomeParte:NB'").fetchone()[0], 1)
+
+
 if __name__ == "__main__":
     unittest.main()

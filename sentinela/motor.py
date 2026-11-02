@@ -17,6 +17,12 @@ RANK = {"descartada": 1, "inconclusiva": 2, "provavel": 3, "confirmada": 4}
 ESTADO_AUTO = {"confirmada": "automatico", "provavel": "pendente", "inconclusiva": "pendente", "descartada": "descartado_auto"}
 CHUNK_DIAS = 3
 LOTE_DATAJUD = 50
+NOME_MIN_CARACTERES = 4      # nome mais curto que isso (ex.: "NB") não é pesquisado por nome: devolve milhares de homônimos e a fonte recusa
+TENTATIVAS_REPROCESSO = 6    # depois disso, a consulta que continua falhando só é refeita uma vez por dia
+
+
+def nome_generico(nome_norm: str) -> bool:
+    return len((nome_norm or "").replace(" ", "")) < NOME_MIN_CARACTERES
 
 
 def agora_iso() -> str:
@@ -74,10 +80,20 @@ class Motor:
         for n in c["nomes"]:
             if n["nome_norm"] not in vistos:
                 vistos.add(n["nome_norm"])
+                if nome_generico(n["nome_norm"]):
+                    continue  # esse cliente continua monitorado pelo CNPJ (busca textual)
                 qs.append(("nomeParte", n["nome_norm"]))  # sem sufixo societário: a fonte grafa "SIA", "S/A", "LTDA" de formas diversas
         for x in c["cnpjs"]:
             qs.append(("texto", _cnpj.formatar(x["cnpj"])))
         return [{"param": p, "valor": v, "chave": "%s:%s" % (p, v)} for p, v in qs]
+
+    def _aposentar_consultas_obsoletas(self, c: Dict) -> None:
+        """Falhas de consultas que o plano atual do cliente não faz mais (ex.: nome curto demais) deixam de contar como pendentes."""
+        chaves = [q["chave"] for q in self._consultas_do_cliente(c)]
+        marcas = ",".join("?" * len(chaves)) or "''"
+        self.con.execute("UPDATE consultas SET desistida=1 WHERE cliente_id=? AND status='falha' AND desistida=0 AND chave NOT IN (%s)" % marcas,
+                         [c["id"]] + chaves)
+        self.con.commit()
 
     def _janela(self, c, q, desde, ate, forcar) -> Optional[tuple]:
         fim = ate or self.hoje
@@ -265,6 +281,7 @@ class Motor:
         cs = [c for c in _clientes.ativos(con) if not cliente_ids or c["id"] in cliente_ids]
         planos, puladas = [], 0
         for c in cs:
+            self._aposentar_consultas_obsoletas(c)
             plano = []
             for q in self._consultas_do_cliente(c):
                 j = self._janela(c, q, desde, ate, forcar)
@@ -318,10 +335,15 @@ class Motor:
         """Refaz consultas que falharam e ainda não foram cobertas por uma consulta bem-sucedida."""
         con = self.con
         desde = (datetime.now() - timedelta(hours=horas)).isoformat(timespec="seconds")
-        falhas = con.execute("SELECT DISTINCT cliente_id,chave,janela_inicio,janela_fim FROM consultas f WHERE status='falha' "
-                             "AND concluida_em>=? AND NOT EXISTS (SELECT 1 FROM consultas o WHERE o.cliente_id=f.cliente_id "
-                             "AND o.chave=f.chave AND o.status IN ('ok','truncada') AND o.janela_inicio<=f.janela_inicio "
-                             "AND o.janela_fim>=f.janela_fim)", (desde,)).fetchall()
+        for c in _clientes.ativos(con):
+            self._aposentar_consultas_obsoletas(c)
+        ontem = (datetime.now() - timedelta(hours=24)).isoformat(timespec="seconds")
+        falhas = con.execute("SELECT cliente_id,chave,janela_inicio,janela_fim,count(*) tent,max(concluida_em) ult FROM consultas f "
+                             "WHERE status='falha' AND desistida=0 AND concluida_em>=? AND NOT EXISTS (SELECT 1 FROM consultas o "
+                             "WHERE o.cliente_id=f.cliente_id AND o.chave=f.chave AND o.status IN ('ok','truncada') "
+                             "AND o.janela_inicio<=f.janela_inicio AND o.janela_fim>=f.janela_fim) "
+                             "GROUP BY cliente_id,chave,janela_inicio,janela_fim HAVING tent<? OR ult<?",
+                             (desde, TENTATIVAS_REPROCESSO, ontem)).fetchall()
         exec_id = con.execute("INSERT INTO execucoes(gatilho,inicio) VALUES ('reprocessamento',?)", (agora_iso(),)).lastrowid
         con.commit()
         por_cliente: Dict[int, list] = {}

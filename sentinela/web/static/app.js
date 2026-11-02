@@ -117,6 +117,7 @@ async function pgDashboard() {
     if (nHoje) fazer.push(["urgente", `Veja as ${nHoje} ação(ões) ajuizada(s) hoje`, "Abra a lista, leia a ação e atribua a um advogado.", "#/processos", "ver_hoje"]);
     if (d.pendentes_validacao) fazer.push(["atencao", `${d.pendentes_validacao} caso(s) esperam sua conferência`, "O sistema não teve certeza; confirme ou descarte.", "#/validacao"]);
     if (d.consultas_a_reprocessar) fazer.push(["info", "Algumas consultas falharam", "O sistema tenta de novo sozinho a cada 30 minutos. Nada a fazer.", ""]);
+    (d.clientes_so_cnpj || []).forEach((c) => fazer.push(["info", `${c.razao_social}: nome curto demais`, "Pesquisado só pelo CNPJ (pelo nome viria milhares de homônimos). Cadastre o nome completo ou alternativos para ampliar.", ""]));
     if (!w.ativo) fazer.push(["urgente", "O robô de pesquisa está parado", "Nenhuma pesquisa automática ocorre até ele voltar (Mac desligado ou reiniciado).", "#/fontes"]);
     if (!fazer.length) fazer.push(["ok", "Nada pendente para você agora", "Quando algo precisar de atenção, aparece aqui.", ""]);
     const onde = d.estado_pesquisa.codigo;

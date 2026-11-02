@@ -194,6 +194,9 @@ MIGRACOES = [
     ("0005_progresso", """
     ALTER TABLE execucoes ADD COLUMN progresso TEXT;
     """),
+    ("0006_consulta_desistida", """
+    ALTER TABLE consultas ADD COLUMN desistida INTEGER NOT NULL DEFAULT 0;
+    """),
 ]
 
 
