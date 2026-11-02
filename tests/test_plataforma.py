@@ -208,8 +208,9 @@ class TestClienteNovoCapturaProcessos(Base):
                                  anteriores=["Velha Acme S/A"])
         m = self.motor(djen([]))
         qs = {q["chave"] for q in m._consultas_do_cliente(clientes.carregar(self.con, cid))}
-        self.assertEqual({k for k in qs if k.startswith("texto:")},
+        self.assertEqual({k for k in qs if k.startswith("texto:") and k[6].isdigit()},
                          {"texto:47.960.950/0001-21", "texto:11.222.333/0001-81", "texto:11.222.333/0002-62"})
+        self.assertTrue({"texto:ACME INDUSTRIA", "texto:VELHA ACME"} <= qs)   # nome também no corpo das comunicações
         self.assertIn("nomeParte:VELHA ACME", qs)
         com = {"texto": "CNPJ 11.222.333/0002-62", "destinatarios": [{"nome": "ACME INDUSTRIA LTDA", "polo": "P"}]}
         from sentinela import matcher
@@ -544,6 +545,20 @@ class TestGarantiaDeCobertura(Base):
         self.assertEqual((r["invisivel_no_djen"], r["recuperado"]), (1, 0))
         self.assertIn("sigilo", self.con.execute("SELECT detalhe FROM controle_processos").fetchone()[0])
         self.assertEqual(r["visibilidade_pct"], 0.0)
+
+    def test_pesquisa_regular_assume_a_origem_de_processo_incluido_pelo_teste_de_controle(self):
+        from sentinela import cobertura
+        cid = clientes.cadastrar(self.con, "Acme Indústria Ltda", CNPJ_OK)
+        com = dict(item(5, texto="CNPJ 47.960.950/0001-21"))
+        mt = self.motor(lambda m, u, h, c, t: resp({"status": "success", "count": 1, "items": [com]}))
+        cli = clientes.carregar(self.con, cid)
+        from sentinela import matcher
+        m = matcher.avaliar(cli, dict(com, destinatarios=com["destinatarios"]))
+        cobertura._incluir(self.con, mt, cli, {"numero_processo": NUM}, [(dict(com, id=5, fonte="djen", numero_processo=NUM, tribunal="TJRJ", tipo="x",
+                           data_disponibilizacao="2026-10-29", classe="c", orgao="o", link="l", texto=com["texto"], destinatarios=com["destinatarios"]), m)], 1, 1)
+        self.assertIn("numeroProcesso:", self.con.execute("SELECT evidencia FROM correspondencias").fetchone()[0])
+        mt.executar("manual", desde=date.today() - __import__("datetime").timedelta(days=3), forcar=True)
+        self.assertNotIn("numeroProcesso:", self.con.execute("SELECT evidencia FROM correspondencias").fetchone()[0])
 
     def test_vigia_alerta_quando_pesquisa_do_dia_nao_rodou(self):
         clientes.cadastrar(self.con, "Acme Indústria Ltda", CNPJ_OK)

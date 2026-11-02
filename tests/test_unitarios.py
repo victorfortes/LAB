@@ -75,6 +75,35 @@ class TestItemSemDestinatarios(Base):
         self.assertEqual(_normalizar_item(i)["destinatarios"], [])
 
 
+class TestNomeNoCorpoDoTexto(Base):
+    def cli(self):
+        cid = clientes.cadastrar(self.con, "Transportadora Trans Mosa Ltda", CNPJ_OK)
+        self.con.execute("UPDATE clientes SET confirmar_por_nome_exato=1"); self.con.commit()
+        return clientes.carregar(self.con, cid)
+
+    def av(self, texto, dest=None):
+        if not hasattr(self, "_c"):
+            self._c = self.cli()
+        return matcher.avaliar(self._c, {"texto": texto, "destinatarios": dest or [{"nome": "SIGILO", "polo": "P"}]})
+
+    def test_executado_e_em_face_de_confirmam_mesmo_com_partes_ocultas(self):
+        self.assertEqual(self.av("Executado(s):  FULANO TRANSPORTADORA TRANS MOSA LTDA DECISÃO")["classificacao"], "confirmada")
+        self.assertEqual(self.av("impugnação apresentada por Banco X em face de Transportadora Trans Mosa Ltda.")["polo"], "P")
+
+    def test_recurso_e_recuperacao_nao_sao_descartados_nem_confirmados(self):
+        self.assertEqual(self.av("recurso de apelação interposto por TRANSPORTADORA TRANS MOSA LTDA em face da sentença")["classificacao"], "inconclusiva")
+        self.assertEqual(self.av("Trata-se de recuperação judicial de TRANSPORTADORA TRANS MOSA LTDA")["classificacao"], "inconclusiva")
+
+    def test_autor_e_descartado_e_sem_nome_nao_casa(self):
+        self.assertEqual(self.av("Autor(s): TRANSPORTADORA TRANS MOSA LTDA Réu(s): X")["classificacao"], "descartada")
+        self.assertIsNone(self.av("texto sem relação"))
+
+    def test_sem_confirmacao_por_nome_vira_provavel(self):
+        c = self.cli(); c["confirmar_por_nome_exato"] = 0
+        r = matcher.avaliar(c, {"texto": "Réu(s): TRANSPORTADORA TRANS MOSA LTDA", "destinatarios": []})
+        self.assertEqual(r["classificacao"], "provavel")
+
+
 class TestMatcher(Base):
     def cli(self):
         cid = clientes.cadastrar(self.con, "Acme Indústria Ltda", CNPJ_OK, filiais=["11.222.333/0001-81"], anteriores=["Velha Acme S/A"])

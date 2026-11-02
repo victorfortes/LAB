@@ -76,6 +76,9 @@ def consultas_do_cliente(c: Dict) -> List[Dict]:
             qs.append(("nomeParte", n["nome_norm"]))  # sem sufixo societário: a fonte grafa "SIA", "S/A", "LTDA" de formas diversas
     for x in c["cnpjs"]:
         qs.append(("texto", _cnpj.formatar(x["cnpj"])))
+    # o nome também é buscado no CORPO das comunicações: o DJEN omite, abrevia (iniciais) ou não lista o cliente nas partes
+    for p_, v_ in [q for q in qs if q[0] == "nomeParte"]:
+        qs.append(("texto", v_))
     return [{"param": p, "valor": v, "chave": "%s:%s" % (p, v)} for p, v in qs]
 
 
@@ -203,7 +206,7 @@ class Motor:
                 ev = json.dumps({**m["evidencia"], "comunicacao_id": com["id"], "tipo_comunicacao": com["tipo"],
                                  "data_disponibilizacao": com["data_disponibilizacao"], "consulta": r["q"]["chave"]},
                                 ensure_ascii=False)
-                ex = con.execute("SELECT id,classificacao,estado_validacao FROM correspondencias WHERE cliente_id=? AND processo_id=?",
+                ex = con.execute("SELECT id,classificacao,estado_validacao,evidencia FROM correspondencias WHERE cliente_id=? AND processo_id=?",
                                  (c["id"], pid)).fetchone()
                 if ex is None:
                     con.execute("INSERT INTO correspondencias(cliente_id,processo_id,comunicacao_id,nivel,classificacao,polo,"
@@ -212,7 +215,10 @@ class Motor:
                                 (c["id"], pid, com["id"], m["nivel"], m["classificacao"], m["polo"], m["nome_na_fonte"], ev,
                                  "djen", ESTADO_AUTO[m["classificacao"]], agora, agora))
                     cont["novas"] += 1
-                elif RANK[m["classificacao"]] > RANK[ex["classificacao"]] and ex["estado_validacao"] in ESTADO_AUTO.values():
+                elif ex["estado_validacao"] in ESTADO_AUTO.values() and (
+                        RANK[m["classificacao"]] > RANK[ex["classificacao"]]
+                        or ("numeroProcesso:" in (ex["evidencia"] or "") and not r["q"]["chave"].startswith("numeroProcesso:")
+                            and RANK[m["classificacao"]] >= RANK[ex["classificacao"]])):   # a pesquisa passa a ser a origem do registro
                     con.execute("UPDATE correspondencias SET comunicacao_id=?,nivel=?,classificacao=?,polo=?,nome_na_fonte=?,"
                                 "evidencia=?,estado_validacao=?,ultima_verificacao=? WHERE id=?",
                                 (com["id"], m["nivel"], m["classificacao"], m["polo"], m["nome_na_fonte"], ev,
