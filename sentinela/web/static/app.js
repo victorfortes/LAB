@@ -92,7 +92,7 @@ async function pgDashboard() {
     const cad = sis.dias.map((x) => `<div class="${esc(x.resultado)}" title="${esc(x.dia)}: ${esc(x.resultado)} (${x.execucoes} execução(ões))"><b>${x.resultado === "sucesso" ? "✓" : x.resultado === "sem_execucao" ? "–" : "!"}</b>${esc(x.dia.slice(8))}/${esc(x.dia.slice(5, 7))}</div>`).join("");
     moldura("dashboard", hero("VISÃO GERAL", "Seu painel de <em>vigilância.</em>", `Última execução: ${ue ? `${fmtData(ue.inicio)} · ${esc(ROT[ue.status] || ue.status)}` : "nenhuma"}`,
         pode("advogado") ? `<button id="rodar">Executar pesquisa agora</button>` : "") +
-      blocoHoje +
+      `<div id="progresso" class="progresso" hidden></div>` + blocoHoje +
       `<div class="faixa ${esc(d.estado_pesquisa.codigo)}">${esc(d.estado_pesquisa.texto)}</div>
       <div class="summarygrid">${k(d.identificados_hoje, "Identificados hoje", "primeira vez que o Sentinela os viu", "highlight")}${k(d.identificados_semana, "Identificados na semana")}${k(d.identificados_mes, "Identificados no mês")}
       ${k(d.clientes_monitorados, "Clientes monitorados")}${k(d.novas_acoes_confirmadas, "Novas ações confirmadas", "confirmadas e ajuizadas recentemente")}${k(d.pendentes_validacao, "Pendentes de validação", "aguardam conferência")}
@@ -106,8 +106,34 @@ async function pgDashboard() {
         ${sis.aviso ? `<div class="faixa falha_total" style="margin:14px 0 0">${esc(sis.aviso)}</div>` : ""}</div>
       <h2>Alertas recentes</h2>${tabelaAlertas(al.slice(0, 8))}`);
     const b = document.getElementById("rodar");
-    if (b) b.onclick = async () => { try { const r = await api("/jobs", { method: "POST", body: { tipo: "executar", params: {} } }); aviso("Pesquisa enfileirada (job " + r.job_id + "). O worker a executará em instantes."); } catch (e) { aviso(e.message); } };
+    if (b) b.onclick = async () => { try { b.disabled = true; await api("/jobs", { method: "POST", body: { tipo: "executar", params: {} } }); acompanhar(); } catch (e) { b.disabled = false; aviso(e.message); } };
+    acompanhar(true);
   } catch (e) { falhou("dashboard", e); }
+}
+/* barra de progresso da pesquisa */
+let _poll = null;
+function acompanhar(soSeAtiva) {
+  clearTimeout(_poll);
+  const caixa = document.getElementById("progresso");
+  if (!caixa) return;
+  const ciclo = async () => {
+    if (!document.getElementById("progresso")) return;  // saiu do painel
+    let p;
+    try { p = await api("/progresso"); } catch (e) { _poll = setTimeout(ciclo, 4000); return; }
+    const ativo = p.estado === "na_fila" || p.estado === "executando";
+    if (p.estado === "ocioso") { caixa.hidden = true; caixa.dataset.fim = ""; return; }
+    const r = p.resumo || {};
+    const det = p.estado === "concluido" ? `${r.correspondencias_novas || 0} correspondência(s) nova(s) · ${r.consultas_executadas || 0} consulta(s) · ${r.consultas_com_falha || 0} falha(s)` : "";
+    caixa.hidden = false;
+    caixa.className = "progresso " + p.estado;
+    caixa.innerHTML = `<div class="cab"><b>${p.estado === "concluido" ? "PESQUISA CONCLUÍDA" : p.estado === "falhou" ? "PESQUISA FALHOU" : p.estado === "na_fila" ? "NA FILA" : "PESQUISANDO"}</b><span>${Math.round(p.pct)}%</span></div>
+      <div class="trilho"><div class="enche" style="width:${p.pct}%"></div></div>
+      <div class="det">${esc(p.texto || "")}${det ? "<br>" + esc(det) : ""}${p.inicio && ativo ? ` · iniciada às ${esc(fmtData(p.inicio).slice(-5))}` : ""}</div>`;
+    if (ativo) { caixa.dataset.fim = ""; _poll = setTimeout(ciclo, 1500); }
+    else if (!caixa.dataset.fim) { caixa.dataset.fim = "1"; const bt = document.getElementById("rodar"); if (bt) bt.disabled = false; if (!soSeAtiva) setTimeout(pgDashboard, 2500); }
+    else { const bt = document.getElementById("rodar"); if (bt) bt.disabled = false; }
+  };
+  ciclo();
 }
 function tabelaAlertas(al) {
   if (!al.length) return `<p class="mudo">Nenhum alerta gerado ainda.</p>`;

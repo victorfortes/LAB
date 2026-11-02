@@ -2,7 +2,7 @@
 import json
 import sqlite3
 import threading
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, wait
 from datetime import date, datetime, timedelta
 from typing import Dict, List, Optional
 
@@ -101,6 +101,21 @@ class Motor:
             "SELECT 1 FROM consultas WHERE fonte='djen' AND chave=? AND status='ok' AND janela_inicio<=? AND janela_fim>=? "
             "AND date(concluida_em)>?", (chave, a.isoformat(), b.isoformat(), b.isoformat())).fetchone() is not None
 
+    # ---------- progresso (só a thread principal grava no banco) ----------
+    def _progresso(self, exec_id: int, pct: float, fase: str, texto: str, force: bool = False) -> None:
+        agora = datetime.now().timestamp()
+        if not force and agora - getattr(self, "_prog_ts", 0) < 0.8:
+            return
+        self._prog_ts = agora
+        self.con.execute("UPDATE execucoes SET progresso=? WHERE id=?",
+                         (json.dumps({"pct": round(min(pct, 99.0), 1), "fase": fase, "texto": texto,
+                                      "atualizado_em": agora_iso()}, ensure_ascii=False), exec_id))
+        self.con.commit()
+
+    def _tick(self) -> None:
+        with self._prog_lock:
+            self._prog_feito += 1
+
     # ---------- coleta (rede; roda em threads, sem tocar o banco) ----------
     def _coletar(self, c: Dict, plano: List[tuple]) -> List[Dict]:
         resultados, vistos = [], {}
@@ -121,6 +136,7 @@ class Motor:
                 except (ErroFonte, ValueError, KeyError) as e:
                     r.update(status="falha", total=None, lidos=0, erro=str(e))
                 resultados.append(r)
+                self._tick()
         return resultados
 
     # ---------- persistência ----------
@@ -167,7 +183,7 @@ class Motor:
         return cont
 
     # ---------- enriquecimento DataJud ----------
-    def enriquecer_pendentes(self) -> Dict[str, int]:
+    def enriquecer_pendentes(self, exec_id: Optional[int] = None) -> Dict[str, int]:
         con, res = self.con, {"ok": 0, "nao_encontrado": 0, "falha": 0}
         rows = con.execute("SELECT DISTINCT p.id,p.numero_processo,p.tribunal FROM processos p JOIN correspondencias c "
                            "ON c.processo_id=p.id WHERE c.classificacao!='descartada' AND (p.datajud_status IN ('pendente','falha') OR "
@@ -186,7 +202,10 @@ class Motor:
             except ErroFonte as e:
                 return ps, None, e
         with ThreadPoolExecutor(max_workers=self.trab_enr) as ex:  # rede em paralelo; banco só nesta thread
-            for ps, dados, err in ex.map(buscar, lotes):
+            for n, (ps, dados, err) in enumerate(ex.map(buscar, lotes), 1):
+                if exec_id:
+                    self._progresso(exec_id, 77 + 18.0 * n / max(len(lotes), 1), "datajud",
+                                    "DataJud: lote %d de %d (%d processos)" % (n, len(lotes), len(rows)))
                 agora = agora_iso()
                 for p in ps:
                     d = None if dados is None else dados.get(p["numero_processo"])
@@ -243,16 +262,28 @@ class Motor:
 
     def _rodar(self, exec_id: int, planos: List[tuple], puladas: int, n_clientes: int) -> Dict:
         con = self.con
+        self._prog_lock, self._prog_feito = threading.Lock(), 0
+        total_q = sum(len(pl) for _, pl in planos)
+        self._progresso(exec_id, 2, "coleta", "Iniciando: %d consulta(s) ao DJEN planejada(s)" % total_q, force=True)
         with ThreadPoolExecutor(max_workers=self.trab) as ex:
             futuros = [(c, ex.submit(self._coletar, c, pl)) for c, pl in planos if pl]
+            pend = {f for _, f in futuros}
+            while pend:
+                _, pend = wait(pend, timeout=1.0)
+                feito = self._prog_feito
+                self._progresso(exec_id, 2 + 66.0 * feito / max(total_q, 1), "coleta",
+                                "Consultando o DJEN: %d de %d consultas" % (feito, total_q))
             resultados = [(c, f.result()) for c, f in futuros]
         tot = {"novas": 0, "atualizadas": 0}
         todas = []
-        for c, rs in resultados:
+        for i, (c, rs) in enumerate(resultados, 1):
+            self._progresso(exec_id, 68 + 8.0 * i / max(len(resultados), 1), "gravacao",
+                            "Gravando resultados: cliente %d de %d" % (i, len(resultados)))
             k = self._persistir(exec_id, c, rs)
             tot["novas"] += k["novas"]; tot["atualizadas"] += k["atualizadas"]
             todas.extend(rs)
-        enr = self.enriquecer_pendentes()
+        self._progresso(exec_id, 77, "datajud", "Enriquecendo com a data de ajuizamento (DataJud)…", force=True)
+        enr = self.enriquecer_pendentes(exec_id)
         falhas = sum(1 for r in todas if r["status"] == "falha")
         status = "sucesso" if falhas == 0 else ("falha" if falhas == len(todas) else "parcial")
         resumo = {"clientes": n_clientes, "consultas_executadas": len(todas), "consultas_com_falha": falhas,

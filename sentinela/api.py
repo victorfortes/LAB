@@ -409,6 +409,35 @@ def novo_job(d: JobIn, u=Depends(exigir("advogado")), con: sqlite3.Connection = 
     return {"job_id": jid}
 
 
+@app.get("/api/progresso")
+def progresso(u=Depends(usuario_atual), con: sqlite3.Connection = Depends(get_con)):
+    """Estado da pesquisa em curso (ou da última, por alguns minutos) para a barra de progresso do painel."""
+    tipos = ("executar", "reprocessar_falhas")
+    j = con.execute("SELECT * FROM jobs WHERE tipo IN (?,?) AND status IN ('executando','na_fila') "
+                    "ORDER BY (status='executando') DESC, id LIMIT 1", tipos).fetchone()
+    if j and j["status"] == "na_fila":
+        n = con.execute("SELECT count(*) FROM jobs WHERE status='na_fila' AND id<=?", (j["id"],)).fetchone()[0]
+        return {"estado": "na_fila", "pct": 0, "fase": "fila", "job_id": j["id"],
+                "texto": "Na fila, aguardando o worker (%d à frente ou em execução)" % n}
+    if j:
+        e = con.execute("SELECT * FROM execucoes WHERE status='em_andamento' AND inicio>=? ORDER BY id DESC LIMIT 1",
+                        (j["iniciado_em"],)).fetchone()
+        pr = json.loads(e["progresso"]) if e and e["progresso"] else {"pct": 1, "fase": "inicio", "texto": "Preparando a pesquisa…"}
+        return {"estado": "executando", "job_id": j["id"], "execucao_id": e["id"] if e else None, "inicio": j["iniciado_em"], **pr}
+    f = con.execute("SELECT * FROM jobs WHERE tipo IN (?,?) AND status IN ('concluido','falhou') ORDER BY id DESC LIMIT 1", tipos).fetchone()
+    if f and f["concluido_em"] and (datetime.now() - datetime.fromisoformat(f["concluido_em"])).total_seconds() < 600:
+        r = {}
+        try:
+            r = json.loads(f["resultado"] or "{}").get("execucao", {})
+        except ValueError:
+            pass
+        ok = f["status"] == "concluido"
+        return {"estado": "concluido" if ok else "falhou", "pct": 100 if ok else 0, "fase": "fim", "job_id": f["id"],
+                "texto": "Pesquisa concluída" if ok else "A pesquisa falhou: " + (f["resultado"] or "")[:200],
+                "concluido_em": f["concluido_em"], "resumo": r}
+    return {"estado": "ocioso", "pct": 0}
+
+
 @app.get("/api/jobs")
 def jobs(u=Depends(usuario_atual), con: sqlite3.Connection = Depends(get_con)):
     return [dict(r) for r in con.execute("SELECT * FROM jobs ORDER BY id DESC LIMIT 50")]

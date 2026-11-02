@@ -57,6 +57,11 @@ def recuperar_travados(con: sqlite3.Connection) -> Dict[str, int]:
 def _pipeline_pos_execucao(con, resumo, ia, **kw) -> Dict:
     """Depois de buscar: analisa o que é novo, alerta sem duplicar e avisa se houve falha de consulta."""
     analisadas = 0
+    if resumo.get("execucao_id"):
+        con.execute("UPDATE execucoes SET progresso=? WHERE id=?", (json.dumps(
+            {"pct": 96, "fase": "analise", "texto": "Analisando processos novos e gerando alertas…", "atualizado_em": agora_iso()},
+            ensure_ascii=False), resumo["execucao_id"]))
+        con.commit()
     for r in con.execute("SELECT c.id,c.processo_id FROM correspondencias c WHERE c.classificacao!='descartada' "
                          "AND c.categoria_data!='processo_antigo' AND NOT EXISTS (SELECT 1 FROM analises a WHERE a.processo_id=c.processo_id)").fetchall():
         analise.analisar(con, r["id"], ia)

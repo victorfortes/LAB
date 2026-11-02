@@ -199,8 +199,6 @@ class TestAPI(Base):
         self.assertEqual(self.c.get("/api/").status_code if False else 200, 200)
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 class TestClienteNovoCapturaProcessos(Base):
@@ -311,3 +309,35 @@ class TestDestaqueDoDiaEContinuidade(TestAPI):
         self.con.execute("UPDATE processos SET ultima_verificacao=datetime('now','localtime','-1 day')"); self.con.commit()
         self.assertEqual(m.enriquecer_pendentes()["ok"], 1)
         self.assertEqual(self.con.execute("SELECT categoria_data FROM correspondencias").fetchone()[0], "nova_distribuicao")
+
+
+class TestBarraDeProgresso(TestAPI):
+    def test_progresso_na_fila_durante_e_depois(self):
+        h = self.h("adv@x.com")
+        self.assertEqual(self.c.get("/api/progresso", headers=h).json()["estado"], "ocioso")
+        clientes.cadastrar(self.con, "Acme Indústria Ltda", CNPJ_OK, filiais=["11.222.333/0001-81"])
+        jid = self.c.post("/api/jobs", json={"tipo": "executar", "params": {}}, headers=h).json()["job_id"]
+        p = self.c.get("/api/progresso", headers=h).json()
+        self.assertEqual((p["estado"], p["job_id"]), ("na_fila", jid))
+        mt = self.motor(djen([item(1, texto="CNPJ 47.960.950/0001-21")]), dj_ok(date.today().strftime("%Y%m%d") + "000000"))
+        mt._prog_ts = 0
+        vistos = []
+        orig = mt._progresso
+        def espia(exec_id, pct, fase, texto, force=False):
+            mt._prog_ts = 0   # sem limitação de frequência no teste
+            orig(exec_id, pct, fase, texto, force)
+            vistos.append((fase, self.c.get("/api/progresso", headers=h).json()))
+        mt._progresso = espia
+        fila.rodar_proximo(self.con, mt)
+        fases = [f for f, _ in vistos]
+        self.assertTrue({"coleta", "gravacao", "datajud"} <= set(fases))
+        pcts = [p["pct"] for _, p in vistos]
+        self.assertEqual(pcts, sorted(pcts))                      # nunca recua
+        self.assertTrue(all(p["estado"] == "executando" for _, p in vistos))
+        fim = self.c.get("/api/progresso", headers=h).json()
+        self.assertEqual((fim["estado"], fim["pct"]), ("concluido", 100))
+        self.assertIn("correspondencias_novas", fim["resumo"])
+
+
+if __name__ == "__main__":
+    unittest.main()

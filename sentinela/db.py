@@ -191,6 +191,9 @@ MIGRACOES = [
         versao TEXT
     );
     """),
+    ("0005_progresso", """
+    ALTER TABLE execucoes ADD COLUMN progresso TEXT;
+    """),
 ]
 
 

@@ -135,3 +135,15 @@ input[type=checkbox]{accent-color:var(--amber)}
 .cartao{border:1px solid var(--line);border-radius:8px;background:linear-gradient(135deg,#111822,#0c1119);padding:22px 24px;margin-bottom:16px}
 .cartao h3{font:600 14px Barlow,sans-serif}
 .cabeca h1 .peq{font-size:13px}
+
+/* progresso da pesquisa */
+.progresso{border:1px solid #f0a32e45;background:#f0a32e0c;border-radius:8px;padding:16px 18px;margin-bottom:20px}
+.progresso .cab{display:flex;justify-content:space-between;font:12px var(--mono);letter-spacing:2px;color:var(--amber);margin-bottom:10px}
+.progresso .trilho{height:10px;border-radius:6px;background:#ffffff10;overflow:hidden}
+.progresso .enche{height:100%;background:linear-gradient(90deg,var(--amber),var(--amber2));border-radius:6px;transition:width .8s ease;position:relative}
+.progresso.executando .enche::after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,transparent,#ffffff55,transparent);animation:brilho 1.4s linear infinite}
+@keyframes brilho{from{transform:translateX(-100%)}to{transform:translateX(100%)}}
+.progresso .det{margin-top:10px;font-size:13px;color:var(--mut)}
+.progresso.na_fila .enche{width:100%!important;opacity:.25}
+.progresso.concluido{border-color:#69d6b03b;background:#69d6b00a}.progresso.concluido .cab{color:var(--green)}.progresso.concluido .enche{background:var(--green)}
+.progresso.falhou{border-color:#f69c9350;background:#f69c9310}.progresso.falhou .cab{color:var(--red)}
