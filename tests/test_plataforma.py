@@ -370,5 +370,38 @@ class TestNomeGenericoNaoDerrubaPesquisa(Base):
         self.assertEqual(self.con.execute("SELECT desistida FROM consultas WHERE chave='nomeParte:NB'").fetchone()[0], 1)
 
 
+class TestPesquisaManualEConsultaRuim(TestAPI):
+    def test_clique_manual_forca_pesquisa_mesmo_se_ja_rodou_hoje(self):
+        jid = self.c.post("/api/jobs", json={"tipo": "executar", "params": {}}, headers=self.h("adv@x.com")).json()["job_id"]
+        self.assertTrue(json.loads(self.con.execute("SELECT params FROM jobs WHERE id=?", (jid,)).fetchone()[0])["forcar"])
+        clientes.cadastrar(self.con, "Acme Indústria Ltda", CNPJ_OK)
+        n = {"c": 0}
+        def tr(m, url, h, c, t):
+            n["c"] += 1
+            return resp({"status": "success", "count": 0, "items": []})
+        mt = self.motor(tr)
+        fila.rodar_proximo(self.con, mt)               # 1ª pesquisa do dia
+        n["c"] = 0
+        fila.enfileirar(self.con, "executar", {"forcar": True}, "manual")
+        fila.rodar_proximo(self.con, mt)               # 2ª pesquisa no mesmo dia: tem que ir à fonte de novo
+        self.assertGreater(n["c"], 0)
+
+    def test_consulta_que_a_fonte_recusa_nao_trava_nem_derruba_as_outras(self):
+        clientes.cadastrar(self.con, "Acme Indústria Ltda", CNPJ_OK)
+        urls = []
+        def tr(m, url, h, c, t):
+            urls.append(url)
+            if "nomeParte" in url:
+                return resp({"status": "error", "message": "ocupado"}, 500)
+            return resp({"status": "success", "count": 0, "items": []})
+        mt = self.motor(tr)
+        r = mt.executar("manual", desde=date.today().replace(year=date.today().year - 1), forcar=True)
+        self.assertEqual(r["status"], "parcial")           # não "falha": a consulta por CNPJ funcionou
+        nome = [u for u in urls if "nomeParte" in u]
+        self.assertLessEqual(len(nome), 3 * mt.djen.http.tentativas)  # só as 3 primeiras janelas foram tentadas
+        nao = self.con.execute("SELECT count(*) FROM consultas WHERE status='falha' AND erro LIKE 'não tentada%'").fetchone()[0]
+        self.assertGreater(nao, 10)
+
+
 if __name__ == "__main__":
     unittest.main()

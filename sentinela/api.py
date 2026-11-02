@@ -433,7 +433,10 @@ class JobIn(BaseModel):
 def novo_job(d: JobIn, u=Depends(exigir("advogado")), con: sqlite3.Connection = Depends(get_con)):
     if d.tipo not in ("executar", "reprocessar_falhas", "alertas"):
         raise HTTPException(422, "tipo inválido")
-    jid = fila.enfileirar(con, d.tipo, d.params, "manual")
+    params = dict(d.params)
+    if d.tipo == "executar":
+        params.setdefault("forcar", True)   # clique manual = pesquisar de verdade agora, não "já fiz hoje"
+    jid = fila.enfileirar(con, d.tipo, params, "manual")
     auditar(con, u, "job_enfileirado", "job", jid, d.dict())
     return {"job_id": jid}
 

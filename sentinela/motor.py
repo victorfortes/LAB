@@ -18,6 +18,7 @@ ESTADO_AUTO = {"confirmada": "automatico", "provavel": "pendente", "inconclusiva
 CHUNK_DIAS = 3
 LOTE_DATAJUD = 50
 NOME_MIN_CARACTERES = 4      # nome mais curto que isso (ex.: "NB") não é pesquisado por nome: devolve milhares de homônimos e a fonte recusa
+FALHAS_SEGUIDAS_ABORTA = 3   # numa execução, após 3 janelas seguidas falhando na mesma consulta, as demais não são tentadas
 TENTATIVAS_REPROCESSO = 6    # depois disso, a consulta que continua falhando só é refeita uma vez por dia
 
 
@@ -134,9 +135,16 @@ class Motor:
 
     # ---------- coleta (rede; roda em threads, sem tocar o banco) ----------
     def _coletar(self, c: Dict, plano: List[tuple]) -> List[Dict]:
-        resultados, vistos = [], {}
+        resultados, vistos, seguidas = [], {}, {}
         for q, a, b in plano:
             if True:
+                if seguidas.get(q["chave"], 0) >= FALHAS_SEGUIDAS_ABORTA:
+                    # fonte recusando esta consulta: não gasta minutos em tentativas inúteis; fica registrada para o reprocesso
+                    resultados.append({"q": q, "ini": a.isoformat(), "fim": b.isoformat(), "inicio": agora_iso(), "achados": [],
+                                       "status": "falha", "total": None, "lidos": 0,
+                                       "erro": "não tentada: %d falhas seguidas nesta consulta" % FALHAS_SEGUIDAS_ABORTA})
+                    self._tick()
+                    continue
                 r = {"q": q, "ini": a.isoformat(), "fim": b.isoformat(), "inicio": agora_iso(), "achados": []}
                 try:
                     itens, total, trunc = self.djen.consultar(q["param"], q["valor"], r["ini"], r["fim"])
@@ -151,6 +159,7 @@ class Motor:
                             r["achados"].append((com, m))
                 except (ErroFonte, ValueError, KeyError) as e:
                     r.update(status="falha", total=None, lidos=0, erro=str(e))
+                seguidas[q["chave"]] = seguidas.get(q["chave"], 0) + 1 if r["status"] == "falha" else 0
                 resultados.append(r)
                 self._tick()
         return resultados
