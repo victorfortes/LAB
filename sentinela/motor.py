@@ -63,7 +63,7 @@ def _normalizar_item(it: Dict) -> Dict:
             "tribunal": it.get("siglaTribunal"), "tipo": it.get("tipoComunicacao"),
             "data_disponibilizacao": it.get("data_disponibilizacao"), "classe": it.get("nomeClasse"),
             "orgao": it.get("nomeOrgao"), "link": it.get("link"), "texto": it.get("texto") or "",
-            "destinatarios": [{"nome": d.get("nome"), "polo": d.get("polo")} for d in it.get("destinatarios", [])]}
+            "destinatarios": [{"nome": d.get("nome"), "polo": d.get("polo")} for d in (it.get("destinatarios") or [])]}
 
 
 def consultas_do_cliente(c: Dict) -> List[Dict]:
@@ -178,8 +178,8 @@ class Motor:
                 m = matcher.avaliar(c, com)
                 if m:
                     r["achados"].append((com, m))
-        except (ErroFonte, ValueError, KeyError) as e:
-            r.update(status="falha", total=None, lidos=0, erro=str(e))
+        except (ErroFonte, ValueError, KeyError, TypeError, AttributeError) as e:
+            r.update(status="falha", total=None, lidos=0, erro="%s: %s" % (type(e).__name__, e))
         return r
 
     # ---------- persistência ----------

@@ -68,6 +68,13 @@ class TestClientes(Base):
         self.assertIn("VELHA ACME", [n["nome_norm"] for n in c["nomes"]])
 
 
+class TestItemSemDestinatarios(Base):
+    def test_item_com_destinatarios_nulos_nao_derruba_a_leitura(self):
+        from sentinela.motor import _normalizar_item
+        i = item(1); i["destinatarios"] = None
+        self.assertEqual(_normalizar_item(i)["destinatarios"], [])
+
+
 class TestMatcher(Base):
     def cli(self):
         cid = clientes.cadastrar(self.con, "Acme Indústria Ltda", CNPJ_OK, filiais=["11.222.333/0001-81"], anteriores=["Velha Acme S/A"])

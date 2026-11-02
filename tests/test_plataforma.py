@@ -506,10 +506,44 @@ class TestGarantiaDeCobertura(Base):
             if q.get("numeroProcesso") == n_perdido:
                 return resp({"status": "success", "count": 1, "items": [dict(item(7, texto="CNPJ 47.960.950/0001-21"), numero_processo=n_perdido)]})
             return resp({"status": "success", "count": 0, "items": []})
+        self.con.execute("INSERT INTO execucoes(gatilho,inicio) VALUES ('manual',datetime('now'))")
+        self.con.execute("INSERT INTO consultas(execucao_id,cliente_id,fonte,chave,janela_inicio,janela_fim,status,iniciada_em,concluida_em) "
+                         "VALUES (1,?,'djen','texto:x','2026-08-01','2026-11-01','ok',datetime('now'),datetime('now'))", (cid,))
+        self.con.commit()
         r = cobertura.verificar_controle(self.con, self.motor(tr))
         self.assertEqual((r["capturado"], r["recuperado"], r["fora_da_fonte"]), (1, 1, 1))
         self.assertEqual(r["recall_pct"], 50.0)
         self.assertTrue(self.con.execute("SELECT 1 FROM correspondencias c JOIN processos p ON p.id=c.processo_id WHERE p.numero_processo=?", (n_perdido,)).fetchone())
+
+    def test_publicacao_anterior_ao_historico_nao_conta_como_falha_mas_e_incluida(self):
+        from sentinela import cobertura
+        cid = clientes.cadastrar(self.con, "Acme Indústria Ltda", CNPJ_OK)
+        n = "00000000020268160009"
+        cobertura.adicionar_controle(self.con, cid, n)
+        self.con.execute("INSERT INTO execucoes(gatilho,inicio) VALUES ('manual',datetime('now'))")
+        self.con.execute("INSERT INTO consultas(execucao_id,cliente_id,fonte,chave,janela_inicio,janela_fim,status,iniciada_em,concluida_em) "
+                         "VALUES (1,?,'djen','texto:x','2026-08-01','2026-11-01','ok',datetime('now'),datetime('now'))", (cid,))
+        self.con.commit()
+        velho = dict(item(8, texto="CNPJ 47.960.950/0001-21"), numero_processo=n, data_disponibilizacao="2025-03-01")
+        r = cobertura.verificar_controle(self.con, self.motor(lambda m, u, h, c, t: resp({"status": "success", "count": 1, "items": [velho]})))
+        self.assertEqual((r["anterior_ao_historico"], r["recuperado"]), (1, 0))
+        self.assertTrue(self.con.execute("SELECT 1 FROM processos WHERE numero_processo=?", (n,)).fetchone())
+
+    def test_processo_com_partes_sob_sigilo_e_invisivel_nao_falha_nossa(self):
+        from sentinela import cobertura
+        cid = clientes.cadastrar(self.con, "Acme Indústria Ltda", CNPJ_OK)
+        n = "00000000020268160007"
+        cobertura.adicionar_controle(self.con, cid, n)
+        self.con.execute("INSERT INTO execucoes(gatilho,inicio) VALUES ('manual',datetime('now'))")
+        self.con.execute("INSERT INTO consultas(execucao_id,cliente_id,fonte,chave,janela_inicio,janela_fim,status,iniciada_em,concluida_em) "
+                         "VALUES (1,?,'djen','texto:x','2026-08-01','2026-11-01','ok',datetime('now'),datetime('now'))", (cid,))
+        self.con.commit()
+        sig = dict(item(9, polo_nome="SIGILO"), numero_processo=n)
+        sig["destinatarios"] = [{"nome": "SIGILO", "polo": "P"}, {"nome": "SIGILO", "polo": "A"}]
+        r = cobertura.verificar_controle(self.con, self.motor(lambda m, u, h, c, t: resp({"status": "success", "count": 1, "items": [sig]})))
+        self.assertEqual((r["invisivel_no_djen"], r["recuperado"]), (1, 0))
+        self.assertIn("sigilo", self.con.execute("SELECT detalhe FROM controle_processos").fetchone()[0])
+        self.assertEqual(r["visibilidade_pct"], 0.0)
 
     def test_vigia_alerta_quando_pesquisa_do_dia_nao_rodou(self):
         clientes.cadastrar(self.con, "Acme Indústria Ltda", CNPJ_OK)

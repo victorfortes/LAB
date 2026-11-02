@@ -97,6 +97,27 @@ def gravar_relatorio(con: sqlite3.Connection) -> Dict:
     return resumo
 
 
+def _motivo_invisivel(coms) -> str:
+    import re
+    nomes = [d.get("nome") or "" for c in coms for d in c.get("destinatarios", [])]
+    if nomes and all(n.strip().upper() == "SIGILO" for n in nomes):
+        return "partes sob sigilo: o DJEN omite os nomes"
+    if nomes and sum(1 for n in nomes if re.fullmatch(r"(?:[A-Z]\.? ?)+", n.strip().upper())) >= len(nomes) / 2:
+        return "nomes abreviados por iniciais"
+    return "cliente aparece só como terceiro ou citado no texto"
+
+
+def _incluir(con, motor, cli, r, achados, total, n):
+    from .motor import agora_iso
+    ex = con.execute("INSERT INTO execucoes(gatilho,inicio) VALUES ('controle',?)", (agora_iso(),)).lastrowid
+    con.commit()
+    hoje = date.today().isoformat()
+    motor._persistir(ex, cli, [{"q": {"chave": "numeroProcesso:" + r["numero_processo"], "param": "numeroProcesso", "valor": r["numero_processo"]},
+                                "ini": hoje, "fim": hoje, "inicio": agora_iso(), "status": "ok", "total": total, "lidos": n, "erro": None,
+                                "achados": achados}])
+    con.execute("UPDATE execucoes SET fim=?,status='sucesso' WHERE id=?", (agora_iso(), ex))
+
+
 # ---------- processos-controle: a única medida real de "estamos perdendo algo?" ----------
 def adicionar_controle(con, cliente_id: int, numero: str, observacao: str = "", usuario: str = "") -> int:
     d = "".join(ch for ch in numero if ch.isdigit())
@@ -110,11 +131,15 @@ def verificar_controle(con: sqlite3.Connection, motor) -> Dict:
     """Para cada processo-controle: está na base? Se não, o DJEN o publicou? Se sim, é falha nossa e é reparada na hora."""
     from . import matcher
     from .motor import _normalizar_item, agora_iso
-    res = {"capturado": 0, "recuperado": 0, "revisar": 0, "fora_da_fonte": 0, "erro": 0}
+    res = {"capturado": 0, "recuperado": 0, "revisar": 0, "anterior_ao_historico": 0, "invisivel_no_djen": 0, "fora_da_fonte": 0, "erro": 0}
     for r in con.execute("SELECT * FROM controle_processos").fetchall():
         cli = _clientes.carregar(con, r["cliente_id"])
+        # a pesquisa só olha para trás até o início do histórico buscado do cliente; o que o DJEN publicou antes disso não é "perda"
+        inicio = con.execute("SELECT min(janela_inicio) FROM consultas WHERE cliente_id=? AND status IN ('ok','truncada') "
+                             "AND chave NOT LIKE 'numeroProcesso:%'", (r["cliente_id"],)).fetchone()[0] or "9999-12-31"
         na_base = con.execute("SELECT 1 FROM correspondencias c JOIN processos p ON p.id=c.processo_id WHERE p.numero_processo=? "
-                              "AND c.cliente_id=? AND c.classificacao IN ('confirmada','provavel')", (r["numero_processo"], r["cliente_id"])).fetchone()
+                              "AND c.cliente_id=? AND c.classificacao IN ('confirmada','provavel') "
+                              "AND c.evidencia NOT LIKE '%numeroProcesso:%'", (r["numero_processo"], r["cliente_id"])).fetchone()  # incluído por este próprio teste não conta como captura
         if na_base:
             res_i, det = "capturado", "já está na base como ação contra o cliente"
         else:
@@ -124,24 +149,29 @@ def verificar_controle(con: sqlite3.Connection, motor) -> Dict:
                 res_i, det = "erro", str(e)[:200]
             else:
                 coms = [_normalizar_item(i) for i in itens if len(i.get("numero_processo") or "") == 20]
-                achados = [(c, m) for c in coms for m in [matcher.avaliar(cli, c)] if m and m["classificacao"] in ("confirmada", "provavel")]
+                avals = [(c, matcher.avaliar(cli, c)) for c in coms]
+                achados = [(c, m) for c, m in avals if m and m["classificacao"] in ("confirmada", "provavel")]
+                recentes = [(c, m) for c, m in achados if (c.get("data_disponibilizacao") or "") >= inicio]
+                duvida = [1 for c, m in avals if m and m["classificacao"] == "inconclusiva" and (c.get("data_disponibilizacao") or "") >= inicio]
                 if not coms:
                     res_i, det = "fora_da_fonte", "o DJEN não tem comunicações deste processo (limite da fonte, não da pesquisa)"
+                elif recentes:
+                    _incluir(con, motor, cli, r, achados, total, len(coms))
+                    res_i, det = "recuperado", "FALHA NOSSA: o DJEN nomeou o cliente numa comunicação DENTRO do período pesquisado e a pesquisa não pegou; incluído agora (investigar a causa)"
                 elif achados:
-                    ex = con.execute("INSERT INTO execucoes(gatilho,inicio) VALUES ('controle',?)", (agora_iso(),)).lastrowid
-                    con.commit()
-                    hoje = date.today().isoformat()
-                    motor._persistir(ex, cli, [{"q": {"chave": "numeroProcesso:" + r["numero_processo"], "param": "numeroProcesso",
-                                                      "valor": r["numero_processo"]}, "ini": hoje, "fim": hoje, "inicio": agora_iso(),
-                                                "status": "ok", "total": total, "lidos": len(coms), "erro": None, "achados": achados}])
-                    con.execute("UPDATE execucoes SET fim=?,status='sucesso' WHERE id=?", (agora_iso(), ex))
-                    res_i, det = "recuperado", "o DJEN publicou e a pesquisa NÃO tinha pego; foi incluído agora (investigar a causa)"
+                    _incluir(con, motor, cli, r, achados, total, len(coms))
+                    res_i, det = "anterior_ao_historico", "o DJEN só nomeou o cliente antes do início do histórico pesquisado (%s): não é falha; incluído agora no histórico" % inicio
+                elif duvida:
+                    res_i, det = "revisar", "o DJEN tem partes parecidas com o cliente, mas sem certeza pelas regras: conferir nomes"
                 else:
-                    res_i, det = "revisar", "o DJEN tem comunicações, mas as partes não casam com o cliente pelas regras: conferir nomes"
+                    res_i, det = "invisivel_no_djen", "o DJEN tem comunicações, mas NENHUMA nomeia o cliente (%s): invisível para busca por nome/CNPJ" % _motivo_invisivel(coms)
         con.execute("UPDATE controle_processos SET resultado=?,detalhe=?,verificado_em=? WHERE id=?",
                     (res_i, det, datetime.now().isoformat(timespec="seconds"), r["id"]))
         res[res_i] += 1
     con.commit()
-    base = res["capturado"] + res["recuperado"] + res["revisar"]
+    base = res["capturado"] + res["recuperado"]
     res["recall_pct"] = round(100.0 * res["capturado"] / base, 1) if base else None
+    vis = res["capturado"] + res["recuperado"] + res["anterior_ao_historico"]
+    tot = vis + res["revisar"] + res["invisivel_no_djen"]
+    res["visibilidade_pct"] = round(100.0 * vis / tot, 1) if tot else None
     return res

@@ -330,15 +330,17 @@ async function pgProcesso(id) {
 
 /* ---------- central de validação ---------- */
 const COB_ROT = { coberto: "Lido e conferido", provisorio: "Lido, ainda sendo relido", em_curso: "Dia em curso", lacuna: "NÃO lido (lacuna)", incompleto: "Lido incompleto", sem_historico: "Fora do histórico buscado" };
-const CTRL_ROT = { capturado: ["Capturado", "ok"], recuperado: ["Falha nossa — recuperado agora", "alerta"], revisar: ["Revisar nomes", "alerta"], fora_da_fonte: ["Fora da fonte (DJEN não publica)", "info"], erro: ["Erro ao verificar", "alerta"] };
+const CTRL_ROT = { capturado: ["Capturado", "ok"], recuperado: ["FALHA NOSSA — recuperado agora", "alerta"], revisar: ["Revisar nomes", "alerta"], invisivel_no_djen: ["Invisível no DJEN (limite da fonte)", "info"], anterior_ao_historico: ["Anterior ao histórico (incluído)", "info"], fora_da_fonte: ["Fora da fonte (DJEN não publica)", "info"], erro: ["Erro ao verificar", "alerta"] };
 async function pgCobertura() {
   carregando("cobertura");
   try {
     const d = await api("/cobertura?dias=45");
     const t = d.total, lac = d.lacunas || [];
     const veredito = d.integra ? ["verde", "Nenhuma lacuna: todos os dias de todos os clientes foram lidos por completo."] : ["vermelho", `${t.lacuna + t.incompleto} dia(s) de cliente SEM leitura completa. O sistema já está refazendo; confira abaixo.`];
-    const ctl = d.controle, base = ctl.filter((x) => ["capturado", "recuperado", "revisar"].includes(x.resultado));
-    const recall = base.length ? Math.round(1000 * base.filter((x) => x.resultado === "capturado").length / base.length) / 10 : null;
+    const ctl = d.controle, n_ = (k) => ctl.filter((x) => x.resultado === k).length;
+    const baseR = n_("capturado") + n_("recuperado"), recall = baseR ? Math.round(1000 * n_("capturado") / baseR) / 10 : null;
+    const vis = n_("capturado") + n_("recuperado") + n_("anterior_ao_historico"), totV = vis + n_("revisar") + n_("invisivel_no_djen");
+    const visib = totV ? Math.round(1000 * vis / totV) / 10 : null;
     const faixa = (c) => `<div class="tira">${c.dias.map((x) => `<i class="${esc(x.status)}" title="${esc(fmtDia(x.dia))} — ${esc(COB_ROT[x.status])}"></i>`).join("")}</div>`;
     moldura("cobertura", hero("PROVA DE COBERTURA", "Estamos lendo <em>tudo?</em>", "Registro, dia a dia, do que foi realmente lido em cada fonte para cada cliente. O que não está provado aparece como lacuna.",
         pode("advogado") ? `<button id="lac">Preencher lacunas agora</button>` : "") +
@@ -353,8 +355,10 @@ async function pgCobertura() {
       <h2>Teste de captura (processos-controle)</h2>
       <p class="mudo peq" style="margin:-6px 0 14px">A prova mais forte: cadastre números de processos que vocês SABEM que existem contra o cliente (de outra fonte: carteira, e-mail do cliente, cautelar). O sistema confere se foram capturados. Se algum não foi, ele inclui na hora e mostra aqui como falha.</p>
       <div class="panel">
-        <div class="lin" style="gap:26px;margin-bottom:12px"><div><span class="mudo peq">Taxa de captura medida</span><br><b style="font:600 40px var(--cond);color:var(--amber2)">${recall == null ? "—" : recall + "%"}</b></div>
-          <div class="mudo peq" style="max-width:520px">${base.length ? `${base.filter((x) => x.resultado === "capturado").length} de ${base.length} processos-controle verificáveis já estavam na base.` : "Nenhum processo-controle verificado ainda: a taxa de captura real só existe depois de cadastrar alguns."} Os “fora da fonte” não entram na conta: o DJEN não os publica.</div></div>
+        <div class="lin" style="gap:34px;margin-bottom:14px;flex-wrap:wrap">
+          <div><span class="mudo peq">Captura do que o DJEN mostra</span><br><b style="font:600 40px var(--cond);color:var(--amber2)">${recall == null ? "—" : recall + "%"}</b><div class="mudo peq" style="max-width:300px">processos com o cliente nomeado no DJEN que a pesquisa trouxe (${n_("capturado")} de ${baseR})</div></div>
+          <div><span class="mudo peq">Visibilidade no DJEN</span><br><b style="font:600 40px var(--cond);color:${visib != null && visib < 70 ? "var(--red)" : "var(--amber2)"}">${visib == null ? "—" : visib + "%"}</b><div class="mudo peq" style="max-width:300px">processos conhecidos em que o DJEN chega a nomear o cliente (${vis} de ${totV}). O restante é invisível a qualquer busca por nome/CNPJ.</div></div>
+          <div class="mudo peq" style="max-width:360px">${n_("anterior_ao_historico") ? n_("anterior_ao_historico") + " processo(s) são anteriores ao histórico pesquisado e foram incluídos. " : ""}${n_("fora_da_fonte") ? n_("fora_da_fonte") + " não têm nenhuma comunicação no DJEN." : ""}</div></div>
         ${ctl.length ? `<div class="tabela-rolar"><table><thead><tr><th>Cliente</th><th>Processo</th><th>Resultado</th><th>Detalhe</th><th></th></tr></thead><tbody>${ctl.map((x) => { const r = CTRL_ROT[x.resultado] || ["Ainda não verificado", "info"]; return `<tr><td>${esc(x.cliente)}</td><td>${esc(x.numero_processo)}</td><td><span class="cres ${r[1]}">${esc(r[0])}</span></td><td class="peq mudo">${esc(x.detalhe || "")}${x.verificado_em ? "<br>" + esc(fmtData(x.verificado_em)) : ""}</td><td>${pode("advogado") ? `<button class="sec" data-del="${x.id}">remover</button>` : ""}</td></tr>`; }).join("")}</tbody></table></div>` : ""}
         ${pode("advogado") ? `<div class="lin" style="gap:10px;margin-top:14px;flex-wrap:wrap"><select id="ccli">${d.clientes.map((c) => `<option value="${c.cliente_id}">${esc(c.cliente)}</option>`).join("")}</select>
           <input id="cnum" placeholder="0000000-00.0000.0.00.0000" style="min-width:260px"><button id="cadd">Adicionar</button><button id="cver" class="sec">Verificar agora</button></div>` : ""}</div>
