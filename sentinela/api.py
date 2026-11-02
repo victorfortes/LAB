@@ -124,7 +124,31 @@ def dashboard(u=Depends(usuario_atual), con: sqlite3.Connection = Depends(get_co
     aj_cols = "SELECT c.id,c.classificacao,c.estado_validacao,c.prioridade,p.numero_processo,p.tribunal,p.classe,p.orgao,p.data_ajuizamento,cl.razao_social cliente "
     aj_hoje = [dict(r) for r in con.execute(aj_cols + aj_base + " ORDER BY (c.classificacao='confirmada') DESC, p.id DESC LIMIT 30", (hoje.isoformat(),))]
     aj_ontem = con.execute("SELECT count(*) " + aj_base, ((hoje - timedelta(days=1)).isoformat(),)).fetchone()[0]
+    base_aj = ("FROM processos p JOIN correspondencias c ON c.processo_id=p.id WHERE c.classificacao!='descartada' "
+               "AND p.data_ajuizamento IS NOT NULL ")
+    por_dia = {r[0]: r[1] for r in con.execute("SELECT p.data_ajuizamento d,count(DISTINCT p.id) " + base_aj +
+                                               "AND p.data_ajuizamento>=? GROUP BY 1", ((hoje - timedelta(days=29)).isoformat(),))}
+    serie_dias = [{"dia": (hoje - timedelta(days=i)).isoformat(), "n": por_dia.get((hoje - timedelta(days=i)).isoformat(), 0)}
+                  for i in range(29, -1, -1)]
+    mes0 = hoje.replace(day=1)
+    meses = []
+    for i in range(11, -1, -1):
+        a = mes0.year * 12 + mes0.month - 1 - i
+        meses.append("%04d-%02d" % (a // 12, a % 12 + 1))
+    por_mes = {r[0]: r[1] for r in con.execute("SELECT substr(p.data_ajuizamento,1,7),count(DISTINCT p.id) " + base_aj +
+                                               "AND p.data_ajuizamento>=? GROUP BY 1", (meses[0] + "-01",))}
+    serie_meses = [{"mes": m, "n": por_mes.get(m, 0)} for m in meses]
+    por_cliente = [dict(r) for r in con.execute(
+        "SELECT cl.id,cl.razao_social,count(DISTINCT CASE WHEN p.data_ajuizamento IS NOT NULL THEN p.id END) total,"
+        "count(DISTINCT CASE WHEN p.data_ajuizamento>=? THEN p.id END) ult30,count(DISTINCT CASE WHEN p.data_ajuizamento=? THEN p.id END) hoje,"
+        "max(p.data_ajuizamento) ultima FROM clientes cl LEFT JOIN correspondencias c ON c.cliente_id=cl.id AND c.classificacao!='descartada' "
+        "LEFT JOIN processos p ON p.id=c.processo_id WHERE cl.status_monitoramento='ativo' GROUP BY cl.id ORDER BY ult30 DESC,total DESC",
+        ((hoje - timedelta(days=29)).isoformat(), hoje.isoformat()))]
     return {
+        "serie_dias": serie_dias, "serie_meses": serie_meses, "por_cliente": por_cliente,
+        "ajuizadas_total": con.execute("SELECT count(DISTINCT p.id) " + base_aj).fetchone()[0],
+        "sem_data_ajuizamento": con.execute("SELECT count(DISTINCT p.id) FROM processos p JOIN correspondencias c ON c.processo_id=p.id "
+                                            "WHERE c.classificacao!='descartada' AND p.data_ajuizamento IS NULL").fetchone()[0],
         "ajuizados_hoje": aj_hoje, "ajuizados_ontem": aj_ontem,
         "estado_pesquisa": estado, "ultima_execucao": dict(ult) if ult else None,
         "identificados_hoje": contar(hoje), "identificados_semana": contar(hoje - timedelta(days=7)), "identificados_mes": contar(hoje - timedelta(days=30)),

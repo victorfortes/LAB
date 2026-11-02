@@ -147,3 +147,38 @@ input[type=checkbox]{accent-color:var(--amber)}
 .progresso.na_fila .enche{width:100%!important;opacity:.25}
 .progresso.concluido{border-color:#69d6b03b;background:#69d6b00a}.progresso.concluido .cab{color:var(--green)}.progresso.concluido .enche{background:var(--green)}
 .progresso.falhou{border-color:#f69c9350;background:#f69c9310}.progresso.falhou .cab{color:var(--red)}
+
+/* painel simples */
+.semaforo{display:flex;align-items:center;gap:12px;border-radius:8px;padding:12px 18px;margin-bottom:18px;font-size:14px;border:1px solid}
+.semaforo i{width:12px;height:12px;border-radius:50%;flex:none}
+.semaforo.verde{background:#69d6b00a;border-color:#69d6b03b;color:#a6ecd2}.semaforo.verde i{background:var(--green);box-shadow:0 0 12px var(--green)}
+.semaforo.amarelo{background:#f0a32e0c;border-color:#f0a32e45;color:var(--amber2)}.semaforo.amarelo i{background:var(--amber);box-shadow:0 0 12px var(--amber)}
+.semaforo.vermelho{background:#f69c9310;border-color:#f69c9350;color:#f9c3bd}.semaforo.vermelho i{background:var(--red);box-shadow:0 0 12px var(--red)}
+.placar{grid-template-columns:repeat(auto-fit,minmax(170px,1fr));margin-bottom:16px}
+.graf-cab{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:18px}
+.abas{display:flex;gap:6px}.abas button{background:transparent;border:1px solid var(--line);color:var(--mut);border-radius:6px;padding:7px 14px;font-size:13px}
+.abas button.on{border-color:#f0a32e55;color:var(--amber);background:#f0a32e10}
+.amb{color:var(--amber)}
+.barras{display:flex;align-items:flex-end;gap:4px;height:190px;padding-top:18px}
+.barras .col{flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;height:100%;min-width:0;position:relative}
+.barras .b{width:100%;max-width:34px;background:linear-gradient(180deg,#4cc9f0aa,#4cc9f033);border-radius:4px 4px 0 0;min-height:2px;transition:height .6s ease}
+.barras .col.agora .b{background:linear-gradient(180deg,var(--amber2),var(--amber));box-shadow:0 0 16px #f0a32e80}
+.barras .v{font:11px var(--mono);color:var(--ink);height:16px}.barras .col.agora .v{color:var(--amber2);font-weight:700}
+.barras .r{font:9px var(--mono);color:#6d7f95;height:16px;margin-top:6px;white-space:nowrap}
+.barras.meses .b{max-width:46px}
+.clientes-lista{padding:8px 14px}
+.cli{display:grid;grid-template-columns:minmax(180px,1.3fr) minmax(120px,1fr) auto;gap:18px;align-items:center;padding:14px 8px;border-bottom:1px solid var(--line);color:var(--ink);text-decoration:none}
+.cli:last-child{border-bottom:0}.cli:hover{background:#ffffff05;text-decoration:none}
+.cli .nome b{display:block;font-size:15px}.cli .nome small{color:var(--mut);font-size:12px}
+.cli .trilho{height:8px;border-radius:5px;background:#ffffff0f;overflow:hidden}.cli .trilho div{height:100%;background:linear-gradient(90deg,#4cc9f0,#2a7fff);border-radius:5px}
+.cli .nums{display:flex;gap:18px}.cli .nums span{display:flex;flex-direction:column;align-items:center;font:9px var(--mono);color:var(--mut);text-transform:uppercase;letter-spacing:1px}
+.cli .nums b{font:500 24px var(--cond);color:var(--ink);letter-spacing:0}.cli .nums .alerta b{color:var(--amber2)}
+.fazer{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin-bottom:22px}
+.fazer a{display:block;border:1px solid var(--line);border-left:4px solid var(--line);border-radius:8px;padding:16px 18px;color:var(--ink);background:#10151e;text-decoration:none}
+.fazer a[href]:hover{background:#151c27;text-decoration:none}
+.fazer b{display:block;font-size:15px;margin-bottom:4px}.fazer span{font-size:13px;color:var(--mut)}
+.fazer .urgente{border-left-color:var(--amber);background:#f0a32e10}.fazer .atencao{border-left-color:var(--cy)}.fazer .ok{border-left-color:var(--green)}.fazer .info{border-left-color:#58687d}
+details.ajuda{border:1px solid var(--line);border-radius:8px;margin:0 0 14px;background:#0d1219}
+details.ajuda summary{cursor:pointer;padding:14px 18px;font-size:14px;color:var(--mut)}details.ajuda[open] summary{color:var(--ink);border-bottom:1px solid var(--line)}
+details.ajuda>*:not(summary){margin-left:18px;margin-right:18px}details.ajuda>ul{padding-left:18px;line-height:1.9;font-size:14px;color:#b9c4d2}details.ajuda>:last-child{margin-bottom:18px}details.ajuda>.summarygrid{margin-top:18px}
+@media(max-width:760px){.cli{grid-template-columns:1fr}.barras .v{font-size:9px}}

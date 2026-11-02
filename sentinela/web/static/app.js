@@ -79,36 +79,87 @@ const hero = (eb, tit, sub, acao) => `<div class="hero"><div><span class="eyebro
 const falhou = (a, e) => moldura(a, `<div class="faixa falha_total">Erro: ${esc(e.message)}</div>`);
 
 /* ---------- dashboard ---------- */
+let _graf = "dias";
+function graficoBarras(d) {
+  const dias = _graf === "dias";
+  const serie = dias ? d.serie_dias.map((x) => ({ r: x.dia.slice(8) + "/" + x.dia.slice(5, 7), n: x.n, hoje: x.dia === d.hoje_iso, t: fmtDia(x.dia) }))
+    : d.serie_meses.map((x) => ({ r: ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"][+x.mes.slice(5) - 1], n: x.n, hoje: x.mes === d.hoje_iso.slice(0, 7), t: x.mes.slice(5) + "/" + x.mes.slice(0, 4) }));
+  const max = Math.max(1, ...serie.map((x) => x.n));
+  const total = serie.reduce((a, x) => a + x.n, 0);
+  return `<div class="graf-cab"><div class="abas"><button class="${dias ? "on" : ""}" data-g="dias">Últimos 30 dias</button><button class="${dias ? "" : "on"}" data-g="meses">Últimos 12 meses</button></div>
+      <span class="mudo peq"><b>${total}</b> ação(ões) ajuizada(s) neste período · a barra <span class="amb">laranja</span> é ${dias ? "hoje" : "o mês atual"}</span></div>
+    <div class="barras ${dias ? "dias" : "meses"}">${serie.map((x, i) => `<div class="col${x.hoje ? " agora" : ""}" title="${esc(x.t)}: ${x.n} ação(ões) ajuizada(s)">
+      <span class="v">${x.n || ""}</span><div class="b" style="height:${x.n ? Math.max(6, Math.round(100 * x.n / max)) : 2}%"></div>
+      <span class="r">${!dias || i % 5 === 0 || x.hoje ? esc(x.r) : ""}</span></div>`).join("")}</div>
+    ${total ? "" : `<p class="mudo peq" style="margin:12px 0 0">Nenhuma ação ajuizada neste período entre as encontradas.</p>`}`;
+}
 async function pgDashboard() {
   carregando("dashboard");
   try {
     const [d, al, sis] = await Promise.all([api("/dashboard"), api("/alertas"), api("/sistema")]);
+    d.hoje_iso = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
     const k = (n, t, extra, cls) => `<article class="${cls || ""}"><span>${esc(t)}</span><strong>${esc(n)}</strong><small>${esc(extra || "")}</small></article>`;
     const ue = d.ultima_execucao, hj = d.ajuizados_hoje, w = sis.worker;
-    const blocoHoje = hj.length ? `<section class="hoje"><div class="cab"><div class="num">${hj.length}</div><div class="tit"><small>ATENÇÃO — AÇÕES AJUIZADAS NO DIA DA BUSCA</small>${hj.length === 1 ? "Nova ação ajuizada hoje" : "Novas ações ajuizadas hoje"}</div></div>
+    const soma = (n) => d.serie_dias.slice(-n).reduce((a, x) => a + x.n, 0);
+    const nHoje = d.identificados_hoje;
+    const blocoHoje = hj.length ? `<section class="hoje"><div class="cab"><div class="num">${hj.length}</div><div class="tit"><small>AGORA — AJUIZADAS HOJE, PRECISAM SER VISTAS</small>${hj.length === 1 ? "Nova ação ajuizada hoje" : "Novas ações ajuizadas hoje"}</div></div>
         <div class="lista">${hj.map((i) => `<a class="item" href="#/processo/${i.id}"><b>${esc(i.numero_processo)}</b> ${tag(i.classificacao)} ${i.prioridade ? tag(i.prioridade) : ""}<span>${esc(i.cliente)} · ${esc(i.tribunal)}${i.classe ? " · " + esc(i.classe) : ""}</span></a>`).join("")}</div></section>`
-      : `<section class="hoje vazio"><div class="cab"><div class="num">0</div><div class="tit"><small>AJUIZADAS NO DIA DA BUSCA</small>Nenhuma ação ajuizada hoje foi identificada até agora</div></div>
-        <p class="mudo peq" style="margin:12px 0 0">${d.ajuizados_ontem ? `Ontem: ${d.ajuizados_ontem}. ` : ""}Atenção: DJEN e DataJud costumam registrar uma ação horas ou dias depois da distribuição; esta faixa se acende assim que uma aparecer.</p></section>`;
+      : `<section class="hoje vazio"><div class="cab"><div class="num">0</div><div class="tit"><small>AGORA — AJUIZADAS HOJE</small>Nenhuma ação nova contra seus clientes hoje, até agora</div></div>
+        <p class="mudo peq" style="margin:12px 0 0">${d.ajuizados_ontem ? `Ontem foram ${d.ajuizados_ontem}. ` : ""}Os tribunais costumam registrar uma ação horas ou dias depois do protocolo; esta faixa acende sozinha quando uma aparecer.</p></section>`;
     const cad = sis.dias.map((x) => `<div class="${esc(x.resultado)}" title="${esc(x.dia)}: ${esc(x.resultado)} (${x.execucoes} execução(ões))"><b>${x.resultado === "sucesso" ? "✓" : x.resultado === "sem_execucao" ? "–" : "!"}</b>${esc(x.dia.slice(8))}/${esc(x.dia.slice(5, 7))}</div>`).join("");
-    moldura("dashboard", hero("VISÃO GERAL", "Seu painel de <em>vigilância.</em>", `Última execução: ${ue ? `${fmtData(ue.inicio)} · ${esc(ROT[ue.status] || ue.status)}` : "nenhuma"}`,
+    const maxc = Math.max(1, ...d.por_cliente.map((c) => c.total));
+    const porCliente = d.por_cliente.length ? d.por_cliente.map((c) => `<a class="cli" href="#/processos" data-c="${c.id}">
+        <div class="nome"><b>${esc(c.razao_social)}</b><small>${c.ultima ? "última ação ajuizada em " + esc(fmtDia(c.ultima)) : "nenhuma ação encontrada ainda"}</small></div>
+        <div class="trilho"><div style="width:${Math.round(100 * c.total / maxc)}%"></div></div>
+        <div class="nums"><span class="${c.hoje ? "alerta" : ""}"><b>${c.hoje}</b>hoje</span><span><b>${c.ult30}</b>30 dias</span><span><b>${c.total}</b>no total</span></div></a>`).join("")
+      : `<p class="mudo">Nenhum cliente ativo. Cadastre em “Clientes”.</p>`;
+    const fazer = [];
+    if (nHoje) fazer.push(["urgente", `Veja as ${nHoje} ação(ões) ajuizada(s) hoje`, "Abra a lista, leia a ação e atribua a um advogado.", "#/processos", "ver_hoje"]);
+    if (d.pendentes_validacao) fazer.push(["atencao", `${d.pendentes_validacao} caso(s) esperam sua conferência`, "O sistema não teve certeza; confirme ou descarte.", "#/validacao"]);
+    if (d.consultas_a_reprocessar) fazer.push(["info", "Algumas consultas falharam", "O sistema tenta de novo sozinho a cada 30 minutos. Nada a fazer.", ""]);
+    if (!w.ativo) fazer.push(["urgente", "O robô de pesquisa está parado", "Nenhuma pesquisa automática ocorre até ele voltar (Mac desligado ou reiniciado).", "#/fontes"]);
+    if (!fazer.length) fazer.push(["ok", "Nada pendente para você agora", "Quando algo precisar de atenção, aparece aqui.", ""]);
+    const onde = d.estado_pesquisa.codigo;
+    const sem = onde === "falha_total" || !w.ativo ? "vermelho" : onde === "falha_parcial" ? "amarelo" : "verde";
+    const semTxt = sem === "verde" ? "Tudo certo: o robô está ativo e a última pesquisa terminou sem problemas." : sem === "amarelo" ? "Atenção: a última pesquisa teve falhas; o sistema vai tentar de novo." : "Problema: a pesquisa não está funcionando direito. Avise o responsável técnico.";
+    moldura("dashboard", hero("VISÃO GERAL", "Ações contra seus <em>clientes.</em>", `Última pesquisa: ${ue ? `${fmtData(ue.inicio)}` : "nenhuma"} · próxima automática: ${esc(fmtData(sis.agendamento.proxima_execucao))}`,
         pode("advogado") ? `<button id="rodar">Executar pesquisa agora</button>` : "") +
-      `<div id="progresso" class="progresso" hidden></div>` + blocoHoje +
-      `<div class="faixa ${esc(d.estado_pesquisa.codigo)}">${esc(d.estado_pesquisa.texto)}</div>
-      <div class="summarygrid">${k(d.identificados_hoje, "Ajuizadas hoje", "só ações ajuizadas hoje (data do DataJud)", "highlight")}${k(d.identificados_semana, "Ajuizadas na semana", "últimos 7 dias")}${k(d.identificados_mes, "Ajuizadas no mês", "últimos 30 dias")}
-      ${k(d.clientes_monitorados, "Clientes monitorados")}${k(d.novas_acoes_confirmadas, "Novas ações confirmadas", "confirmadas e ajuizadas recentemente")}${k(d.pendentes_validacao, "Pendentes de validação", "aguardam conferência")}
-      ${k(d.falhas_consultas_24h, "Falhas de consulta (24 h)")}${k(d.consultas_a_reprocessar, "Consultas a reprocessar")}${k(d.tribunais_com_dados, "Tribunais com dados recebidos")}${k(d.tribunais_com_conector_validado, "Tribunais com conector validado", "nenhum validado individualmente")}</div>
+      `<div class="semaforo ${sem}"><i></i><span>${esc(semTxt)}</span></div>
+      <div id="progresso" class="progresso" hidden></div>` + blocoHoje +
+      `<h2>Quanto foi ajuizado</h2>
+      <p class="mudo peq" style="margin:-6px 0 14px">“Ajuizada” = a data em que o processo foi protocolado no tribunal. Só entram ações contra seus clientes.</p>
+      <div class="summarygrid placar">${k(nHoje, "Hoje", "ajuizadas hoje", "highlight")}${k(d.ajuizados_ontem, "Ontem", "ajuizadas ontem")}${k(soma(7), "Últimos 7 dias", "ajuizadas na semana")}${k(soma(30), "Últimos 30 dias", "ajuizadas no mês")}${k(d.ajuizadas_total, "Desde sempre", "todas que o sistema encontrou")}</div>
+      <div class="panel" id="grafico">${graficoBarras(d)}</div>
+      ${d.sem_data_ajuizamento ? `<p class="mudo peq">${d.sem_data_ajuizamento} processo(s) ainda sem data de ajuizamento (aguardando o DataJud) não aparecem nos números acima.</p>` : ""}
+      <h2>Por cliente</h2><div class="panel clientes-lista">${porCliente}</div>
+      <h2>O que preciso fazer</h2><div class="fazer">${fazer.map(([c, t, sub, href]) => `<a class="${c}" ${href ? `href="${href}"` : ""}><b>${esc(t)}</b><span>${esc(sub)}</span></a>`).join("")}</div>
+      <details class="ajuda"><summary>Como ler este painel</summary><ul>
+        <li><b>Ajuizada</b>: dia em que a ação foi protocolada no tribunal. É o que importa para saber se é nova.</li>
+        <li><b>Identificada</b>: dia em que o Sentinela a encontrou. Pode ser depois do ajuizamento, pois os tribunais demoram a publicar.</li>
+        <li><b>Confirmada</b>: o cliente está como réu (polo passivo) e o CNPJ ou o nome batem.</li>
+        <li><b>Barra laranja / faixa “Agora”</b>: ações ajuizadas hoje, que o advogado precisa ver.</li>
+        <li><b>Semáforo</b>: verde = pesquisando normalmente; amarelo = falhas que serão refeitas; vermelho = parado.</li></ul></details>
+      <details class="ajuda"><summary>Detalhes técnicos (para o responsável pelo sistema)</summary>
+      <div class="summarygrid">${k(d.clientes_monitorados, "Clientes monitorados")}${k(d.novas_acoes_confirmadas, "Novas ações confirmadas", "confirmadas e ajuizadas recentemente")}${k(d.pendentes_validacao, "Pendentes de validação")}
+      ${k(d.falhas_consultas_24h, "Falhas de consulta (24 h)")}${k(d.consultas_a_reprocessar, "Consultas a reprocessar")}${k(d.tribunais_com_dados, "Tribunais com dados recebidos")}</div>
       <p class="mudo peq">${esc(d.nota_tribunais)}</p>
-      <h2>Operação contínua</h2><div class="panel"><div class="lin" style="gap:26px;align-items:flex-start">
+      <div class="panel"><div class="lin" style="gap:26px;align-items:flex-start">
         <div><h3>Worker</h3><span class="tag ${w.ativo ? "operacional" : "falha"}">${w.ativo ? "ATIVO" : "PARADO"}</span>
-          <div class="peq mudo" style="margin-top:8px">Último batimento: ${esc(fmtData(w.ultimo_batimento))}${w.segundos_desde_batimento != null ? ` (há ${w.segundos_desde_batimento}s)` : ""}<br>Rodando desde: ${esc(fmtData(w.iniciado_em))}<br>Próxima pesquisa: <b>${esc(fmtData(sis.agendamento.proxima_execucao))}</b><br>Jobs na fila: ${sis.jobs_na_fila}</div></div>
+          <div class="peq mudo" style="margin-top:8px">Último batimento: ${esc(fmtData(w.ultimo_batimento))}${w.segundos_desde_batimento != null ? ` (há ${w.segundos_desde_batimento}s)` : ""}<br>Rodando desde: ${esc(fmtData(w.iniciado_em))}<br>Jobs na fila: ${sis.jobs_na_fila}</div></div>
         <div style="flex:1;min-width:300px"><h3>Últimos 14 dias de pesquisa automática</h3><div class="cadencia">${cad}</div>
           <p class="peq mudo" style="margin:10px 0 0">✓ pesquisa concluída · ! falha/parcial · – nenhuma execução (Mac desligado ou worker parado).</p></div></div>
         ${sis.aviso ? `<div class="faixa falha_total" style="margin:14px 0 0">${esc(sis.aviso)}</div>` : ""}</div>
-      <h2>Alertas recentes</h2>${tabelaAlertas(al.slice(0, 8))}`);
+      <h3>Alertas recentes</h3>${tabelaAlertas(al.slice(0, 8))}</details>`);
     const b = document.getElementById("rodar");
     if (b) b.onclick = async () => { try { b.disabled = true; await api("/jobs", { method: "POST", body: { tipo: "executar", params: {} } }); acompanhar(); } catch (e) { b.disabled = false; aviso(e.message); } };
+    document.querySelectorAll("#grafico [data-g]").forEach((x) => (x.onclick = () => { _graf = x.dataset.g; document.getElementById("grafico").innerHTML = graficoBarras(d); pgDashboardLigarGrafico(d); }));
+    document.querySelectorAll(".fazer a[href='#/processos']").forEach((x) => (x.onclick = () => { filtros.ajuizado_hoje = "1"; }));
+    document.querySelectorAll(".cli[data-c]").forEach((x) => (x.onclick = () => { filtros.cliente_id = x.dataset.c; filtros.ajuizado_hoje = ""; }));
     acompanhar(true);
   } catch (e) { falhou("dashboard", e); }
+}
+function pgDashboardLigarGrafico(d) {
+  document.querySelectorAll("#grafico [data-g]").forEach((x) => (x.onclick = () => { _graf = x.dataset.g; document.getElementById("grafico").innerHTML = graficoBarras(d); pgDashboardLigarGrafico(d); }));
 }
 /* barra de progresso da pesquisa */
 let _poll = null;
