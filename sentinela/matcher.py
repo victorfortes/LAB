@@ -20,6 +20,35 @@ def cnpjs_no_texto(texto: str) -> set:
     return achados
 
 
+_PASSIVO = {"reu", "re", "reus", "requerido", "requerida", "requeridos", "executado", "executada", "executados", "reclamado",
+            "reclamada", "demandado", "demandada", "impetrado", "impetrada", "promovido", "promovida"}
+_ATIVO = {"autor", "autora", "autores", "requerente", "requerentes", "exequente", "exequentes", "reclamante", "impetrante",
+          "demandante", "promovente"}
+_NAO_PAPEL = {"cnpj", "cpf", "rg", "mail", "email", "cep", "ssp", "oab", "endereco", "telefone"}
+_RE_ROTULO = re.compile(r"([A-Za-zÀ-ÿ]+)(?:\(a\))?(?:\(s\))?\s*:")
+
+
+def _sem_acento(t: str) -> str:
+    import unicodedata
+    return "".join(c for c in unicodedata.normalize("NFD", t) if unicodedata.category(c) != "Mn").lower()
+
+
+def papel_do_cnpj_no_texto(texto: str, cnpj_digitos: str) -> Optional[str]:
+    """Papel declarado no próprio texto da comunicação para a parte que traz este CNPJ ('Réu(s): NOME (CPF/CNPJ: ...)').
+    Só devolve P/A para rótulos de polo originário; papéis recursais (embargante, agravante...) e terceiros ficam indefinidos."""
+    for m in _RE_CNPJ.finditer(texto or ""):
+        if _cnpj.somente_digitos(m.group(0)) != cnpj_digitos:
+            continue
+        antes = texto[max(0, m.start() - 260):m.start()]
+        rot = [x for x in (_sem_acento(r.group(1)) for r in _RE_ROTULO.finditer(antes)) if x not in _NAO_PAPEL]
+        if rot:
+            if rot[-1] in _PASSIVO:
+                return "P"
+            if rot[-1] in _ATIVO:
+                return "A"
+    return None
+
+
 def _melhor_nome(parte: str, nomes: List[Dict[str, str]]):
     """(tipo_nome, similaridade, nome_cliente) do nome do cliente mais parecido com a parte."""
     np_ = _nomes.normalizar(parte)
@@ -65,6 +94,13 @@ def avaliar(cliente: Dict, comunicacao: Dict) -> Optional[Dict]:
                     "evidencia": ev(p, tipo, sim, nome_cli, {"regra": "denominação anterior/alternativa idêntica no polo passivo"})}
         return {"nivel": 5, "classificacao": "inconclusiva", "polo": "P", "nome_na_fonte": p["nome"],
                 "evidencia": ev(p, tipo, sim, nome_cli, {"regra": "nome aproximado no polo passivo: requer conferência"})}
+    papel = papel_do_cnpj_no_texto(comunicacao.get("texto", ""), cnpj_hit) if cnpj_hit else None
+    if papel == "P" and not ativo:
+        return {"nivel": nivel_cnpj, "classificacao": "confirmada", "polo": "P", "nome_na_fonte": None,
+                "evidencia": {"cnpj_no_texto": cnpj_hit, "regra": "CNPJ do cliente consta no texto como parte no polo passivo (rótulo Réu/Requerido/Executado…)"}}
+    if papel == "A" and not passivo:
+        return {"nivel": nivel_cnpj, "classificacao": "descartada", "polo": "A", "nome_na_fonte": None,
+                "evidencia": {"cnpj_no_texto": cnpj_hit, "regra": "CNPJ do cliente consta no texto como autor/polo ativo"}}
     if ativo:
         p, tipo, sim, nome_cli = max(ativo, key=lambda c: c[2])
         return {"nivel": 5, "classificacao": "descartada", "polo": "A", "nome_na_fonte": p["nome"],

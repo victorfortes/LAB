@@ -95,8 +95,10 @@ def eu(u=Depends(usuario_atual)):
 def dashboard(u=Depends(usuario_atual), con: sqlite3.Connection = Depends(get_con)):
     hoje = date.today()
     def contar(desde):
+        """Só o que foi AJUIZADO no período (data de ajuizamento do DataJud), não o que o Sentinela viu pela primeira vez."""
         return con.execute("SELECT count(DISTINCT p.id) FROM processos p JOIN correspondencias c ON c.processo_id=p.id "
-                           "WHERE c.classificacao!='descartada' AND date(p.primeira_identificacao)>=?", (desde.isoformat(),)).fetchone()[0]
+                           "WHERE c.classificacao!='descartada' AND p.data_ajuizamento>=? AND p.data_ajuizamento<=?",
+                           (desde.isoformat(), hoje.isoformat())).fetchone()[0]
     ult = con.execute("SELECT * FROM execucoes WHERE gatilho!='reprocessamento' ORDER BY id DESC LIMIT 1").fetchone()
     falhas24 = con.execute("SELECT count(*) FROM consultas WHERE status='falha' AND concluida_em>=?",
                            ((datetime.now() - timedelta(hours=24)).isoformat(timespec="seconds"),)).fetchone()[0]

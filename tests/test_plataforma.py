@@ -339,5 +339,21 @@ class TestBarraDeProgresso(TestAPI):
         self.assertIn("correspondencias_novas", fim["resumo"])
 
 
+class TestContagemSoAjuizadosHoje(TestAPI):
+    def test_cards_hoje_semana_mes_contam_por_data_de_ajuizamento(self):
+        cid = clientes.cadastrar(self.con, "Acme Indústria Ltda", CNPJ_OK)
+        hoje = date.today()
+        from datetime import timedelta
+        for i, dias in enumerate((0, 3, 40, None)):   # hoje, 3 dias, 40 dias, sem data do DataJud
+            dt = (hoje - timedelta(days=dias)).isoformat() if dias is not None else None
+            pid = self.con.execute("INSERT INTO processos(numero_processo,tribunal,data_ajuizamento,primeira_identificacao,ultima_verificacao) "
+                                   "VALUES (?,?,?,datetime('now'),datetime('now'))", ("000000%d" % i, "TJPR", dt)).lastrowid
+            self.con.execute("INSERT INTO correspondencias(cliente_id,processo_id,nivel,classificacao,evidencia,fonte,identificada_em,ultima_verificacao) "
+                             "VALUES (?,?,1,'confirmada','{}','djen',datetime('now'),datetime('now'))", (cid, pid))
+        self.con.commit()
+        d = self.c.get("/api/dashboard", headers=self.h("adv@x.com")).json()
+        self.assertEqual((d["identificados_hoje"], d["identificados_semana"], d["identificados_mes"]), (1, 2, 2))
+
+
 if __name__ == "__main__":
     unittest.main()

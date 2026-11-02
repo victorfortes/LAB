@@ -94,7 +94,7 @@ async function pgDashboard() {
         pode("advogado") ? `<button id="rodar">Executar pesquisa agora</button>` : "") +
       `<div id="progresso" class="progresso" hidden></div>` + blocoHoje +
       `<div class="faixa ${esc(d.estado_pesquisa.codigo)}">${esc(d.estado_pesquisa.texto)}</div>
-      <div class="summarygrid">${k(d.identificados_hoje, "Identificados hoje", "primeira vez que o Sentinela os viu", "highlight")}${k(d.identificados_semana, "Identificados na semana")}${k(d.identificados_mes, "Identificados no mês")}
+      <div class="summarygrid">${k(d.identificados_hoje, "Ajuizadas hoje", "só ações ajuizadas hoje (data do DataJud)", "highlight")}${k(d.identificados_semana, "Ajuizadas na semana", "últimos 7 dias")}${k(d.identificados_mes, "Ajuizadas no mês", "últimos 30 dias")}
       ${k(d.clientes_monitorados, "Clientes monitorados")}${k(d.novas_acoes_confirmadas, "Novas ações confirmadas", "confirmadas e ajuizadas recentemente")}${k(d.pendentes_validacao, "Pendentes de validação", "aguardam conferência")}
       ${k(d.falhas_consultas_24h, "Falhas de consulta (24 h)")}${k(d.consultas_a_reprocessar, "Consultas a reprocessar")}${k(d.tribunais_com_dados, "Tribunais com dados recebidos")}${k(d.tribunais_com_conector_validado, "Tribunais com conector validado", "nenhum validado individualmente")}</div>
       <p class="mudo peq">${esc(d.nota_tribunais)}</p>

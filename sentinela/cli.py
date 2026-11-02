@@ -34,7 +34,7 @@ def main(argv=None) -> int:
     i = sp.add_parser("importar"); i.add_argument("csv")
     e = sp.add_parser("executar"); e.add_argument("--desde"); e.add_argument("--ate"); e.add_argument("--forcar", action="store_true")
     e.add_argument("--cliente", type=int, action="append"); e.add_argument("--dias-retroativos", type=int, default=None)
-    sp.add_parser("enriquecer"); sp.add_parser("worker"); sp.add_parser("api")
+    sp.add_parser("enriquecer"); sp.add_parser("reavaliar"); sp.add_parser("worker"); sp.add_parser("api")
     r = sp.add_parser("redefinir-senha"); r.add_argument("email")
     u = sp.add_parser("criar-usuario"); u.add_argument("email"); u.add_argument("nome"); u.add_argument("--papel", default="advogado", choices=["admin","advogado","leitura"])
     sp.add_parser("clientes"); sp.add_parser("saude"); sp.add_parser("execucoes")
@@ -74,6 +74,8 @@ def main(argv=None) -> int:
         import uvicorn, os
         os.environ["SENTINELA_DB"] = a.db
         uvicorn.run("sentinela.api:app", host=os.environ.get("SENTINELA_HOST", "127.0.0.1"), port=int(os.environ.get("SENTINELA_PORT", "8000")))
+    elif a.cmd == "reavaliar":
+        print(montar_motor(con).reavaliar_base())
     elif a.cmd == "enriquecer":
         print(montar_motor(con, limite_enriquecimento=100000).enriquecer_pendentes())
     elif a.cmd == "clientes":

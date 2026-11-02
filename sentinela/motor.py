@@ -182,6 +182,25 @@ class Motor:
         con.commit()
         return cont
 
+    def reavaliar_base(self) -> Dict[str, int]:
+        """Reaplica o matcher atual às comunicações já guardadas; só mexe no que não foi decidido por pessoa."""
+        con, res = self.con, {"avaliadas": 0, "alteradas": 0}
+        for r in con.execute("SELECT c.id,c.cliente_id,c.classificacao,c.estado_validacao,m.* FROM correspondencias c "
+                             "JOIN comunicacoes m ON m.id=c.comunicacao_id").fetchall():
+            res["avaliadas"] += 1
+            if r["estado_validacao"] not in ESTADO_AUTO.values():
+                continue
+            com = {"texto": r["texto"] or "", "destinatarios": json.loads(r["destinatarios"] or "[]")}
+            m = matcher.avaliar(_clientes.carregar(con, r["cliente_id"]), com)
+            if m and m["classificacao"] != r["classificacao"]:
+                ev = json.dumps({**m["evidencia"], "comunicacao_id": r["id"], "reavaliada_em": agora_iso()}, ensure_ascii=False)
+                con.execute("UPDATE correspondencias SET nivel=?,classificacao=?,polo=?,nome_na_fonte=?,evidencia=?,estado_validacao=?,"
+                            "ultima_verificacao=? WHERE id=?", (m["nivel"], m["classificacao"], m["polo"], m["nome_na_fonte"], ev,
+                                                                ESTADO_AUTO[m["classificacao"]], agora_iso(), r["id"]))
+                res["alteradas"] += 1
+        con.commit()
+        return res
+
     # ---------- enriquecimento DataJud ----------
     def enriquecer_pendentes(self, exec_id: Optional[int] = None) -> Dict[str, int]:
         con, res = self.con, {"ok": 0, "nao_encontrado": 0, "falha": 0}

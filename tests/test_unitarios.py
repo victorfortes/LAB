@@ -101,6 +101,17 @@ class TestMatcher(Base):
         m = matcher.avaliar(self.cli(), self.com(polo_nome="OUTRA EMPRESA LTDA", texto="ref 47960950000121"))
         self.assertEqual((m["classificacao"], m["polo"]), ("inconclusiva", None))
 
+    def test_cnpj_no_texto_como_reu_confirma_mesmo_com_nome_diferente_na_fonte(self):
+        t = "Autor(s): JOAO (CPF/CNPJ: 111.444.777-35) Réu(s): ACME IND (CPF/CNPJ: 47.960.950/0001-21) Rua X"
+        m = matcher.avaliar(self.cli(), self.com(polo_nome="OUTRA EMPRESA LTDA", texto=t))
+        self.assertEqual((m["classificacao"], m["polo"], m["nivel"]), ("confirmada", "P", 1))
+
+    def test_cnpj_no_texto_como_autor_terceiro_ou_embargante_nao_confirma(self):
+        c = self.cli()
+        for rot, esperado in (("Autor(s)", "descartada"), ("Terceiro(s)", "inconclusiva"), ("Embargante(s)", "inconclusiva")):
+            m = matcher.avaliar(c, self.com(polo_nome="OUTRA EMPRESA LTDA", texto="%s:   ACME (CPF/CNPJ: 47.960.950/0001-21) Rua" % rot))
+            self.assertEqual(m["classificacao"], esperado, rot)
+
     def test_filial(self):
         m = matcher.avaliar(self.cli(), self.com(texto="CNPJ 11.222.333/0001-81"))
         self.assertEqual((m["classificacao"], m["nivel"]), ("confirmada", 2))
