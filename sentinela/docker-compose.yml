@@ -1,0 +1,15 @@
+# Dois serviços independentes sobre o mesmo volume: a API/painel e o worker (pesquisa diária, fila, alertas).
+# O motor continua funcionando se a API cair, e vice-versa.
+services:
+  api:
+    build: .
+    ports: ["127.0.0.1:8000:8000"]   # publique via proxy reverso com HTTPS (ver docs/INSTALACAO.md)
+    env_file: .env
+    volumes: ["./data:/app/data"]
+    restart: unless-stopped
+  worker:
+    build: .
+    command: ["python", "-m", "sentinela", "--db", "/app/data/sentinela.db", "worker"]
+    env_file: .env
+    volumes: ["./data:/app/data"]
+    restart: unless-stopped
