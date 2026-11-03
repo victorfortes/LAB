@@ -172,12 +172,12 @@ export async function renderizar(relatorio: Relatorio): Promise<Uint8Array> {
     for (const l of relatorio.lacunas) folha.paragrafo(`• ${l}`, { tamanho: 8.5 });
   }
   folha.nota(
-    'Documento gerado automaticamente a partir dos dados registrados na plataforma NGA Nexus. ' +
+    'Documento gerado automaticamente a partir dos dados registrados na plataforma NGA LAB. ' +
     'Os números refletem o que estava lançado no momento da geração e não substituem ' +
     'a conferência nos autos e nos documentos de origem.');
 
   folha.rodape(
-    `NGA Nexus · gerado em ${dataHoraBR(relatorio.geradoEm)} por ${relatorio.geradoPor}`,
+    `NGA LAB · gerado em ${dataHoraBR(relatorio.geradoEm)} por ${relatorio.geradoPor}`,
     relatorio.titulo);
 
   return folha.salvar();

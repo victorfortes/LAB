@@ -22,7 +22,7 @@ import { modeloDe } from '../src/domain/portal/checklist.ts';
 import { fileURLToPath } from 'node:url';
 
 const RAIZ = fileURLToPath(new URL('../', import.meta.url));
-const PORTA_PG = 54399;
+const PORTA_PG = Number(process.env.NGA_PORTA_PG ?? 54399);
 const PORTA_WEB = Number(process.env.NGA_PORTA ?? 8790);
 const SENHA = 'demo-nga-2026!';
 
@@ -54,6 +54,21 @@ const projeto = (await dono.query<{id:string}>(
    VALUES ($1,'RJ Grupo Demonstração','recuperacao_judicial',1,'2026-03-10') RETURNING id`, [NGA])).rows[0]!.id;
 await dono.query(`INSERT INTO projetos (organizacao_id,nome,tipo,prioridade)
    VALUES ($1,'Investigação patrimonial — Devedor Fictício','investigacao_patrimonial',3)`, [NGA]);
+
+// Tarefas de demonstração: o quadro precisa ter o que mover para ser avaliado.
+const TAREFAS: Array<[string, string, string, string | null, string]> = [
+  ['Conferir relação de credores do administrador judicial', 'em_andamento', 'alta', SOCIO, '2026-11-06'],
+  ['Preparar minuta de impugnação de crédito (Classe II)', 'a_fazer', 'urgente', ADVOGADA, '2026-11-04'],
+  ['Reunir balanços dos 3 últimos exercícios', 'a_fazer', 'media', ADVOGADA, '2026-11-12'],
+  ['Revisar plano de recuperação antes de protocolar', 'em_revisao', 'alta', SOCIO, '2026-11-09'],
+  ['Cadastrar credores trabalhistas no sistema', 'concluida', 'baixa', ADVOGADA, '2026-10-30'],
+];
+for (const [titulo, status, prioridade, resp, prazo] of TAREFAS) {
+  await dono.query(
+    `INSERT INTO tarefas (organizacao_id,projeto_id,titulo,status,prioridade,responsavel_id,prazo,concluida_em,criado_por)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,CASE WHEN $4='concluida' THEN now() END,$8)`,
+    [NGA, projeto, titulo, status, prioridade, resp, prazo, SOCIO]);
+}
 
 // A recuperanda no cadastro de empresas do escritório. É daqui que o
 // relatório tira o nome do cliente — não da organização dona do projeto, que
@@ -391,7 +406,7 @@ const servidor = Bun.serve({
 });
 
 console.log(`
-  NGA Nexus (demonstração)  http://127.0.0.1:${servidor.port}
+  NGA LAB (demonstração)  http://127.0.0.1:${servidor.port}
 
   Equipe NGA:  socio@nga.adv.br · advogada@nga.adv.br
   Cliente:     diretor@grupodemo.com.br

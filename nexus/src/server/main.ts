@@ -97,7 +97,7 @@ const servidor = Bun.serve({
   },
 });
 
-console.log(`NGA Nexus em http://${servidor.hostname}:${servidor.port}`);
+console.log(`NGA LAB em http://${servidor.hostname}:${servidor.port}`);
 
 for (const sinal of ['SIGINT', 'SIGTERM'] as const) {
   process.on(sinal, async () => {

@@ -1,4 +1,4 @@
-# NGA NEXUS — Inventário verificado (01/11/2026)
+# NGA LAB — Inventário verificado (01/11/2026)
 
 Tudo abaixo foi **verificado** nesta data: leitura dos repositórios em disco,
 extração do bundle público do Nexus e dos dados da apresentação do NGA Lab.

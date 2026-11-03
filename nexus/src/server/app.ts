@@ -20,12 +20,16 @@ import * as analise from './analise.ts';
 import * as processos from './processos.ts';
 import * as relatorios from './relatorios.ts';
 import * as projetos from './projetos.ts';
+import * as tarefas from './tarefas.ts';
+import * as ferramentas from './ferramentas.ts';
+import * as convites from './convites.ts';
 import * as integracoes from './integracoes.ts';
 import {
   SemEscopo, exigirEscopo, integracaoDoToken, marcarUso, pareceTokenDeIntegracao,
 } from '../security/integracao.ts';
 import { TransicaoDeFaseInvalida } from '../domain/projeto/fases.ts';
 import { PRAZOS_USUAIS } from '../domain/processo/prazos.ts';
+import { calendarioNacional, noRecesso } from '../domain/processo/feriados.ts';
 import { ErroDePrazo } from '../domain/processo/prazos.ts';
 import { NaoEncontrado, PedidoInvalido } from './erros.ts';
 import * as arquivos from './arquivos.ts';
@@ -269,6 +273,97 @@ export function criarApp(ctx: Contexto) {
           integracoes.revogar(db, mIntegracao[1]!, identidade)));
       }
 
+      // --------------------------------------------------------- tarefas ---
+
+      if (rota === '/api/tarefas' && metodo === 'GET') {
+        exigir(identidade.papeis, 'tarefa.ler');
+        const filtros: tarefas.Filtros = {
+          ...(url.searchParams.get('projeto') ? { projetoId: url.searchParams.get('projeto')! } : {}),
+          ...(url.searchParams.get('minhas') === '1' ? { responsavelId: identidade.usuarioId } : {}),
+          incluirConcluidas: url.searchParams.get('concluidas') === '1',
+        };
+        return json(await banco.comoUsuario(identidade.usuarioId, (db) => tarefas.listar(db, filtros)));
+      }
+
+      const mTarefasDoProjeto = /^\/api\/projetos\/([0-9a-f-]{36})\/tarefas$/.exec(rota);
+      if (mTarefasDoProjeto && metodo === 'POST') {
+        exigir(identidade.papeis, 'tarefa.escrever');
+        const corpo = tarefas.EsquemaTarefa.safeParse(await req.json().catch(() => null));
+        if (!corpo.success) return erro('dados inválidos', 400, corpo.error.issues);
+        return json(await banco.comoUsuario(identidade.usuarioId, (db) =>
+          tarefas.criar(db, mTarefasDoProjeto[1]!, corpo.data, identidade)), 201);
+      }
+
+      const mTarefa = /^\/api\/tarefas\/([0-9a-f-]{36})$/.exec(rota);
+      if (mTarefa && (metodo === 'PATCH' || metodo === 'DELETE')) {
+        exigir(identidade.papeis, 'tarefa.escrever');
+        if (metodo === 'DELETE') {
+          return json(await banco.comoUsuario(identidade.usuarioId, (db) =>
+            tarefas.excluir(db, mTarefa[1]!, identidade)));
+        }
+        const corpo = tarefas.EsquemaAtualizacao.safeParse(await req.json().catch(() => null));
+        if (!corpo.success) return erro('dados inválidos', 400, corpo.error.issues);
+        return json(await banco.comoUsuario(identidade.usuarioId, (db) =>
+          tarefas.atualizar(db, mTarefa[1]!, corpo.data, identidade)));
+      }
+
+      if (rota === '/api/escritorio/equipe' && metodo === 'GET') {
+        exigir(identidade.papeis, 'projeto.ler');
+        return json(await banco.comoUsuario(identidade.usuarioId, tarefas.equipeDoEscritorio));
+      }
+
+      // ---------------------------------------------------- ferramentas ---
+      // O estado vem de uma sondagem de verdade a cada aplicação do Lab.
+      if (rota === '/api/ferramentas' && metodo === 'GET') {
+        if (ehCliente) return erro('acesso negado', 403);
+        exigir(identidade.papeis, 'projeto.ler');
+        return json(await banco.comoUsuario(identidade.usuarioId, ferramentas.estado));
+      }
+
+      // --------------------------------------------------------- credores ---
+      const mCredor = /^\/api\/projetos\/([0-9a-f-]{36})\/credores$/.exec(rota);
+      if (mCredor && metodo === 'POST') {
+        exigir(identidade.papeis, 'credito.escrever');
+        const corpo = EsquemaCredor.safeParse(await req.json().catch(() => null));
+        if (!corpo.success) return erro('dados inválidos', 400, corpo.error.issues);
+        return json(await banco.comoUsuario(identidade.usuarioId, (db) =>
+          criarCredor(db, mCredor[1]!, corpo.data, identidade)), 201);
+      }
+      if (mCredor && metodo === 'GET') {
+        exigir(identidade.papeis, 'credito.ler');
+        return json(await banco.comoUsuario(identidade.usuarioId, async (db) => {
+          const { rows } = await db.query(
+            'SELECT id, nome, documento, me_epp FROM credores WHERE projeto_id = $1 ORDER BY nome',
+            [mCredor[1]!]);
+          return rows;
+        }));
+      }
+
+      // ----------------------------------------------------- portal (equipe) ---
+      const mPortal = /^\/api\/projetos\/([0-9a-f-]{36})\/portal$/.exec(rota);
+      if (mPortal && metodo === 'GET') {
+        exigir(identidade.papeis, 'projeto.ler');
+        if (ehCliente) return erro('acesso negado', 403);
+        return json(await banco.comoUsuario(identidade.usuarioId, (db) =>
+          convites.portalDoProjeto(db, mPortal[1]!)));
+      }
+      if (mPortal && metodo === 'PATCH') {
+        exigir(identidade.papeis, 'portal.publicar');
+        const corpo = convites.EsquemaPortal.safeParse(await req.json().catch(() => null));
+        if (!corpo.success) return erro('dados inválidos', 400, corpo.error.issues);
+        return json(await banco.comoUsuario(identidade.usuarioId, (db) =>
+          convites.ajustarPortal(db, mPortal[1]!, corpo.data, identidade)));
+      }
+      const mConvite = /^\/api\/projetos\/([0-9a-f-]{36})\/portal\/convites$/.exec(rota);
+      if (mConvite && metodo === 'POST') {
+        // Dar acesso a cliente é dar chave de porta: mesma permissão de publicar.
+        exigir(identidade.papeis, 'portal.publicar');
+        const corpo = convites.EsquemaConvite.safeParse(await req.json().catch(() => null));
+        if (!corpo.success) return erro('dados inválidos', 400, corpo.error.issues);
+        return json(await banco.comoUsuario(identidade.usuarioId, (db) =>
+          convites.convidar(db, mConvite[1]!, corpo.data, identidade)), 201);
+      }
+
       // ------------------------------------------------------- projetos ---
       // O projeto é a espinha: crédito, plano, assembleia, portal, checklist,
       // documento, análise, processo e relatório se penduram nele. O `hub`
@@ -289,7 +384,9 @@ export function criarApp(ctx: Contexto) {
 
       if (rota === '/api/projetos' && metodo === 'GET') {
         exigir(identidade.papeis, 'projeto.ler');
-        return json(await banco.comoUsuario(identidade.usuarioId, projetos.listar));
+        const lista = await banco.comoUsuario(identidade.usuarioId, projetos.listar);
+        // A prioridade é decisão de gestão do escritório; o cliente não a recebe.
+        return json(ehCliente ? lista.map(({ prioridade: _p, ...resto }) => resto) : lista);
       }
 
       if (rota === '/api/projetos' && metodo === 'POST') {
@@ -303,8 +400,9 @@ export function criarApp(ctx: Contexto) {
       const mProjeto = /^\/api\/projetos\/([0-9a-f-]{36})$/.exec(rota);
       if (mProjeto && metodo === 'GET') {
         exigir(identidade.papeis, 'projeto.ler');
-        return json(await banco.comoUsuario(identidade.usuarioId, (db) =>
-          projetos.hub(db, mProjeto[1]!)));
+        const hub = await banco.comoUsuario(identidade.usuarioId, (db) =>
+          projetos.hub(db, mProjeto[1]!));
+        return json(ehCliente ? (({ prioridade: _p, ...resto }) => resto)(hub) : hub);
       }
 
       const mFase = /^\/api\/projetos\/([0-9a-f-]{36})\/fase$/.exec(rota);
@@ -545,6 +643,19 @@ export function criarApp(ctx: Contexto) {
       if (rota === '/api/prazos/catalogo' && metodo === 'GET') {
         exigir(identidade.papeis, 'prazo.ler');
         return json(PRAZOS_USUAIS);
+      }
+
+      if (rota === '/api/calendario/feriados' && metodo === 'GET') {
+        exigir(identidade.papeis, 'prazo.ler');
+        const ano = Number(url.searchParams.get('ano') ?? new Date().getFullYear());
+        if (!Number.isInteger(ano) || ano < 2000 || ano > 2100) return erro('ano inválido', 400);
+        // Só o NACIONAL e o recesso: feriado local e suspensão do tribunal o sistema não conhece.
+        return json({
+          ano, feriados: calendarioNacional(ano),
+          recesso: { de: `${ano}-12-20`, ate: `${ano + 1}-01-20`, fundamento: 'art. 220 do CPC' },
+          ressalva: 'Feriados estaduais e municipais e suspensões do tribunal não estão aqui.',
+          noRecessoHoje: noRecesso(new Date().toISOString().slice(0, 10)),
+        });
       }
 
       if (rota === '/api/agenda' && metodo === 'GET') {
@@ -811,6 +922,12 @@ const EsquemaLogin = z.object({
   senha: z.string().min(1),
 });
 
+const EsquemaCredor = z.object({
+  nome: z.string().trim().min(1).max(300),
+  documento: z.string().max(20).optional(),
+  meEpp: z.boolean().default(false),
+});
+
 const NATUREZAS = [
   'trabalhista', 'acidente_trabalho', 'garantia_real', 'quirografario',
   'privilegio_especial', 'privilegio_geral', 'subordinado', 'me_epp',
@@ -1059,4 +1176,26 @@ async function gerarObrigacoes(db: PoolClient, planoId: string, identidade: Iden
     creditosPendentesDeValidacao: pendentes.length,
     classesSemCondicaoCadastrada: [...semCondicao],
   };
+}
+
+
+async function criarCredor(
+  db: PoolClient, projetoId: string,
+  dados: z.infer<typeof EsquemaCredor>, identidade: Identidade,
+) {
+  const { rows: proj } = await db.query<{ organizacao_id: string }>(
+    'SELECT organizacao_id FROM projetos WHERE id = $1', [projetoId]);
+  const organizacaoId = proj[0]?.organizacao_id;
+  if (!organizacaoId) throw new NaoEncontrado('projeto não encontrado');
+
+  const { rows } = await db.query<{ id: string }>(
+    `INSERT INTO credores (organizacao_id, projeto_id, nome, documento, me_epp)
+     VALUES ($1,$2,$3,$4,$5) RETURNING id`,
+    [organizacaoId, projetoId, dados.nome, dados.documento ?? null, dados.meEpp]);
+
+  await auditar(db, {
+    organizacaoId, usuarioId: identidade.usuarioId, acao: 'credor.criado',
+    entidade: 'credor', entidadeId: rows[0]!.id, depois: dados,
+  });
+  return { id: rows[0]!.id };
 }

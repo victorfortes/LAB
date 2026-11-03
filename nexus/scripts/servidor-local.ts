@@ -1,5 +1,5 @@
 /**
- * O Nexus rodando na máquina, de verdade e para valer.
+ * O NGA LAB rodando na máquina, de verdade e para valer.
  *
  * Diferente de `demo.ts` em três pontos que são o que separa demonstração de
  * instalação: o banco é PERSISTENTE, não há dado semeado, e os segredos são
@@ -151,7 +151,7 @@ const servidor = Bun.serve({
   },
 });
 
-console.log(`\n  NGA Nexus  http://127.0.0.1:${servidor.port}`);
+console.log(`\n  NGA LAB  http://127.0.0.1:${servidor.port}`);
 console.log(`  dados em   ${BASE}`);
 if (Number(contagem[0]!.n) === 0) {
   console.log(

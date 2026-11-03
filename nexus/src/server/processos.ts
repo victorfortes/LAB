@@ -138,7 +138,7 @@ export async function listar(db: PoolClient, hoje: string) {
   const { rows } = await db.query(
     `SELECT p.id, p.numero, p.classe, p.assunto, p.tribunal, p.comarca, p.uf,
             p.situacao, p.suspenso_motivo, p.suspenso_ate, p.segredo_justica,
-            p.valor_causa, p.distribuido_em, pr.nome AS projeto,
+            p.valor_causa, p.distribuido_em, p.projeto_id, pr.nome AS projeto,
             (SELECT count(*) FROM movimentacoes m WHERE m.processo_id = p.id) AS movimentacoes,
             (SELECT count(*) FROM prazos z WHERE z.processo_id = p.id AND z.situacao = 'aberto')
               AS prazos_abertos,
@@ -454,7 +454,7 @@ export async function fecharPrazo(
 export async function agenda(db: PoolClient, hoje: string, ate: string) {
   const { rows } = await db.query(
     `SELECT z.id, z.titulo, z.tipo, z.vencimento, z.regime, z.dias, z.em_dobro,
-            p.id AS processo_id, p.numero, p.classe, p.comarca, p.uf,
+            p.id AS processo_id, p.projeto_id, p.numero, p.classe, p.comarca, p.uf,
             pr.nome AS projeto, u.nome AS responsavel
        FROM prazos z
        JOIN processos p ON p.id = z.processo_id

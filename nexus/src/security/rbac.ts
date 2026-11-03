@@ -37,6 +37,8 @@ export type Permissao =
    * foi cumprido é o erro que faz o escritório descobrir tarde demais.
    */
   | 'prazo.ler' | 'prazo.escrever'
+  /** Tarefa é trabalho interno: o cliente não alcança nenhuma. */
+  | 'tarefa.ler' | 'tarefa.escrever'
   | 'documento.ler' | 'documento.escrever'
   /**
    * Rodar a análise documental. É separada de `documento.escrever` por dois
@@ -64,7 +66,7 @@ export type Permissao =
 
 const INTERNO_LEITURA: Permissao[] = [
   'cliente.ler', 'projeto.ler', 'credito.ler', 'plano.ler', 'agc.ler', 'documento.ler',
-  'processo.ler', 'prazo.ler',
+  'processo.ler', 'prazo.ler', 'tarefa.ler',
   // O caixa da recuperanda é insumo do trabalho jurídico, quando o cliente
   // autoriza pelo portal. A autorização é checada pelo RLS, não aqui.
   'financeiro_cliente.ler',
@@ -75,7 +77,7 @@ const ADVOGADO: Permissao[] = [
   'cliente.escrever', 'projeto.escrever', 'credito.escrever', 'credito.validar',
   'plano.escrever', 'agc.registrar_voto', 'agc.apurar', 'documento.escrever',
   'portal.publicar', 'analise.executar', 'analise.validar',
-  'processo.escrever', 'prazo.escrever', 'relatorio.gerar',
+  'processo.escrever', 'prazo.escrever', 'relatorio.gerar', 'tarefa.escrever',
 ];
 
 export const PERMISSOES: Readonly<Record<Papel, readonly Permissao[]>> = Object.freeze({
@@ -87,12 +89,12 @@ export const PERMISSOES: Readonly<Record<Papel, readonly Permissao[]>> = Object.
   advogado: ADVOGADO,
   controladoria: [...INTERNO_LEITURA, 'projeto.escrever', 'documento.escrever',
     'analise.executar', 'processo.escrever', 'prazo.escrever', 'relatorio.gerar',
-    'auditoria.ler'],
+    'tarefa.escrever', 'auditoria.ler'],
   financeiro: [...INTERNO_LEITURA, 'financeiro.ler', 'financeiro.escrever'],
-  administrativo: [...INTERNO_LEITURA, 'documento.escrever', 'processo.escrever'],
+  administrativo: [...INTERNO_LEITURA, 'documento.escrever', 'processo.escrever', 'tarefa.escrever'],
   // Estagiário lê e redige, mas não valida enquadramento nem publica para fora.
   estagiario: [...INTERNO_LEITURA, 'credito.escrever', 'documento.escrever',
-    'analise.executar', 'processo.escrever', 'relatorio.gerar'],
+    'analise.executar', 'processo.escrever', 'relatorio.gerar', 'tarefa.escrever'],
   cliente_administrador: [
     'projeto.ler', 'documento.ler', 'documento.escrever', 'plano.ler', 'processo.ler',
     // O cliente lança no PRÓPRIO caixa; nunca vê as finanças da NGA.

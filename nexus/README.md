@@ -1,7 +1,16 @@
-# NGA NEXUS
+# NGA LAB
 
-Plataforma operacional da NGA Advogados. Este repositório é a base nova,
-construída a partir do inventário em [`INVENTARIO.md`](INVENTARIO.md).
+Ecossistema NGA LAB: as ferramentas do Lab (Prazos, Sentinela, Íntegra, Radar), a
+**gestão de projetos** que administra tudo, o **painel do advogado** e o **painel do
+cliente**, numa só plataforma. Construída a partir do inventário em
+[`INVENTARIO.md`](INVENTARIO.md).
+
+**Front-end** (`web/`): sem etapa de build, módulos ES. O visual é o design system do
+LexPane (vidro, cartões, quadro kanban, anéis de progresso) com a paleta do NGA LAB
+(azul quase preto, âmbar, ciano). A gestão de projetos é o centro: cada projeto tem um
+hub com fase do procedimento, tarefas, créditos, processos e prazos, documentos, portal
+do cliente, plano e caixa, relatórios e equipe. O cliente entra pela mesma porta e vê só
+o que é dele; quem garante isso é o RLS do banco, não a tela.
 
 ```bash
 bun install

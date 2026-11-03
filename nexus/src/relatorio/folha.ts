@@ -281,7 +281,7 @@ export class Folha {
     pagina.drawText('NGA', {
       x: MARGEM.esquerda, y, size: 11, font: this.#negrito, color: COR.tinta,
     });
-    pagina.drawText('NEXUS', {
+    pagina.drawText('LAB', {
       x: MARGEM.esquerda + this.#negrito.widthOfTextAtSize('NGA ', 11),
       y, size: 11, font: this.#negrito, color: COR.ambarEscuro,
     });

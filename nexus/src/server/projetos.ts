@@ -22,6 +22,7 @@ import {
   progresso, transicionarFase,
 } from '../domain/projeto/fases.ts';
 import { diasUteisAte } from '../domain/processo/prazos.ts';
+import { limparCnpj, validarCnpj } from '../domain/analise/identificadores.ts';
 
 const TIPOS = [
   'recuperacao_judicial', 'recuperacao_extrajudicial', 'falencia', 'reestruturacao',
@@ -34,6 +35,12 @@ export const EsquemaProjeto = z.object({
   resumo: z.string().max(1000).optional(),
   prioridade: z.number().int().min(1).max(5).default(3),
   empresaId: z.string().uuid().optional(),
+  /** Cria o cliente no cadastro do escritório junto com o projeto. */
+  cliente: z.object({
+    razaoSocial: z.string().trim().min(2).max(300),
+    cnpj: z.string().max(20).optional(),
+  }).optional(),
+  previsaoFim: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   iniciadoEm: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
 });
 
@@ -86,14 +93,29 @@ export async function criar(
     `INSERT INTO projeto_equipe (projeto_id, organizacao_id, usuario_id, papel)
      VALUES ($1,$2,$3,'lider')`, [id, organizacaoId, identidade.usuarioId]);
 
-  if (dados.empresaId) {
-    await db.query(
-      `INSERT INTO projetos_empresas (projeto_id, empresa_id, papel)
-       VALUES ($1,$2,$3)`,
-      [id, dados.empresaId,
-       dados.tipo === 'recuperacao_judicial' || dados.tipo === 'recuperacao_extrajudicial'
-         ? 'recuperanda' : 'relacionada']);
+  const papelDaEmpresa = dados.tipo === 'recuperacao_judicial' || dados.tipo === 'recuperacao_extrajudicial'
+    ? 'recuperanda' : 'relacionada';
+  let empresaId = dados.empresaId;
+  if (!empresaId && dados.cliente) {
+    // CNPJ informado tem de fechar pelo dígito verificador: cadastro com CNPJ
+    // errado vira cliente que ninguém acha em consulta nenhuma.
+    let cnpj: string | null = null;
+    if (dados.cliente.cnpj) {
+      if (!validarCnpj(dados.cliente.cnpj)) throw new PedidoInvalido('o dígito verificador do CNPJ não confere');
+      cnpj = limparCnpj(dados.cliente.cnpj);
+    }
+    const { rows: emp } = await db.query<{ id: string }>(
+      `INSERT INTO empresas (organizacao_id, cnpj, razao_social) VALUES ($1,$2,$3)
+       ON CONFLICT (organizacao_id, cnpj) DO UPDATE SET razao_social = EXCLUDED.razao_social
+       RETURNING id`, [organizacaoId, cnpj, dados.cliente.razaoSocial]);
+    empresaId = emp[0]!.id;
   }
+  if (empresaId) {
+    await db.query(
+      `INSERT INTO projetos_empresas (projeto_id, empresa_id, papel) VALUES ($1,$2,$3)
+       ON CONFLICT DO NOTHING`, [id, empresaId, papelDaEmpresa]);
+  }
+  if (dados.previsaoFim) await db.query('UPDATE projetos SET previsao_fim = $2 WHERE id = $1', [id, dados.previsaoFim]);
 
   await auditar(db, {
     organizacaoId, usuarioId: identidade.usuarioId, acao: 'projeto.criado',
@@ -106,12 +128,17 @@ export async function criar(
 export async function listar(db: PoolClient) {
   const { rows } = await db.query(
     `SELECT p.id, p.nome, p.tipo, p.situacao, p.prioridade, p.fase, p.fase_desde,
-            p.resumo, p.iniciado_em, p.encerrado_em,
+            p.resumo, p.iniciado_em, p.previsao_fim, p.encerrado_em,
             u.nome AS responsavel,
             (SELECT e.nome FROM projeto_equipe pe
                JOIN usuarios e ON e.id = pe.usuario_id
               WHERE pe.projeto_id = p.id AND pe.papel = 'lider' AND pe.ate IS NULL
               LIMIT 1) AS lider,
+            (SELECT coalesce(json_agg(json_build_object('nome', x.nome, 'papel', x.papel)
+                      ORDER BY CASE x.papel WHEN 'lider' THEN 0 ELSE 1 END, x.nome), '[]'::json)
+               FROM (SELECT e.nome, pe.papel FROM projeto_equipe pe
+                       JOIN usuarios e ON e.id = pe.usuario_id
+                      WHERE pe.projeto_id = p.id AND pe.ate IS NULL) x) AS equipe,
             (SELECT coalesce(em.nome_fantasia, em.razao_social) FROM projetos_empresas pem
                JOIN empresas em ON em.id = pem.empresa_id
               WHERE pem.projeto_id = p.id ORDER BY pem.papel LIMIT 1) AS cliente,
@@ -120,7 +147,14 @@ export async function listar(db: PoolClient) {
             (SELECT count(*) FROM requisitos r
               WHERE r.projeto_id = p.id AND r.situacao IN ('enviado','em_analise')) AS a_analisar,
             (SELECT count(*) FROM prazos z JOIN processos pr ON pr.id = z.processo_id
-              WHERE pr.projeto_id = p.id AND z.situacao = 'aberto') AS prazos_abertos
+              WHERE pr.projeto_id = p.id AND z.situacao = 'aberto') AS prazos_abertos,
+            (SELECT json_build_object('titulo', z.titulo, 'vencimento', z.vencimento)
+               FROM prazos z JOIN processos pr ON pr.id = z.processo_id
+              WHERE pr.projeto_id = p.id AND z.situacao = 'aberto'
+              ORDER BY z.vencimento LIMIT 1) AS proximo_prazo,
+            (SELECT count(*) FROM tarefas t WHERE t.projeto_id = p.id) AS tarefas_total,
+            (SELECT count(*) FROM tarefas t
+              WHERE t.projeto_id = p.id AND t.status = 'concluida') AS tarefas_concluidas
        FROM projetos p LEFT JOIN usuarios u ON u.id = p.responsavel_id
       ORDER BY p.situacao, p.prioridade, p.nome`);
 
