@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import analise, clientes, cobertura, config as _config, db, fila, matriz, seguranca, validacao
+from . import analise, cadernos, clientes, cobertura, config as _config, db, fila, matriz, seguranca, validacao
 
 CAMINHO_DB = lambda: os.environ.get("SENTINELA_DB", "data/sentinela.db")
 WEB = os.path.join(os.path.dirname(__file__), "web")
@@ -431,7 +431,7 @@ class JobIn(BaseModel):
 
 @app.post("/api/jobs", status_code=201)
 def novo_job(d: JobIn, u=Depends(exigir("advogado")), con: sqlite3.Connection = Depends(get_con)):
-    if d.tipo not in ("executar", "reprocessar_falhas", "alertas", "preencher_lacunas", "verificar_controle"):
+    if d.tipo not in ("executar", "reprocessar_falhas", "alertas", "preencher_lacunas", "verificar_controle", "varrer_cadernos"):
         raise HTTPException(422, "tipo inválido")
     params = dict(d.params)
     if d.tipo == "executar":
@@ -480,6 +480,7 @@ def cobertura_api(dias: int = 30, u=Depends(usuario_atual), con: sqlite3.Connect
     m["ultima_pesquisa_valida"] = dict(ult) if ult else None
     m["controle"] = [dict(r) for r in con.execute("SELECT c.*,cl.razao_social cliente FROM controle_processos c JOIN clientes cl ON cl.id=c.cliente_id ORDER BY c.id DESC")]
     m["rescan_dias"] = 7
+    m["cadernos"] = cadernos.resumo(con, 7)
     return m
 
 

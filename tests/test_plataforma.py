@@ -575,5 +575,54 @@ class TestGarantiaDeCobertura(Base):
         self.assertEqual(self.con.execute("SELECT count(*) FROM alertas WHERE chave_dedup LIKE 'falha_consulta:%atraso:%'").fetchone()[0] > 0, True)
 
 
+class TestCadernos(Base):
+    def _zip(self, caminho, itens):
+        import zipfile
+        with zipfile.ZipFile(caminho, "w") as z:
+            z.writestr("X_1.json", json.dumps({"count": len(itens), "items": itens}))
+
+    def _http(self, metas):
+        class H:
+            def requisitar(h, m, url, *a, **k):
+                if url.endswith("/tribunal"):
+                    return [{"instituicoes": [{"sigla": "TJA"}, {"sigla": "TJB"}]}]
+                _, _, _, sg, dia, meio = url.rsplit("/", 5)[-6:] if False else (None, None, None) + tuple(url.split("/caderno/")[1].split("/"))
+                return metas.get((sg, dia, meio), {"status": "Sem comunicações", "total_comunicacoes": 0})
+        return H()
+
+    def test_varredura_acha_cliente_prova_total_e_nao_refaz_caderno_fechado(self):
+        from sentinela import cadernos
+        clientes.cadastrar(self.con, "Acme Indústria Ltda", CNPJ_OK)
+        hoje = date.today().isoformat()
+        achou = dict(item(1, polo_nome="OUTRA", texto="Réu(s): ACME INDUSTRIA LTDA (CPF/CNPJ: 47.960.950/0001-21)"), destinatarios=[{"nome": "SIGILO", "polo": "P"}])
+        outros = [dict(item(i, polo_nome="FULANO LTDA", texto="nada"), id=100 + i) for i in range(4)]
+        arquivos = {"urlA": [achou] + outros}
+        metas = {("TJA", hoje, "D"): {"status": "Processado", "total_comunicacoes": 5, "versao": 1, "hash": "h", "url": "urlA"},
+                 ("TJB", hoje, "D"): {"status": "Em processamento", "total_comunicacoes": 0}}
+        baixados = []
+        def baixar(url, destino):
+            baixados.append(url); self._zip(destino, arquivos[url])
+        mt = self.motor(lambda *a: resp({}))
+        mt.djen.http = self._http(metas)
+        r = cadernos.varrer(self.con, mt, dias=1, baixar=baixar, trabalhadores=1)
+        self.assertEqual((r["comunicacoes_lidas"], r["achados"]), (5, 1))
+        self.assertEqual(self.con.execute("SELECT classificacao FROM correspondencias").fetchone()[0], "confirmada")  # CNPJ no texto + 'Réu', partes sob SIGILO
+        sm = cadernos.resumo(self.con, 1)[0]
+        self.assertEqual((sm["lidas"], sm["declaradas"], sm["pendentes"]), (5, 5, 1))   # TJB ainda em processamento
+        baixados.clear()
+        cadernos.varrer(self.con, mt, dias=1, baixar=baixar, trabalhadores=1)
+        self.assertEqual(self.con.execute("SELECT count(*) FROM correspondencias").fetchone()[0], 1)   # sem duplicar
+
+    def test_total_lido_diferente_do_declarado_marca_incompleto(self):
+        from sentinela import cadernos
+        clientes.cadastrar(self.con, "Acme Indústria Ltda", CNPJ_OK)
+        hoje = date.today().isoformat()
+        metas = {("TJA", hoje, "D"): {"status": "Processado", "total_comunicacoes": 9, "versao": 1, "hash": "h", "url": "u"}}
+        mt = self.motor(lambda *a: resp({})); mt.djen.http = self._http(metas)
+        cadernos.varrer(self.con, mt, dias=1, baixar=lambda u, d: self._zip(d, [item(1)]), trabalhadores=1)
+        self.assertEqual(self.con.execute("SELECT status FROM cadernos WHERE sigla='TJA' AND meio='D'").fetchone()[0], "incompleto")
+        self.assertEqual(cadernos.resumo(self.con, 1)[0]["com_erro"], 1)
+
+
 if __name__ == "__main__":
     unittest.main()

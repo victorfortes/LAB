@@ -229,6 +229,22 @@ MIGRACOES = [
     );
     CREATE INDEX idx_entregas_nexus_proc ON entregas_nexus(numero_processo);
     """),
+    ("0009_cadernos", """
+    CREATE TABLE cadernos (
+        sigla TEXT NOT NULL,
+        meio TEXT NOT NULL,
+        data TEXT NOT NULL,
+        status TEXT NOT NULL,
+        versao INTEGER,
+        hash TEXT,
+        total_declarado INTEGER,
+        total_lido INTEGER,
+        achados INTEGER NOT NULL DEFAULT 0,
+        erro TEXT,
+        atualizado_em TEXT NOT NULL,
+        PRIMARY KEY (sigla, meio, data)
+    );
+    """),
 ]
 
 

@@ -94,6 +94,10 @@ def executar_job(con: sqlite3.Connection, motor: Motor, job: sqlite3.Row, ia=Non
     if job["tipo"] == "preencher_lacunas":
         r = motor.preencher_lacunas()
         return {"execucao": r, **_pipeline_pos_execucao(con, r, ia, **kw)}
+    if job["tipo"] == "varrer_cadernos":
+        from . import cadernos
+        r = cadernos.varrer(con, motor, dias=int(p.get("dias", 3)))
+        return {"execucao": r, **_pipeline_pos_execucao(con, r, ia, **kw)}
     if job["tipo"] == "verificar_controle":
         from . import cobertura
         return {"controle": cobertura.verificar_controle(con, motor)}
@@ -142,6 +146,20 @@ def agendar(con: sqlite3.Connection, agora: Optional[datetime] = None) -> Dict[s
     if pend and not aberto and (not ult or datetime.fromisoformat(ult) <= agora - timedelta(minutes=cfg["reprocessar_a_cada_min"])):
         enfileirar(con, "reprocessar_falhas", {}, "agendador", agora)
         feito["reprocessar"] = True
+    feito["cadernos"] = False
+    try:
+        aberto_c = con.execute("SELECT 1 FROM jobs WHERE tipo='varrer_cadernos' AND status IN ('na_fila','executando')").fetchone()
+        ja_c = con.execute("SELECT 1 FROM jobs WHERE tipo='varrer_cadernos' AND origem='agendador' AND date(criado_em)=?", (agora.date().isoformat(),)).fetchone()
+        ult_c = con.execute("SELECT max(criado_em) FROM jobs WHERE tipo='varrer_cadernos'").fetchone()[0]
+        abertos = con.execute("SELECT 1 FROM cadernos WHERE data>=? AND NOT (status='Sem comunicações' OR (status='Processado' AND total_lido=total_declarado))",
+                              ((agora.date() - timedelta(days=2)).isoformat(),)).fetchone()
+        primeira_vez = (agora.hour, agora.minute) >= (hh, mm) and not ja_c
+        refazer = abertos and (not ult_c or datetime.fromisoformat(ult_c) <= agora - timedelta(minutes=cfg["reprocessar_a_cada_min"]))
+        if not aberto_c and (primeira_vez or refazer):
+            enfileirar(con, "varrer_cadernos", {"dias": 3}, "agendador", agora)
+            feito["cadernos"] = True
+    except Exception as e:
+        print("falha ao agendar cadernos:", e, flush=True)
     feito["lacunas"] = False
     try:
         from . import cobertura
