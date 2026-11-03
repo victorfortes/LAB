@@ -1,0 +1,54 @@
+# Nexus + PostgreSQL, para subir em qualquer máquina com Docker.
+#
+# Antes do primeiro `up`, copie .env.example para .env e preencha. Depois:
+#
+#   docker compose up -d banco
+#   docker compose run --rm nexus bun run migrate
+#   docker compose up -d nexus
+#
+# A migração é passo próprio de propósito: ela conecta como DONO do schema,
+# cria o papel `nga_app` e define a senha dele. A aplicação roda como
+# `nga_app`, que não fura o RLS — é isso que mantém o isolamento entre
+# clientes de pé (ver src/db/migrations/004_papel_aplicacao.sql).
+
+services:
+  banco:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: ${NGA_PG_DATABASE:-nga_nexus}
+      POSTGRES_USER: ${NGA_PG_ADMIN_USER:-postgres}
+      POSTGRES_PASSWORD: ${NGA_PG_ADMIN_PASSWORD:?defina no .env}
+    volumes:
+      - postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${NGA_PG_ADMIN_USER:-postgres}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  nexus:
+    build: .
+    depends_on:
+      banco:
+        condition: service_healthy
+    environment:
+      NGA_PG_HOST: banco
+      NGA_PG_DATABASE: ${NGA_PG_DATABASE:-nga_nexus}
+      NGA_PG_USER: nga_app
+      NGA_PG_PASSWORD: ${NGA_PG_PASSWORD:?defina no .env}
+      NGA_PG_ADMIN_USER: ${NGA_PG_ADMIN_USER:-postgres}
+      NGA_PG_ADMIN_PASSWORD: ${NGA_PG_ADMIN_PASSWORD:?defina no .env}
+      # Sem este segredo, os links de download deixam de valer a cada
+      # reinício e não funcionam com mais de uma réplica.
+      NGA_SEGREDO_ARQUIVOS: ${NGA_SEGREDO_ARQUIVOS:?defina no .env}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    ports:
+      - "${NGA_PORTA_EXTERNA:-8790}:8790"
+    volumes:
+      - acervo:/app/acervo
+    restart: unless-stopped
+
+volumes:
+  postgres:
+  acervo:

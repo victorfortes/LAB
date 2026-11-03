@@ -62,6 +62,37 @@ Tudo abaixo foi executado nesta máquina. Nada está marcado como pronto sem tes
 | CRM, financeiro do escritório, processos | ⛔ Não iniciados. Ver `/api/modulos`. |
 | NGA Atlas, NGA Orbit, Radar Concursal | ⛔ Não existem em lugar nenhum. São construção nova. |
 
+## Como colocar em pé
+
+Três passos, nesta ordem. O segundo existe porque banco recém-migrado não tem
+usuário nenhum: a instância sobe, responde e ninguém entra.
+
+```bash
+cp .env.example .env            # preencha as senhas e o segredo de arquivos
+docker compose up -d banco
+docker compose run --rm nexus bun run migrate
+docker compose run --rm -e NGA_SENHA='...' nexus \
+  bun run criar-usuario voce@nga.adv.br "Seu Nome" socio_administrador
+docker compose up -d nexus
+```
+
+Sem Docker, os mesmos três passos com as variáveis no ambiente: `bun run
+migrate`, `bun run criar-usuario` e `bun start`.
+
+**A migração é passo separado de propósito.** Ela conecta como dono do schema
+para criar tabela, política e o papel `nga_app`; a aplicação roda como
+`nga_app`, que não fura o RLS — é isso que mantém o isolamento entre clientes
+de pé. Rodar migração no arranque de cada réplica é como duas instâncias
+migram o mesmo banco ao mesmo tempo.
+
+**`NGA_SEGREDO_ARQUIVOS` não é opcional em produção.** Sem ele um segredo é
+sorteado por processo: os links de download morrem a cada reinício e não
+funcionam com mais de uma réplica. O `/api/arquivos/estado` denuncia isso.
+
+**O acervo fica fora de `web/`.** Se o servidor de estáticos alcançasse os
+arquivos, a URL assinada não protegeria nada (§12.4). No compose ele é um
+volume próprio.
+
 ## Decisões que valem explicação
 
 **Dinheiro é `bigint` em centavos.** Estes números vão para habilitação de
