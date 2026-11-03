@@ -12,9 +12,23 @@ reescrever o que já funciona.
 |---|---|---|---|
 | [`nexus/`](nexus) | A plataforma: núcleo de insolvência, portal do cliente, análise documental, acervo, processos e relatórios | Bun · TypeScript · PostgreSQL | 587 testes · é aqui que os outros entregam |
 | [`sentinela/`](sentinela) | Monitora novas ações contra clientes pelo DJEN e DataJud | Python · SQLite | Cópia — o repositório oficial é [victorfortes/Sentinela](https://github.com/victorfortes/Sentinela) |
-| [`prazos/`](prazos) | Agendamento e auditoria de prazos, integrado ao Astrea | Bun · TypeScript · React | 58 testes · leitura real do Astrea verificada; escrita não liberada |
-| [`integra/`](integra) | Captura a íntegra dos autos, divide em partes e dispara a triagem | Bun · TypeScript · Playwright | Divisão de PDF testada em autos reais; captura em tribunal não exercitada |
+| [`prazos/`](prazos) | Agendamento e auditoria de prazos, integrado ao Astrea | Bun · TypeScript · React | Cópia — o repositório oficial é [AgendamentodePrazos_Astrea](https://github.com/victorfortes/AgendamentodePrazos_Astrea) · 58 testes · leitura real do Astrea verificada, escrita não liberada |
+| [`integra/`](integra) | Captura a íntegra dos autos, divide em partes e dispara a triagem | Bun · TypeScript · Playwright | Mora aqui: não tinha repositório próprio · divisão de PDF testada em autos reais, captura em tribunal não exercitada |
 | [`bi-de-prazos/`](bi-de-prazos) | Painel de prazos entregue | HTML estático | Artefato, sem código-fonte de geração |
+
+### Sobre as cópias
+
+`sentinela/` e `prazos/` vieram por `git subtree`, com a história preservada,
+mas o repositório próprio de cada um continua sendo onde se comita. Para
+atualizar a cópia daqui:
+
+```bash
+git subtree pull --prefix=sentinela https://github.com/victorfortes/Sentinela.git main
+git subtree pull --prefix=prazos https://github.com/victorfortes/AgendamentodePrazos_Astrea.git main
+```
+
+`integra/` e `bi-de-prazos/` não tinham repositório: moram aqui, e é aqui que
+se comita.
 
 ## O que está ligado a quê
 
