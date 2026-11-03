@@ -100,7 +100,7 @@ def gravar_relatorio(con: sqlite3.Connection) -> Dict:
 def _motivo_invisivel(coms) -> str:
     import re
     nomes = [d.get("nome") or "" for c in coms for d in c.get("destinatarios", [])]
-    if nomes and all(n.strip().upper() == "SIGILO" for n in nomes):
+    if nomes and sum(1 for n in nomes if n.strip().upper() == "SIGILO") >= len(nomes) / 2:
         return "partes sob sigilo: o DJEN omite os nomes"
     if nomes and sum(1 for n in nomes if re.fullmatch(r"(?:[A-Z]\.? ?)+", n.strip().upper())) >= len(nomes) / 2:
         return "nomes abreviados por iniciais"

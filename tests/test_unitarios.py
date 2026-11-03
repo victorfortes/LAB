@@ -104,6 +104,24 @@ class TestNomeNoCorpoDoTexto(Base):
         self.assertEqual(r["classificacao"], "provavel")
 
 
+class TestIniciais(Base):
+    def test_iniciais_e_abreviacao(self):
+        from sentinela import nomes
+        self.assertEqual(nomes.iniciais("TRANSPORTADORA TRANS MOSA LTDA"), "T. T. M. L.")
+        self.assertEqual(nomes.iniciais("Fortress Serviços Ltda"), "")          # curta demais: não pesquisa
+        self.assertTrue(nomes.e_abreviacao("T. T. M. L."))
+        self.assertFalse(nomes.e_abreviacao("FORTRESS SERVICOS"))
+        self.assertFalse(nomes.e_abreviacao("T. T. M. L. DOS S."))
+
+    def test_parte_abreviada_vira_provavel_e_nunca_confirmada_sozinha(self):
+        cid = clientes.cadastrar(self.con, "Transportadora Trans Mosa Ltda", CNPJ_OK)
+        self.con.execute("UPDATE clientes SET confirmar_por_nome_exato=1"); self.con.commit()
+        c = clientes.carregar(self.con, cid)
+        r = matcher.avaliar(c, {"texto": "", "destinatarios": [{"nome": "B. J. S. S. A.", "polo": "A"}, {"nome": "T. T. M. L.", "polo": "P"}]})
+        self.assertEqual((r["classificacao"], r["polo"]), ("provavel", "P"))
+        self.assertIsNone(matcher.avaliar(c, {"texto": "", "destinatarios": [{"nome": "X. Y. Z. W.", "polo": "P"}]}))
+
+
 class TestMatcher(Base):
     def cli(self):
         cid = clientes.cadastrar(self.con, "Acme Indústria Ltda", CNPJ_OK, filiais=["11.222.333/0001-81"], anteriores=["Velha Acme S/A"])

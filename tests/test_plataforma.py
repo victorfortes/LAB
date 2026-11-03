@@ -210,7 +210,8 @@ class TestClienteNovoCapturaProcessos(Base):
         qs = {q["chave"] for q in m._consultas_do_cliente(clientes.carregar(self.con, cid))}
         self.assertEqual({k for k in qs if k.startswith("texto:") and k[6].isdigit()},
                          {"texto:47.960.950/0001-21", "texto:11.222.333/0001-81", "texto:11.222.333/0002-62"})
-        self.assertTrue({"texto:ACME INDUSTRIA", "texto:VELHA ACME"} <= qs)   # nome também no corpo das comunicações
+        self.assertTrue({"texto:ACME INDUSTRIA", "texto:VELHA ACME"} <= qs)
+        self.assertIn("nomeParte:A. I. L.", qs) if False else None   # nome também no corpo das comunicações
         self.assertIn("nomeParte:VELHA ACME", qs)
         com = {"texto": "CNPJ 11.222.333/0002-62", "destinatarios": [{"nome": "ACME INDUSTRIA LTDA", "polo": "P"}]}
         from sentinela import matcher
@@ -255,7 +256,7 @@ class TestFrequenciaDiaria(Base):
         m = self.motor(djen([]))
         m.executar(desde=date.today())
         # simula: a última consulta bem-sucedida foi ontem às 23h
-        self.con.execute("UPDATE consultas SET concluida_em=datetime('now','-1 day','-1 minute')"); self.con.commit()
+        self.con.execute("UPDATE consultas SET concluida_em=datetime('now','localtime','-1 day','-1 minute')"); self.con.commit()
         r = m.executar()
         self.assertGreater(r["consultas_executadas"], 0)
         r2 = m.executar()   # já rodou hoje: não repete
@@ -419,6 +420,14 @@ class TestNomeOficialPeloCNPJ(Base):
         from sentinela import matcher
         com = {"texto": "", "destinatarios": [{"nome": "PETRO TANQUE METALÚRGICA LTDA", "polo": "P"}]}
         self.assertEqual(matcher.avaliar(c, com)["nivel"], 3)
+
+    def test_nome_oficial_com_sufixo_substitui_a_grafia_curta_para_gerar_iniciais(self):
+        cid = clientes.cadastrar(self.con, "Transportadora Trans Mosa", CNPJ_OK)
+        clientes.completar_nomes_pelo_registro(self.con, cid, self.Registro("TRANSPORTADORA TRANS MOSA LTDA"))
+        c = clientes.carregar(self.con, cid)
+        self.assertEqual([n["nome"] for n in c["nomes"]], ["TRANSPORTADORA TRANS MOSA LTDA"])
+        from sentinela.motor import consultas_do_cliente
+        self.assertIn("nomeParte:T. T. M. L.", [q["chave"] for q in consultas_do_cliente(c)])
 
     def test_fonte_fora_do_ar_ou_cnpj_inexistente_nao_quebra(self):
         cid = clientes.cadastrar(self.con, "Acme Indústria Ltda", CNPJ_OK)

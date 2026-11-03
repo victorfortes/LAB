@@ -25,9 +25,11 @@ def transporte_urllib(metodo, url, headers, corpo, timeout) -> Tuple[int, Dict[s
 class FonteHTTP:
     def __init__(self, nome: str, min_intervalo: float = 1.0, tentativas: int = 4, espera_base: float = 2.0,
                  timeout: float = 60.0, transporte: Callable = transporte_urllib, dormir: Callable = time.sleep,
-                 ao_resultado: Optional[Callable[[str, bool, str], None]] = None):
+                 ao_resultado: Optional[Callable[[str, bool, str], None]] = None,
+                 status_ok: Tuple[int, ...] = (200,)):
         self.nome, self.min_intervalo, self.tentativas = nome, min_intervalo, tentativas
         self.espera_base, self.timeout = espera_base, timeout
+        self.status_ok = status_ok  # as fontes respondem 200; o Nexus responde 201 na ingestão
         self._transporte, self._dormir, self._cb = transporte, dormir, ao_resultado
         self._lock = threading.Lock()
         self._ultimo = 0.0
@@ -50,7 +52,7 @@ class FonteHTTP:
             self._esperar_vez()
             try:
                 status, hdr, raw = self._transporte(metodo, url, h, corpo, self.timeout)
-                if status == 200:
+                if status in self.status_ok:
                     dados = json.loads(raw)
                     restante = hdr.get("x-ratelimit-remaining")
                     if restante is not None and restante.isdigit() and int(restante) <= 2:

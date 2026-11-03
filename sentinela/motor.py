@@ -8,6 +8,7 @@ from typing import Dict, List, Optional
 
 from . import clientes as _clientes
 from . import cnpj as _cnpj
+from . import nomes as _nomes
 from . import matcher
 from .conectores.djen import ConectorDJEN
 from .conectores.datajud import ConectorDataJud
@@ -76,8 +77,13 @@ def consultas_do_cliente(c: Dict) -> List[Dict]:
             qs.append(("nomeParte", n["nome_norm"]))  # sem sufixo societário: a fonte grafa "SIA", "S/A", "LTDA" de formas diversas
     for x in c["cnpjs"]:
         qs.append(("texto", _cnpj.formatar(x["cnpj"])))
+    # alguns tribunais publicam a parte só com iniciais ("T. T. M. L."): busca também essa forma
+    for n in c["nomes"]:
+        ini = _nomes.iniciais(n["nome"])
+        if ini and ("nomeParte", ini) not in qs:
+            qs.append(("nomeParte", ini))
     # o nome também é buscado no CORPO das comunicações: o DJEN omite, abrevia (iniciais) ou não lista o cliente nas partes
-    for p_, v_ in [q for q in qs if q[0] == "nomeParte"]:
+    for p_, v_ in [q for q in qs if q[0] == "nomeParte" and not _nomes.e_abreviacao(q[1])]:
         qs.append(("texto", v_))
     return [{"param": p, "valor": v, "chave": "%s:%s" % (p, v)} for p, v in qs]
 

@@ -154,6 +154,9 @@ def avaliar(cliente: Dict, comunicacao: Dict) -> Optional[Dict]:
         tipo, sim, nome_cli = _melhor_nome(p.get("nome", ""), cliente["nomes"])
         if sim >= LIMIAR_APROX:
             cand.append((p, tipo, sim, nome_cli))
+    # partes abreviadas por iniciais (TJSP): "T. T. M. L." = iniciais do nome do cliente; sem corroboração só pode ser 'provável'
+    ini_cli = {_nomes.normalizar_iniciais(_nomes.iniciais(n["nome"])): n for n in cliente["nomes"] if _nomes.iniciais(n["nome"])}
+    abrev = [p for p in partes if _nomes.e_abreviacao(p.get("nome", "")) and _nomes.normalizar_iniciais(p.get("nome", "")) in ini_cli]
     passivo = [c for c in cand if c[0].get("polo") == "P"]
     ativo = [c for c in cand if c[0].get("polo") == "A"]
 
@@ -186,6 +189,12 @@ def avaliar(cliente: Dict, comunicacao: Dict) -> Optional[Dict]:
         p, tipo, sim, nome_cli = max(ativo, key=lambda c: c[2])
         return {"nivel": 5, "classificacao": "descartada", "polo": "A", "nome_na_fonte": p["nome"],
                 "evidencia": ev(p, tipo, sim, nome_cli, {"regra": "cliente aparece como autor/polo ativo"})}
+    ab_p = [p for p in abrev if p.get("polo") == "P"]
+    if ab_p and not ativo:
+        n = ini_cli[_nomes.normalizar_iniciais(ab_p[0]["nome"])]
+        return {"nivel": 5, "classificacao": "provavel", "polo": "P", "nome_na_fonte": ab_p[0]["nome"],
+                "evidencia": {"nome_cliente": n["nome"], "tipo_nome": "iniciais", "cnpj_no_texto": cnpj_hit, "papel_no_texto": None,
+                              "regra": "parte publicada só com iniciais coincide com as iniciais do nome do cliente (ocorre no TJSP); iniciais podem coincidir com outra empresa: conferir"}}
     por_texto = _por_texto(cliente, comunicacao)
     if cnpj_hit:
         base = {"nivel": nivel_cnpj, "classificacao": "inconclusiva", "polo": None, "nome_na_fonte": None,

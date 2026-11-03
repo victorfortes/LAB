@@ -42,6 +42,14 @@ def main(argv=None) -> int:
     u = sp.add_parser("criar-usuario"); u.add_argument("email"); u.add_argument("nome"); u.add_argument("--papel", default="advogado", choices=["admin","advogado","leitura"])
     sp.add_parser("clientes"); sp.add_parser("saude"); sp.add_parser("execucoes")
     p = sp.add_parser("processos"); p.add_argument("--classificacao")
+    n = sp.add_parser("nexus-enviar", help="entrega ao NGA Nexus o que foi confirmado")
+    n.add_argument("--url", default=None, help="base do Nexus; padrão: variável NEXUS_URL")
+    n.add_argument("--incluir-automaticas", action="store_true",
+                   help="envia também o que ainda não foi validado por pessoa")
+    n.add_argument("--incluir-provaveis", action="store_true",
+                   help="envia também correspondência apenas provável")
+    n.add_argument("--limite", type=int, default=50)
+    n.add_argument("--simular", action="store_true", help="mostra o lote sem enviar nada")
     a = ap.parse_args(argv)
     con = db.conectar(a.db)
     if a.cmd == "cadastrar":
@@ -95,6 +103,29 @@ def main(argv=None) -> int:
     elif a.cmd == "execucoes":
         for r in con.execute("SELECT * FROM execucoes ORDER BY id DESC LIMIT 20"):
             print(dict(r))
+    elif a.cmd == "nexus-enviar":
+        import os
+        from . import nexus
+        # O token vem SÓ do ambiente, nunca de flag: argumento de linha de
+        # comando aparece em `ps` e fica no histórico do shell.
+        token = os.environ.get("NEXUS_TOKEN", "")
+        url = a.url or os.environ.get("NEXUS_URL", "")
+        if not url:
+            print("informe --url ou a variável NEXUS_URL"); return 1
+        if not a.simular and not token:
+            print("defina NEXUS_TOKEN com a credencial de integração"); return 1
+        try:
+            r = nexus.enviar(con, url, token, a.incluir_automaticas, a.incluir_provaveis,
+                             a.limite, a.simular)
+        except Exception as e:
+            print("falha ao entregar: %s" % e); return 2
+        print(json.dumps(r, ensure_ascii=False, indent=1))
+        # Afrouxar o filtro é escolha de quem chamou, e o aviso registra isso
+        # na saída do comando — que costuma ir para log de cron.
+        if r["automaticas_incluidas"]:
+            print("ATENÇÃO: %d correspondência(s) sem validação humana foram enviadas."
+                  % r["automaticas_incluidas"], file=sys.stderr)
+        return 0
     elif a.cmd == "processos":
         q = ("SELECT p.numero_processo,p.tribunal,p.data_ajuizamento,c.classificacao,c.nivel,c.polo,c.categoria_data,"
              "c.estado_validacao,cl.razao_social FROM correspondencias c JOIN processos p ON p.id=c.processo_id "

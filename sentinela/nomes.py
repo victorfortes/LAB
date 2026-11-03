@@ -26,3 +26,30 @@ def similaridade(a: str, b: str) -> float:
     if not na or not nb:
         return 0.0
     return SequenceMatcher(None, na, nb).ratio()
+
+
+_RUIDO_INICIAIS = re.compile(r"\b(EM RECUPERACAO JUDICIAL|EM FALENCIA|EM LIQUIDACAO|RECUPERACAO JUDICIAL)\b")
+_LIGACAO = {"DE", "DA", "DO", "DAS", "DOS", "E"}
+
+
+def iniciais(nome: str) -> str:
+    """Forma abreviada que alguns tribunais (ex.: TJSP) publicam no DJEN: 'TRANSPORTADORA TRANS MOSA LTDA' -> 'T. T. M. L.'.
+    Devolve '' se tiver menos de 4 iniciais (abreviação curta demais para ser pesquisável)."""
+    s = unicodedata.normalize("NFKD", nome or "").encode("ascii", "ignore").decode().upper()
+    s = re.sub(r"\bS\s*[/.]\s*A\b\.?", " S A ", s)
+    s = _RUIDO_INICIAIS.sub(" ", re.sub(r"[^A-Z0-9 ]", " ", s))
+    letras = []
+    for t in s.split():
+        if t in _LIGACAO:
+            continue
+        letras.extend(["S", "A"] if t == "SA" else [t[0]])
+    return " ".join(l + "." for l in letras) if len(letras) >= 4 else ""
+
+
+def e_abreviacao(nome: str) -> bool:
+    toks = re.findall(r"[A-Z0-9]+", (nome or "").upper())
+    return len(toks) >= 4 and all(len(t) == 1 for t in toks)
+
+
+def normalizar_iniciais(nome: str) -> str:
+    return "".join(re.findall(r"[A-Z]", (nome or "").upper()))

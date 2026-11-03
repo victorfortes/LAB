@@ -100,6 +100,8 @@ def completar_nomes_pelo_registro(con: sqlite3.Connection, cid: int, registro) -
         if not antes:
             _add_nome(con, cid, nome, "razao_social")
             rel["oficiais"].append(nome)
+        else:  # mesmo nome sem o sufixo (LTDA/S.A.): guarda a grafia oficial completa (necessária p/ iniciais "T. T. M. L.")
+            con.execute("UPDATE cliente_nomes SET nome=? WHERE cliente_id=? AND nome_norm=? AND length(nome)<length(?)", (nome, cid, norm, nome))
     toks_of = [set(_nomes.normalizar(n).split()) for n in oficiais]
     for n in con.execute("SELECT nome,nome_norm FROM cliente_nomes WHERE cliente_id=? AND ativo=1", (cid,)).fetchall():
         t = set(n["nome_norm"].split())

@@ -219,6 +219,16 @@ MIGRACOES = [
         conteudo TEXT NOT NULL
     );
     """),
+    ("0009_nexus", """
+    CREATE TABLE entregas_nexus (
+        correspondencia_id INTEGER PRIMARY KEY REFERENCES correspondencias(id) ON DELETE CASCADE,
+        numero_processo TEXT NOT NULL,
+        enviada_em TEXT NOT NULL,
+        movimentacoes INTEGER NOT NULL DEFAULT 0,
+        resposta TEXT NOT NULL
+    );
+    CREATE INDEX idx_entregas_nexus_proc ON entregas_nexus(numero_processo);
+    """),
 ]
 
 
