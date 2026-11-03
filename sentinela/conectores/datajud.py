@@ -26,6 +26,32 @@ class ConectorDataJud:
     def __init__(self, http: FonteHTTP, chave: str = CHAVE_PADRAO):
         self.http, self.chave = http, chave
 
+    URL_CHAVE = "https://datajud-wiki.cnj.jus.br/api-publica/acesso/"
+
+    def _renovar_chave(self) -> bool:
+        """O CNJ avisa que a chave pública pode mudar a qualquer momento e a publica na wiki: lê a vigente."""
+        import re
+        import urllib.request
+        try:
+            req = urllib.request.Request(self.URL_CHAVE, headers={"User-Agent": "NGA-Sentinela/0.3"})
+            with urllib.request.urlopen(req, timeout=30) as r:
+                txt = r.read().decode("utf-8", "ignore")
+        except OSError:
+            return False
+        m = re.search(r"APIKey\s+([A-Za-z0-9+/=]{24,})", re.sub(r"<[^>]+>", " ", txt))
+        if m and m.group(1) != self.chave:
+            self.chave = m.group(1)
+            return True
+        return False
+
+    def _post(self, alias, corpo):
+        try:
+            return self.http.requisitar("POST", BASE % alias, {"Authorization": "APIKey " + self.chave}, corpo)
+        except ErroFonte as e:
+            if e.status in (401, 403) and self._renovar_chave():
+                return self.http.requisitar("POST", BASE % alias, {"Authorization": "APIKey " + self.chave}, corpo)
+            raise
+
     @staticmethod
     def _resumir(hits):
         hits = sorted(hits, key=lambda s: (s.get("dataAjuizamento") or "99999999"))
@@ -42,9 +68,8 @@ class ConectorDataJud:
         if not alias.isalnum():
             raise ErroFonte("sigla de tribunal inválida: %r" % sigla_tribunal)
         numeros = list(numeros)
-        d = self.http.requisitar("POST", BASE % alias, {"Authorization": "APIKey " + self.chave},
-                                 {"size": min(10000, len(numeros) * 3), "_source": ["numeroProcesso", "dataAjuizamento", "grau", "classe", "orgaoJulgador", "sistema", "assuntos"],
-                                  "query": {"terms": {"numeroProcesso": numeros}}})
+        d = self._post(alias, {"size": min(10000, len(numeros) * 3), "_source": ["numeroProcesso", "dataAjuizamento", "grau", "classe", "orgaoJulgador", "sistema", "assuntos"],
+                               "query": {"terms": {"numeroProcesso": numeros}}})
         por: dict = {n: [] for n in numeros}
         for h in d.get("hits", {}).get("hits", []):
             src = h["_source"]
@@ -57,8 +82,7 @@ class ConectorDataJud:
         alias = (sigla_tribunal or "").strip().lower()
         if not alias.isalnum():
             raise ErroFonte("sigla de tribunal inválida: %r" % sigla_tribunal)
-        d = self.http.requisitar("POST", BASE % alias, {"Authorization": "APIKey " + self.chave},
-                                 {"size": 5, "query": {"match": {"numeroProcesso": numero_processo}}})
+        d = self._post(alias, {"size": 5, "query": {"match": {"numeroProcesso": numero_processo}}})
         hits = [h["_source"] for h in d.get("hits", {}).get("hits", [])]
         if not hits:
             return None
