@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NGA Íntegra</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand"><img src="logo.png" alt="NGA ADV"></div>
+  <div class="lab">NGA LAB // INOVAÇÃO E IA</div>
+  <div class="status"><span class="dot"></span> ONLINE <span id="clock">--:--:--</span>
+    <button id="logout" class="ghost" hidden>Sair</button></div>
+</header>
+<main id="app"></main>
+<div id="lock" class="lock" hidden>
+  <div class="lock-card">
+    <div class="tag">AÇÃO HUMANA NECESSÁRIA // TELAS TRAVADAS</div>
+    <h2>Token digital</h2>
+    <p id="lock-msg"></p>
+    <p class="hint">O PIN é digitado apenas na janela do tribunal/token. O NGA Íntegra nunca o recebe.</p>
+    <button id="lock-ok" class="primary">Já fiz — continuar</button>
+  </div>
+</div>
+<script src="app.js" type="module"></script>
+</body>
+</html>
