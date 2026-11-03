@@ -12,7 +12,7 @@ export function mostrarLogin(aoEntrar) {
     <div class="wall" aria-hidden="true"><div class="wall__grid"></div><div class="wall__glow a"></div><div class="wall__glow b"></div><canvas id="fx"></canvas><div class="wall__scan"></div></div>
     <main class="login">
       <section class="login__hero">
-        <span class="login__eyebrow">NGA Advogados · Insolvência</span>
+        <img class="login__logo" src="/img/nga-adv.png" alt="NGA Advogados" width="200" height="55"><span class="login__eyebrow">Insolvência · Reestruturação</span>
         <h1>O ecossistema<br><em>NGA LAB</em></h1>
         <p>Gestão de projetos, painel do advogado, portal do cliente e todas as ferramentas do Lab — num só lugar, sob o mesmo acesso.</p>
         <div class="login__tools">

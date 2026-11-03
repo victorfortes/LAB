@@ -37,7 +37,7 @@ const armazenamento = new ArmazenamentoLocal(
   process.env.NGA_ACERVO ?? join(RAIZ, 'acervo'));
 await armazenamento.iniciar();
 
-const api = criarApp({ banco, deposito: montarDeposito(armazenamento) });
+const api = criarApp({ banco, deposito: montarDeposito(armazenamento), analiseAutomatica: true });
 const porta = Number(process.env.NGA_PORTA ?? 8790);
 
 const TIPOS: Record<string, string> = {

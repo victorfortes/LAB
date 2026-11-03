@@ -8,11 +8,11 @@
 import { api } from '../api.js';
 import { estado, pode } from '../estado.js';
 import { anel } from '../fx.js';
-import { $, dataBR, hojeISO, html, icone, ouvir, paraCentavos, raw, relativo, tamanho } from '../util.js';
+import { $, dataBR, guardado, hojeISO, html, icone, ouvir, paraCentavos, raw, relativo, tamanho } from '../util.js';
 import { cabecalho, erroDe, formulario, toast, vazio } from '../ui.js';
-import { navegar } from '../shell.js';
+import { atualizarLateral, navegar } from '../shell.js';
 
-const TITULOS = { inicio: 'Início', andamento: 'Andamento', documentos: 'Documentos', plano: 'Plano de pagamento', caixa: 'Fluxo de caixa', mensagens: 'Mensagens' };
+const TITULOS = { inicio: 'Início', andamento: 'Andamento', documentos: 'Documentos', plano: 'Plano de pagamento', caixa: 'Fluxo de caixa', relatorios: 'Relatórios', mensagens: 'Mensagens' };
 const SIT = { pendente: ['', 'Pendente'], enviado: ['info', 'Enviado'], em_analise: ['info', 'Em análise'], aprovado: ['ok', 'Aprovado'], rejeitado: ['erro', 'Rejeitado'], complementacao: ['aviso', 'Complementar'] };
 
 export default async function portal({ aba }) {
@@ -35,20 +35,26 @@ const bloqueado = (o) => ({ html: html`<section class="card glass up">${vazio('l
 // ------------------------------------------------------------------ início ---
 
 async function inicio(p) {
-  const [check, ob, procs, msgs] = await Promise.all([
+  const [hub, catalogo, check, ob, procs, msgs] = await Promise.all([
+    api.get(`/api/projetos/${p.projeto_id}`).catch(() => null), api.get('/api/projetos/fases').catch(() => []),
     api.get(`/api/projetos/${p.projeto_id}/checklist`).catch(() => null),
     p.mostra_obrigacoes ? api.get(`/api/projetos/${p.projeto_id}/obrigacoes`).catch(() => null) : null,
     api.get('/api/processos').catch(() => []),
     api.get(`/api/projetos/${p.projeto_id}/mensagens`).catch(() => []),
   ]);
   const meus = procs.filter((x) => x.projeto_id === p.projeto_id);
+  const fases = hub ? (catalogo.find((c) => c.tipo === hub.tipo)?.fases ?? []) : [];
+  const atual = hub ? fases.findIndex((f) => f.id === hub.fase) : -1;
   const pr = check?.progresso; const falta = check?.itens.filter((i) => i.aguardaVoce) ?? [];
   const pagas = ob?.resumo.total ? Math.round((ob.resumo.pagas / ob.resumo.total) * 100) : null;
   const ultima = msgs[0];
   return {
     resumo: [{ rotulo: 'Documentos aprovados', valor: pr ? pr.percentualAprovado : '—', sufixo: pr ? '%' : '' }, { rotulo: 'Aguardando você', valor: falta.length, tom: falta.length ? 'warn' : '' },
       { rotulo: 'Processos', valor: meus.length }],
-    html: html`<div class="grid3">
+    html: html`${fases.length ? html`<section class="card glass up" style="margin-bottom:var(--gap)"><header class="card__head"><div><h2 class="card__title">Onde está o seu processo</h2>
+        <p class="card__sub">${hub.faseAtual?.nome ?? ''}${hub.faseAtual?.marco ? ` — ${hub.faseAtual.marco}` : ''}</p></div>${hub.progresso ? html`<span class="selo ok">${hub.progresso.percentual}% do caminho</span>` : ''}</header>
+        <ol class="trilha" style="list-style:none;margin:0">${fases.map((f, i) => html`<li class="passo ${i < atual ? 'feito' : i === atual ? 'atual' : 'futuro'}" title="${f.marco}"><span class="passo__no">${i < atual ? icone('check') : i + 1}</span><div class="passo__txt">${f.nome}</div></li>`)}</ol></section>` : ''}
+    <div class="grid3">
       <section class="card glass up"><header class="card__head"><div><h2 class="card__title">Sua documentação</h2><p class="card__sub">O que o escritório já conferiu</p></div></header>
         <div class="cliente-hero"><span class="pring" style="--s:104px">${raw(anel(pr?.percentualAprovado ?? 0, { tam: 104, traco: 9, cor: 'var(--lab-amber)' }))}<b class="pring__val" style="font-size:22px">${pr ? `${pr.percentualAprovado}%` : '—'}</b></span>
           <div><b>${pr ? `${pr.aprovados} de ${pr.obrigatorios}` : 'Sem lista'}</b><p class="dica" style="margin:4px 0 0">${pr ? 'documentos obrigatórios aprovados' : 'O escritório ainda vai montar a lista do que precisa.'}</p></div></div></section>
@@ -64,6 +70,11 @@ async function inicio(p) {
         : vazio('check', 'Nada pendente com você', 'Quando o escritório precisar de algo, aparece aqui.')}</section>`,
   };
 }
+
+// O cliente não lê o que enviou antes de a NGA publicar (RLS, de propósito), então o
+// "enviados agora" é o registro local desta máquina — só serve de recibo.
+const recentes = (p) => guardado.ler(`enviados.${p.projeto_id}`, []).filter((r) => Date.now() - r.quando < 36 * 3600 * 1000).map((r) => ({ ...r, quando: new Date(r.quando).toISOString() }));
+const guardarRecente = (p, f) => guardado.gravar(`enviados.${p.projeto_id}`, [{ nome: f.name, tamanho: f.size, quando: Date.now() }, ...guardado.ler(`enviados.${p.projeto_id}`, [])].slice(0, 12));
 
 // --------------------------------------------------------------- andamento ---
 
@@ -88,7 +99,12 @@ async function documentos(p) {
   const porCat = new Map(); for (const i of check.itens) { if (!porCat.has(i.categoria)) porCat.set(i.categoria, []); porCat.get(i.categoria).push(i); }
   return {
     resumo: check.itens.length ? [{ rotulo: 'Aprovados', valor: check.progresso.aprovados }, { rotulo: 'Obrigatórios', valor: check.progresso.obrigatorios }, { rotulo: 'Aguardando você', valor: check.progresso.aguardandoOCliente, tom: 'warn' }] : [],
-    html: html`<section class="card glass up"><header class="card__head"><div><h2 class="card__title">Lista de documentos</h2><p class="card__sub">Envie cada arquivo no item correspondente. O escritório confere e responde aqui.</p></div></header>
+    html: html`<label class="drop up" id="soltar" tabindex="0"><input type="file" id="arq" hidden multiple>${icone('upload')}
+        <b>Solte aqui os seus documentos</b><small>Pode enviar tudo de uma vez, sem se preocupar com a ordem: o sistema lê cada arquivo, reconhece o tipo e a equipe da NGA organiza no lugar certo.</small></label>
+      ${recentes(p).length ? html`<section class="card glass up mt"><header class="card__head"><div><h2 class="card__title">Enviados agora</h2><p class="card__sub">Recebidos e em leitura pela NGA</p></div></header>
+        <ul class="lista">${recentes(p).map((r) => html`<li><span class="empty__ico" style="width:36px;height:36px;border-radius:11px">${icone('doc')}</span><div><b>${r.nome}</b><small>${relativo(r.quando)} · ${tamanho(r.tamanho)}</small></div>
+          <div class="fim"><span class="leitura lendo"><i class="vivo ambar"></i>Em leitura</span></div></li>`)}</ul></section>` : ''}
+      <section class="card glass up mt"><header class="card__head"><div><h2 class="card__title">Lista de documentos</h2><p class="card__sub">Envie cada arquivo no item correspondente. O escritório confere e responde aqui.</p></div></header>
       ${check.itens.length ? [...porCat].map(([cat, itens]) => html`<h3 class="mini-h">${cat}</h3>${itens.map((i) => html`<div class="check-row"><span class="sit-dot ${i.situacao}"></span>
         <div><b>${i.titulo}${i.obrigatorio ? '' : html` <span class="muted">(opcional)</span>`}</b><small>${i.fundamento ?? ''}</small>${i.observacao ? html`<small class="obs">${i.observacao}</small>` : ''}</div>
         <span class="selo ${SIT[i.situacao]?.[0] ?? ''}">${i.rotuloDaSituacao}</span>
@@ -98,6 +114,22 @@ async function documentos(p) {
         ${docs.filter((d) => d.visibilidade === 'publicado').length ? html`<ul class="lista">${docs.filter((d) => d.visibilidade === 'publicado').map((d) => html`<li>${icone('doc')}<div><b>${d.titulo}</b><small>${d.categoria ?? ''} · ${tamanho(d.tamanho_bytes)} · publicado ${relativo(d.publicado_em)}</small></div>
           ${d.tem_arquivo ? html`<div class="fim"><button type="button" class="btn btn--ghost" data-baixar="${d.id}">${icone('download')}Baixar</button></div>` : ''}</li>`)}</ul>` : html`<p class="dica">Nenhum documento publicado para você ainda.</p>`}</section>`,
     depois(el) {
+      const drop = $('#soltar', el); const entrada = $('#arq', el);
+      const enviar = async (arquivos) => {
+        let ok = 0;
+        for (const f of arquivos) {
+          drop.classList.add('over');
+          const fd = new FormData(); fd.append('arquivo', f); fd.append('titulo', f.name.replace(/\.[^.]+$/, '')); fd.append('categoria', 'Enviado pelo cliente');
+          try { await api.enviar(`/api/projetos/${p.projeto_id}/documentos`, fd); ok++; guardarRecente(p, f); } catch (er) { erroDe(er); }
+        }
+        drop.classList.remove('over');
+        if (ok) { toast(`${ok} documento(s) recebido(s). A leitura começou.`); navegar(); }
+      };
+      entrada.addEventListener('change', (e) => enviar([...e.target.files]));
+      ['dragenter', 'dragover'].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.add('over'); }));
+      ['dragleave', 'drop'].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.remove('over'); }));
+      drop.addEventListener('drop', (e) => enviar([...e.dataTransfer.files]));
+      drop.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); entrada.click(); } });
       ouvir(el, 'click', '[data-baixar]', async (b) => { try { const r = await api.post(`/api/documentos/${b.dataset.baixar}/link`); window.open(r.url, '_blank', 'noopener'); } catch (e) { erroDe(e); } });
       el.addEventListener('change', async (e) => {
         const inp = e.target.closest('input[data-req]'); if (!inp?.files[0]) return;
@@ -148,10 +180,26 @@ async function caixa(p) {
   };
 }
 
+// --------------------------------------------------------------- relatórios ---
+
+async function relatorios(p) {
+  const docs = (await api.get(`/api/projetos/${p.projeto_id}/documentos`)).filter((d) => d.visibilidade === 'publicado');
+  const rel = docs.filter((d) => d.categoria === 'Relatório');
+  return {
+    resumo: [{ rotulo: 'Relatórios', valor: rel.length }, { rotulo: 'Outros documentos', valor: docs.length - rel.length }],
+    html: html`<section class="card glass up"><header class="card__head"><div><h2 class="card__title">Relatórios da NGA</h2><p class="card__sub">Acompanhamento mensal e quadros preparados para você</p></div></header>
+      ${rel.length ? html`<ul class="lista">${rel.map((d) => html`<li><span class="empty__ico" style="width:40px;height:40px;border-radius:13px">${icone('chart')}</span><div><b>${d.titulo}</b><small>publicado ${relativo(d.publicado_em)} · ${tamanho(d.tamanho_bytes)}</small></div>
+        ${d.tem_arquivo ? html`<div class="fim"><button type="button" class="btn btn--accent" data-baixar="${d.id}">${icone('download')}Baixar</button></div>` : ''}</li>`)}</ul>`
+        : vazio('chart', 'Nenhum relatório publicado ainda', 'Quando a NGA publicar um relatório, ele aparece aqui para baixar.')}</section>`,
+    depois: (el) => ouvir(el, 'click', '[data-baixar]', async (b) => { try { const r = await api.post(`/api/documentos/${b.dataset.baixar}/link`); window.open(r.url, '_blank', 'noopener'); } catch (e) { erroDe(e); } }),
+  };
+}
+
 // --------------------------------------------------------------- mensagens ---
 
 async function mensagens(p) {
   const msgs = (await api.get(`/api/projetos/${p.projeto_id}/mensagens`)).reverse();
+  guardado.gravar(`msgLidas.${p.projeto_id}`, new Date().toISOString()); atualizarLateral();
   return {
     html: html`<section class="card glass up"><header class="card__head"><div><h2 class="card__title">Conversa com a NGA</h2><p class="card__sub">Dúvidas, avisos e pedidos. A equipe responde aqui.</p></div></header>
       <div class="chat" id="chat" style="max-height:520px">${msgs.length ? msgs.map((m) => html`<div class="msg ${m.lado === 'cliente' ? 'meu' : ''}">${m.texto}<small>${m.autor ?? (m.lado === 'nga' ? 'NGA' : 'Você')} · ${relativo(m.criado_em)}</small></div>`) : html`<p class="dica">Nenhuma mensagem ainda. Escreva a primeira.</p>`}</div>
@@ -166,4 +214,4 @@ async function mensagens(p) {
   };
 }
 
-const ABAS = { inicio, andamento, documentos, plano, caixa, mensagens };
+const ABAS = { inicio, andamento, documentos, plano, caixa, relatorios, mensagens };

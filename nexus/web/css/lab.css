@@ -417,3 +417,75 @@ body { font-family: var(--font); letter-spacing: .005em; }
 .perigo-btn { color: var(--lab-red) !important; }
 .perigo-btn:hover { background: #FF6B6B1f !important; }
 .glass-lite { background: var(--glass-solid); border: 1px solid var(--sep); border-radius: 20px; }
+
+/* ------------------------------------------------------------- logo ---- */
+.brand__logo { height: 34px; width: auto; display: block; filter: drop-shadow(0 0 14px #F0A32E33); transition: transform .5s var(--spring), filter .4s; }
+.brand:hover .brand__logo { transform: scale(1.06) rotate(-1.5deg); filter: drop-shadow(0 0 20px #F0A32E88); }
+.brand__name em { margin-left: 4px; }
+.login__logo { display: block; height: 54px; width: auto; margin-bottom: 14px; animation: sobe .8s var(--ease) both; filter: drop-shadow(0 0 24px #F0A32E44); }
+
+/* -------------------------------------------------- vida: movimento ---- */
+
+/* holofote que segue o ponteiro dentro dos vidros */
+.card.glass, .pcard, .tool, .stat, .tk-card { position: relative; }
+.card.glass::after, .pcard::after, .tool::after, .stat::after, .tk-card::after {
+  content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; opacity: 0; transition: opacity .35s;
+  background: radial-gradient(320px circle at var(--mx, 50%) var(--my, 50%), #F0A32E1c, transparent 62%);
+}
+.card.glass:hover::after, .pcard:hover::after, .tool:hover::after, .stat:hover::after, .tk-card:hover::after { opacity: 1; }
+.pcard, .tool { transition: transform .35s var(--ease), box-shadow .35s; will-change: transform; }
+.pcard:hover, .tool:hover { box-shadow: 0 30px 60px -28px #000, 0 0 0 1px #F0A32E33; }
+
+/* fundo que desliza com o mouse */
+.wall__glow.a { transform: translate(calc(var(--px, 0) * -40px), calc(var(--py, 0) * -30px)); transition: transform .8s var(--ease); }
+.wall__glow.b { transform: translate(calc(var(--px, 0) * 50px), calc(var(--py, 0) * 36px)); transition: transform .8s var(--ease); }
+
+/* ondulação ao clicar */
+.btn, .ibtn, .tbtn { position: relative; overflow: hidden; }
+.onda { position: absolute; width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%; background: #ffffff55; pointer-events: none; animation: onda .65s ease-out forwards; }
+@keyframes onda { to { transform: scale(22); opacity: 0; } }
+
+/* pontos vivos e brilho de progresso */
+.vivo { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--lab-green); box-shadow: 0 0 0 0 #2EE6A088; animation: vivo 1.8s infinite; }
+.vivo.ambar { background: var(--lab-amber); box-shadow: 0 0 0 0 #F0A32E88; animation-name: vivoA; }
+@keyframes vivo { 70% { box-shadow: 0 0 0 9px #2EE6A000; } 100% { box-shadow: 0 0 0 0 #2EE6A000; } }
+@keyframes vivoA { 70% { box-shadow: 0 0 0 9px #F0A32E00; } 100% { box-shadow: 0 0 0 0 #F0A32E00; } }
+.fase-card__bar i, .barra__col i { position: relative; overflow: hidden; }
+.fase-card__bar i::after { content: ""; position: absolute; inset: 0; background: linear-gradient(100deg, transparent 30%, #ffffff55 50%, transparent 70%); transform: translateX(-100%); animation: brilha 2.8s 1.2s infinite; }
+@keyframes brilha { to { transform: translateX(100%); } }
+.shimmer { background: linear-gradient(100deg, var(--fill) 30%, var(--fill-2) 50%, var(--fill) 70%); background-size: 200% 100%; animation: shimmer 1.4s linear infinite; }
+@keyframes shimmer { to { background-position: -200% 0; } }
+
+/* estados da leitura automática */
+.leitura { display: inline-flex; align-items: center; gap: 7px; padding: 3px 11px; border-radius: 99px; font: 600 12px var(--font); background: var(--fill-2); color: var(--text-2); }
+.leitura.lendo, .leitura.na_fila { background: #F0A32E1f; color: var(--lab-amber-2); }
+.leitura.analisado { background: #2EE6A01f; color: var(--lab-green); }
+.leitura.sem_texto { background: #4CC9F01f; color: var(--lab-cy); }
+.leitura.erro { background: #FF6B6B22; color: var(--lab-red); }
+.leitura .vivo { width: 7px; height: 7px; }
+
+/* feed de atividade */
+.feed { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; max-height: 420px; overflow: auto; }
+.feed li { display: flex; gap: 12px; padding: 10px 8px; border-radius: 14px; align-items: flex-start; animation: entra .5s var(--ease) both; }
+.feed li:hover { background: var(--fill-hover); }
+.feed li.novo { animation: entra .6s var(--ease) both, destaque 2.6s ease-out; }
+@keyframes entra { from { opacity: 0; transform: translateY(-10px) scale(.98); } }
+@keyframes destaque { 0% { background: #F0A32E2e; } 100% { background: transparent; } }
+.feed .ic { width: 34px; height: 34px; border-radius: 11px; display: grid; place-items: center; flex: none; background: var(--fill-2); color: var(--lab-amber-2); }
+.feed .ic svg { width: 17px; height: 17px; }
+.feed b { display: block; font-size: 14px; font-weight: 600; }
+.feed small { color: var(--text-3); font-size: 12px; }
+
+/* diagnóstico */
+.diag-hero { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 26px; align-items: center; }
+@media (max-width: 720px) { .diag-hero { grid-template-columns: 1fr; } }
+.cat-row { display: grid; grid-template-columns: 120px minmax(0, 1fr) 64px; gap: 12px; align-items: center; font-size: 13.5px; padding: 6px 0; }
+.cat-row .fase-card__bar { height: 9px; }
+.idchip { display: inline-flex; gap: 7px; align-items: center; padding: 5px 11px; border-radius: 99px; background: var(--fill); font: 500 12.5px var(--font-mono); margin: 0 6px 6px 0; border: 1px solid var(--sep); }
+.idchip.ok { border-color: #2EE6A055; } .idchip.bad { border-color: #FF6B6B66; color: var(--lab-red); }
+.idchip small { color: var(--text-3); font: 600 10px var(--font); letter-spacing: .1em; text-transform: uppercase; }
+.sobe-suave { animation: sobe .7s var(--ease) both; }
+.carimbo { display: inline-flex; gap: 8px; align-items: center; padding: 6px 14px; border-radius: 99px; background: #2EE6A01f; color: var(--lab-green); font: 600 13px var(--font); animation: pop .6s var(--spring) both; }
+@keyframes pop { from { transform: scale(.6); opacity: 0; } }
+
+@media (max-width: 899px) { .main { padding-bottom: 120px; } }

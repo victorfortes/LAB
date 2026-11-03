@@ -9,20 +9,47 @@
 import { api } from '../api.js';
 import { estado, pode } from '../estado.js';
 import { anel } from '../fx.js';
-import { avatar, dataCurta, dataBR, hojeISO, html, icone, matiz, ouvir, pilha, raw } from '../util.js';
+import { avatar, dataCurta, dataBR, hojeISO, html, icone, matiz, ouvir, pilha, raw, relativo } from '../util.js';
 import { cabecalho, vazio, toast, erroDe } from '../ui.js';
-import { ir, navegar } from '../shell.js';
+import { aoSair, ir, navegar } from '../shell.js';
 import { novaTarefa } from './tarefas.js';
 import { cartaoProjeto, novoProjeto } from './projetos.js';
 
 const saudacao = () => { const h = new Date().getHours(); return h < 12 ? 'Bom dia' : h < 18 ? 'Boa tarde' : 'Boa noite'; };
+/** Texto humano para cada evento da trilha. O que não conheço cai num texto neutro, sem inventar. */
+const EVENTO = {
+  'portal.documento_enviado': ['upload', 'Cliente enviou um documento', 'a leitura automática começa agora'],
+  'portal.requisito_analisado': ['check', 'Documento do cliente analisado', ''],
+  'portal.cliente_convidado': ['user', 'Cliente convidado ao portal', ''],
+  'portal.ajustado': ['eye', 'Visibilidade do portal ajustada', ''],
+  'documento.arquivo_recebido': ['doc', 'Documento guardado no acervo', ''],
+  'documento.publicado_para_cliente': ['eye', 'Documento publicado ao cliente', ''],
+  'documento.retirado_do_portal': ['lock', 'Documento retirado do portal', ''],
+  'analise.tipo_validado': ['shield', 'Tipo de documento validado', ''],
+  'achado.triado': ['sparkle', 'Achado triado', ''],
+  'projeto.criado': ['folder', 'Projeto criado', 'nome'], 'projeto.fase_alterada': ['flag', 'Fase do projeto alterada', 'fase'],
+  'projeto.encerrado': ['inbox', 'Projeto encerrado', 'motivo'], 'projeto.equipe_alterada': ['users', 'Equipe do projeto alterada', ''],
+  'tarefa.criada': ['check', 'Tarefa criada', 'titulo'], 'tarefa.excluida': ['trash', 'Tarefa excluída', 'titulo'],
+  'credito.criado': ['scale', 'Crédito cadastrado', ''], 'credito.validado': ['scale', 'Enquadramento de crédito validado', ''], 'credor.criado': ['user', 'Credor cadastrado', 'nome'],
+  'processo.criado': ['scale', 'Processo cadastrado', 'numero'], 'processo.movimentacao_registrada': ['file', 'Movimentação registrada', 'titulo'],
+  'processo.movimentacao_publicada': ['eye', 'Movimentação publicada ao cliente', ''], 'prazo.criado': ['calendar', 'Prazo calculado', 'titulo'], 'prazo.fechado': ['check', 'Prazo fechado', 'situacao'],
+  'checklist.modelo_aplicado': ['list', 'Checklist de documentos gerado', ''], 'integracao.processos_recebidos': ['bolt', 'Processos recebidos de uma integração', ''],
+  'integracao.criada': ['lock', 'Credencial de integração criada', 'nome'], 'integracao.revogada': ['lock', 'Credencial revogada', ''],
+  'analise_automatica.falhou': ['alert', 'Leitura automática falhou', ''], 'agc.apurada': ['users', 'Assembleia apurada', ''],
+};
+const itemDoFeed = (a, novo = false) => {
+  const [ic, titulo, campo] = EVENTO[a.acao] ?? ['dots', a.acao.replace(/[._]/g, ' '), ''];
+  const extra = campo ? a.dados?.[campo] : '';
+  return html`<li data-id="${a.id}" class="${novo ? 'novo' : ''}"><span class="ic">${icone(ic)}</span><div><b>${titulo}${extra ? html` · <span class="muted">${extra}</span>` : ''}</b><small>${a.quem ?? (a.acao.startsWith('portal.') ? 'portal do cliente' : 'sistema')} · ${relativo(a.quando)}</small></div></li>`;
+};
 const DIAS = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
 
 export default async function painel() {
-  const [p, tk, projetos] = await Promise.all([
+  const [p, tk, projetos, atividade] = await Promise.all([
     api.get('/api/painel'),
     api.get('/api/tarefas?concluidas=1'),
     api.get('/api/projetos'),
+    api.get('/api/atividade').catch(() => []),
   ]);
   estado.painel = p; estado.projetos = projetos; estado.tarefas = tk.tarefas;
 
@@ -130,6 +157,11 @@ export default async function painel() {
         </section>
       </div>
 
+      <section class="card glass up mt"><header class="card__head"><div><h2 class="card__title">Atividade ao vivo</h2><p class="card__sub">O que acontece no escritório e nos portais, assim que acontece</p></div>
+        <span class="leitura analisado"><i class="vivo"></i>ao vivo</span></header>
+        <ul class="feed" id="feed" aria-live="polite">${atividade.map((a) => itemDoFeed(a))}</ul>
+        ${atividade.length ? '' : html`<p class="dica" id="feed-vazio">Nada aconteceu ainda. Crie um projeto ou convide um cliente.</p>`}</section>
+
       <section class="mt up">
         <header class="card__head" style="padding:0 4px"><div><h2 class="card__title" style="font-size:22px">Meus projetos</h2></div>
           <button class="link" data-ir="projetos">Todos os projetos →</button></header>
@@ -137,6 +169,19 @@ export default async function painel() {
           : vazio('folder', 'Você ainda não está em nenhuma equipe', 'Peça para o líder de um projeto incluir você, ou crie o seu.', pode('projeto.escrever') ? '<button class="btn btn--accent" data-act="projeto">Novo projeto</button>' : '')}
       </section>`,
     depois(raiz) {
+      // Atividade ao vivo: pergunta o que é novo a cada 8 s, só com a aba visível.
+      let marca = atividade[0]?.quando ?? null; const vistos = new Set(atividade.map((a) => a.id));
+      const t = setInterval(async () => {
+        if (document.hidden || !raiz.isConnected) return;
+        try {
+          const novos = (await api.get(`/api/atividade${marca ? `?desde=${encodeURIComponent(marca)}` : ''}`)).filter((a) => !vistos.has(a.id));
+          if (!novos.length) return;
+          marca = novos[0].quando; const ul = raiz.querySelector('#feed'); raiz.querySelector('#feed-vazio')?.remove();
+          for (const a of [...novos].reverse()) { vistos.add(a.id); ul.insertAdjacentHTML('afterbegin', String(itemDoFeed(a, true))); if ((a.acao === 'portal.documento_enviado' || a.acao === 'documento.arquivo_recebido') && a.quem !== estado.eu.usuario.nome) toast('Um cliente acabou de enviar um documento', 'ok'); }
+          while (ul.children.length > 30) ul.lastElementChild.remove();
+        } catch { /* próximo ciclo */ }
+      }, 8000);
+      aoSair(() => clearInterval(t));
       ouvir(raiz, 'click', '[data-ir]', (b) => ir(b.dataset.ir));
       ouvir(raiz, 'click', '[data-go]', (b) => ir(b.dataset.go));
       ouvir(raiz, 'click', '[data-proj]', (b) => ir(`projetos/${b.dataset.proj}`));

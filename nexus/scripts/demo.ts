@@ -379,7 +379,7 @@ for (const [data, tipo, situacao, valor, categoria] of caixa) {
 await dono.end();
 
 const banco = new Banco({ host: 'localhost', port: PORTA_PG, user: 'nga_app', password: 'nga_app', database: 'nga_nexus' });
-const api = criarApp({ banco, deposito: montarDeposito(armazenamento) });
+const api = criarApp({ banco, deposito: montarDeposito(armazenamento), analiseAutomatica: true });
 
 const TIPOS: Record<string, string> = {
   '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8',
@@ -404,6 +404,37 @@ const servidor = Bun.serve({
     return new Response(Bun.file(join(RAIZ, 'web/index.html')), { headers: { 'content-type': TIPOS['.html']! } });
   },
 });
+
+// O cliente envia documentos de verdade pelo portal; a leitura automática roda sobre eles.
+{
+  const { PDFDocument, StandardFonts } = await import('pdf-lib');
+  const pdf = async (linhas: string[]) => {
+    const d = await PDFDocument.create(); const f = await d.embedFont(StandardFonts.Helvetica); const pg = d.addPage();
+    linhas.forEach((l, i) => pg.drawText(l, { x: 40, y: 780 - i * 18, size: 11, font: f })); return d.save();
+  };
+  const entrar = async (email: string) => {
+    const r = await api(new Request('http://x/api/sessao', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email, senha: SENHA }) }));
+    return /nga_sessao=([^;]+)/.exec(r.headers.get('set-cookie')!)![1]!;
+  };
+  const tc = await entrar('diretor@grupodemo.com.br');
+  const itens = (await (await api(new Request(`http://x/api/projetos/${projeto}/checklist`, { headers: { cookie: `nga_sessao=${tc}` } }))).json()).itens as Array<{ id: string; categoria: string; situacao: string }>;
+  const livre = itens.find((i) => i.categoria === 'Contábil' && i.situacao === 'pendente');
+  const enviar = async (nome: string, titulo: string, bytes: Uint8Array, requisitoId?: string) => {
+    const fd = new FormData(); fd.append('arquivo', new File([bytes as BlobPart], nome, { type: 'application/pdf' })); fd.append('titulo', titulo);
+    if (requisitoId) fd.append('requisitoId', requisitoId);
+    await api(new Request(`http://x/api/projetos/${projeto}/documentos`, { method: 'POST', headers: { cookie: `nga_sessao=${tc}` }, body: fd }));
+  };
+  await enviar('balanco-2025.pdf', 'Balanço patrimonial 2025', await pdf([
+    'BALANCO PATRIMONIAL EM 31/12/2025', 'INDUSTRIA DEMONSTRACAO LTDA. CNPJ 11.222.333/0001-81',
+    'Ativo circulante R$ 1.250.000,00   Passivo circulante R$ 3.400.000,00', 'Demonstracao do resultado do exercicio e notas explicativas.',
+  ]), livre?.id);
+  await enviar('certidao.pdf', 'Certidão negativa de débitos', await pdf([
+    'CERTIDAO NEGATIVA DE DEBITOS TRABALHISTAS', 'Certifica-se que INDUSTRIA DEMONSTRACAO LTDA., CNPJ 11.222.333/0001-81,', 'nao consta como inadimplente perante a Justica do Trabalho.',
+  ]));
+  const vazia = await PDFDocument.create(); vazia.addPage();
+  await enviar('contrato-escaneado.pdf', 'Contrato de financiamento (escaneado)', await vazia.save());
+  await api.aguardarAnalises();
+}
 
 console.log(`
   NGA LAB (demonstração)  http://127.0.0.1:${servidor.port}

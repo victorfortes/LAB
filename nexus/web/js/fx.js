@@ -165,3 +165,41 @@ function atualizarContagens(raiz, coluna, lista) {
     const n = $$('[draggable=true]', $(lista, c)).length; const el = $('.tk-col__count', c); if (el) el.textContent = n;
   }
 }
+
+// ---------------------------------------------------- interatividade geral ---
+
+/**
+ * Pequenas respostas ao ponteiro, delegadas no documento (um ouvinte só, sem
+ * custo por cartão): holofote nos vidros, inclinação leve nos cartões de
+ * projeto e ferramenta, ondulação nos botões e o brilho do fundo seguindo o
+ * mouse. Tudo respeita `prefers-reduced-motion`.
+ */
+export function interatividade() {
+  if (semMovimento()) return;
+  let quadro = 0; let ultimo = null;
+  const aplicar = () => {
+    quadro = 0; if (!ultimo) return;
+    const { x, y, alvo } = ultimo;
+    const vidro = alvo.closest?.('.glass, .tk-card, .stat');
+    if (vidro) {
+      const r = vidro.getBoundingClientRect();
+      vidro.style.setProperty('--mx', `${x - r.left}px`); vidro.style.setProperty('--my', `${y - r.top}px`);
+      const incl = alvo.closest?.('.pcard, .tool');
+      if (incl) {
+        const rx = ((y - r.top) / r.height - 0.5) * -5; const ry = ((x - r.left) / r.width - 0.5) * 6;
+        incl.style.transform = `perspective(900px) rotateX(${rx.toFixed(2)}deg) rotateY(${ry.toFixed(2)}deg) translateY(-3px)`;
+      }
+    }
+    document.documentElement.style.setProperty('--px', `${(x / innerWidth - 0.5).toFixed(3)}`);
+    document.documentElement.style.setProperty('--py', `${(y / innerHeight - 0.5).toFixed(3)}`);
+  };
+  document.addEventListener('pointermove', (e) => { ultimo = { x: e.clientX, y: e.clientY, alvo: e.target }; if (!quadro) quadro = requestAnimationFrame(aplicar); }, { passive: true });
+  document.addEventListener('pointerout', (e) => {
+    const c = e.target.closest?.('.pcard, .tool'); if (c && !c.contains(e.relatedTarget)) c.style.transform = '';
+  }, { passive: true });
+  document.addEventListener('pointerdown', (e) => {
+    const b = e.target.closest?.('.btn, .ibtn, .tbtn'); if (!b) return;
+    const r = b.getBoundingClientRect(); const o = document.createElement('span'); o.className = 'onda';
+    o.style.cssText = `left:${e.clientX - r.left}px;top:${e.clientY - r.top}px`; b.append(o); setTimeout(() => o.remove(), 650);
+  }, { passive: true });
+}

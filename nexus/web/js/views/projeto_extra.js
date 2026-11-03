@@ -244,7 +244,7 @@ export async function abaDocumentos(ctx) {
   };
 }
 
-async function abrirAnalises(docId, titulo, ctx) {
+export async function abrirAnalises(docId, titulo, ctx) {
   let ia, analises;
   try { [ia, analises] = await Promise.all([api.get('/api/ia/estado').catch(() => null), api.get(`/api/documentos/${docId}/analises`)]); } catch (e) { return erroDe(e); }
   const executa = pode('analise.executar');

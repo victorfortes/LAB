@@ -9,7 +9,7 @@
 import { $, $$, esc, guardado, html, icone, iniciais, matiz, ouvir, raw } from './util.js';
 import { api, aoPerderSessao } from './api.js';
 import { estado, ehCliente, ROTULO_DO_PAPEL } from './estado.js';
-import { animarAneis, animarBarras, brilho, contar, fundo, lente } from './fx.js';
+import { animarAneis, animarBarras, brilho, contar, fundo, interatividade, lente } from './fx.js';
 import { menu, paleta, toast, erroDe } from './ui.js';
 
 const NAV_EQUIPE = [
@@ -28,7 +28,8 @@ const NAV_CLIENTE = [
   { rota: 'documentos', rotulo: 'Documentos', icone: 'doc', contagem: 'docs' },
   { rota: 'plano', rotulo: 'Plano de pagamento', icone: 'money' },
   { rota: 'caixa', rotulo: 'Fluxo de caixa', icone: 'chart' },
-  { rota: 'mensagens', rotulo: 'Mensagens', icone: 'comment' },
+  { rota: 'relatorios', rotulo: 'Relatórios', icone: 'chart' },
+  { rota: 'mensagens', rotulo: 'Mensagens', icone: 'comment', contagem: 'msgs' },
 ];
 const nav = () => (ehCliente() ? NAV_CLIENTE : NAV_EQUIPE);
 
@@ -43,7 +44,7 @@ const ROTAS = {
   cliente: [
     ['inicio', 'portal', { aba: 'inicio' }], ['andamento', 'portal', { aba: 'andamento' }],
     ['documentos', 'portal', { aba: 'documentos' }], ['plano', 'portal', { aba: 'plano' }],
-    ['caixa', 'portal', { aba: 'caixa' }], ['mensagens', 'portal', { aba: 'mensagens' }],
+    ['caixa', 'portal', { aba: 'caixa' }], ['relatorios', 'portal', { aba: 'relatorios' }], ['mensagens', 'portal', { aba: 'mensagens' }],
   ],
 };
 
@@ -77,8 +78,7 @@ export function montarCasca() {
     <div class="app">
       <aside class="side glass glass--chrome" aria-label="Navegação">
         <a class="brand" href="#/${ehCliente() ? 'inicio' : 'painel'}" aria-label="NGA LAB">
-          <span class="brand__mark" aria-hidden="true">${marca()}</span>
-          <span class="brand__name">NGA<em>LAB</em></span></a>
+          <img class="brand__logo" src="/img/nga.png" alt="NGA" width="91" height="35"><span class="brand__name"><em>LAB</em></span></a>
         <nav class="nav" aria-label="Principal"><div class="nav__track"><span class="nav__lens" aria-hidden="true"></span>
           ${nav().map((n) => html`<a class="nav__item" href="#/${n.rota}" data-route="${n.rota}">${icone(n.icone)}<span>${n.rotulo}</span>${n.contagem ? html`<b class="nav__count" id="cnt-${n.contagem}" hidden></b>` : ''}</a>`)}
         </div></nav>
@@ -98,13 +98,15 @@ export function montarCasca() {
       </header>
       <main class="main" id="main" tabindex="-1"></main>
       <nav class="tabbar" aria-label="Principal"><div class="tabbar__bar glass glass--chrome"><div class="tabbar__track"><span class="tabbar__lens" aria-hidden="true"></span>
-        ${nav().slice(0, 5).map((n) => html`<a class="tab" href="#/${n.rota}" data-route="${n.rota}">${icone(n.icone)}<span>${n.rotulo.split(' ')[0]}</span></a>`)}</div></div></nav>
+        ${nav().slice(0, 4).map((n) => html`<a class="tab" href="#/${n.rota}" data-route="${n.rota}">${icone(n.icone)}<span>${n.rotulo.split(' ')[0]}</span></a>`)}
+        <button type="button" class="tab" id="btn-mais" aria-haspopup="menu">${icone('dots')}<span>Mais</span></button></div></div></nav>
     </div>
     <div class="pop-layer" aria-live="polite"></div><div class="toasts" id="toasts"></div>`.toString();
 
-  fundo(); brilho();
+  fundo(); brilho(); interatividade();
   ouvir(document, 'click', '#btn-me, #btn-me-top', (el) => menuConta(el));
   ouvir(document, 'click', '#btn-busca', () => abrirBusca());
+  ouvir(document, 'click', '#btn-mais', (el) => menu(el, nav().slice(4).map((n) => ({ rotulo: n.rotulo, icone: n.icone, acao: () => ir(n.rota) })).concat(['-', { rotulo: 'Buscar', icone: 'search', acao: () => abrirBusca() }])));
   ouvir(document, 'click', '#btn-sino', (el) => menuPendencias(el));
   ouvir(document, 'click', '#btn-novo', (el) => menuCriar(el));
   document.addEventListener('keydown', (e) => {
@@ -114,6 +116,7 @@ export function montarCasca() {
   addEventListener('resize', () => marcarNav());
   aoPerderSessao(() => { toast('Sua sessão expirou. Entre de novo.', 'aviso'); location.reload(); });
   atualizarLateral();
+  setInterval(() => { if (!document.hidden) atualizarLateral(); }, 30000);
   navegar();
 }
 
@@ -125,7 +128,11 @@ function marca() {
 // ------------------------------------------------------------- navegação ---
 
 let ficha = 0;
+const limpezas = [];
+/** Registra algo a desfazer ao sair da tela atual (intervalos, ouvintes). */
+export const aoSair = (fn) => { limpezas.push(fn); };
 export async function navegar() {
+  while (limpezas.length) { try { limpezas.pop()(); } catch { /* já foi */ } }
   const seg = rotaAtual();
   const padrao = ehCliente() ? 'inicio' : 'painel';
   if (seg.length === 0) return ir(padrao);
@@ -200,6 +207,18 @@ export async function atualizarLateral() {
       const fix = $('#fixados');
       if (fix) fix.innerHTML = estado.portal.length < 2 ? '' : html`<p class="side__label">Meus processos</p><ul class="pinned">${estado.portal.map((p) => html`<li><a href="#/inicio" data-trocar="${p.projeto_id}"><i class="hue--${matiz(p.projeto_id)}"></i><span>${p.nome}</span></a></li>`)}</ul>`.toString();
       ouvir($('#fixados'), 'click', '[data-trocar]', (a) => { guardado.gravar('projetoCliente', a.dataset.trocar); estado.projetoDoCliente = a.dataset.trocar; navegar(); });
+      if (estado.projetoDoCliente) {
+        const [check, msgs] = await Promise.all([
+          api.get(`/api/projetos/${estado.projetoDoCliente}/checklist`).catch(() => null),
+          api.get(`/api/projetos/${estado.projetoDoCliente}/mensagens`).catch(() => [])]);
+        const lida = guardado.ler(`msgLidas.${estado.projetoDoCliente}`, '1970-01-01');
+        const novas = msgs.filter((m) => m.lado === 'nga' && m.criado_em > lida).length;
+        const falta = check?.itens.filter((i) => i.aguardaVoce).length ?? 0;
+        estado.pendenciasCliente = { falta, novas };
+        const d = $('#cnt-docs'); if (d) { d.textContent = falta; d.hidden = falta === 0; }
+        const m = $('#cnt-msgs'); if (m) { m.textContent = novas; m.hidden = novas === 0; }
+        const ponto = $('#sino-ponto'); if (ponto) ponto.hidden = falta + novas === 0;
+      }
       return;
     }
     const [projetos, tar, painel] = await Promise.all([api.get('/api/projetos'), api.get('/api/tarefas'), api.get('/api/painel')]);
@@ -225,6 +244,13 @@ function menuConta(ancora) {
 }
 
 function menuPendencias(ancora) {
+  if (ehCliente()) {
+    const c = estado.pendenciasCliente ?? { falta: 0, novas: 0 };
+    const itens = [];
+    if (c.falta) itens.push({ rotulo: `${c.falta} documento(s) aguardando você`, icone: 'doc', acao: () => ir('documentos') });
+    if (c.novas) itens.push({ rotulo: `${c.novas} mensagem(ns) nova(s) da NGA`, icone: 'comment', acao: () => ir('mensagens') });
+    return menu(ancora, itens.length ? itens : [{ rotulo: 'Nada pendente com você.', icone: 'check', acao: () => {} }]);
+  }
   const p = estado.painel;
   if (!p) return toast('Carregando…', 'aviso');
   const itens = [];

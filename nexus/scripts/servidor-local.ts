@@ -113,6 +113,7 @@ const api = criarApp({
   deposito: montarDeposito(armazenamento, {
     ...process.env, NGA_SEGREDO_ARQUIVOS: cfg.segredoArquivos,
   }),
+  analiseAutomatica: true,
 });
 
 const TIPOS: Record<string, string> = {

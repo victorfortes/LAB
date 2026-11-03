@@ -17,11 +17,13 @@ import { htmlQuadro, ligarQuadro, novaTarefa } from './tarefas.js';
 import { equipe as equipeDoEscritorio } from './tarefas.js';
 import * as extra from './projeto_extra.js';
 import { abaCreditos } from './projeto_creditos.js';
+import { abaDiagnostico } from './projeto_diagnostico.js';
 
 export { novoProcessoSolto } from './projeto_extra.js';
 
 const ABAS = [
   { id: 'visao', rotulo: 'Visão geral', icone: 'home' },
+  { id: 'diagnostico', rotulo: 'Diagnóstico', icone: 'sparkle', perm: 'analise.executar', alerta: (c) => c.achados_criticos },
   { id: 'tarefas', rotulo: 'Tarefas', icone: 'check', perm: 'tarefa.ler', n: (c) => c.tarefas_abertas },
   { id: 'creditos', rotulo: 'Créditos', icone: 'scale', perm: 'credito.ler', n: (c) => c.creditos, alerta: (c) => c.creditos_a_validar },
   { id: 'processos', rotulo: 'Processos e prazos', icone: 'file', perm: 'processo.ler', n: (c) => c.processos, alerta: (c) => c.prazos_abertos },
@@ -33,7 +35,7 @@ const ABAS = [
 ];
 
 const MODULOS = {
-  visao: abaVisao, tarefas: abaTarefas, creditos: abaCreditos, processos: extra.abaProcessos,
+  visao: abaVisao, diagnostico: abaDiagnostico, tarefas: abaTarefas, creditos: abaCreditos, processos: extra.abaProcessos,
   documentos: extra.abaDocumentos, portal: extra.abaPortal, plano: extra.abaPlano,
   relatorios: extra.abaRelatorios, equipe: abaEquipe,
 };

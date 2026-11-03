@@ -17,6 +17,9 @@ import { AMBIENTES, MODULOS, resumoDeEstado } from './modulos.ts';
 import { TransicaoInvalida } from '../domain/portal/checklist.ts';
 import * as portal from './portal.ts';
 import * as analise from './analise.ts';
+import * as analiseAuto from './analise_auto.ts';
+import { diagnostico } from './diagnostico.ts';
+import { atividade } from './atividade.ts';
 import * as processos from './processos.ts';
 import * as relatorios from './relatorios.ts';
 import * as projetos from './projetos.ts';
@@ -62,6 +65,8 @@ export interface Contexto {
    * que finge responder (§22).
    */
   readonly provedor?: Provedor;
+  /** Lê e analisa sozinho o que chega. Desligado por padrão para não deixar trabalho solto nos testes. */
+  readonly analiseAutomatica?: boolean;
   /**
    * Depósito de arquivos. Omitido, usa o armazenamento local em `acervo/` —
    * que fica FORA de `web/`, senão a URL assinada seria enfeite: bastaria
@@ -95,6 +100,15 @@ export function criarApp(ctx: Contexto) {
     ?? arquivos.deposito(new ArmazenamentoLocal(process.env['NGA_ACERVO'] ?? './acervo'));
   if (deposito.segredo.aviso) console.warn(`  aviso: ${deposito.segredo.aviso}`);
 
+  // Leitura automática dos documentos recebidos. Roda depois da resposta, fora
+  // da requisição; o estado de cada documento fica gravado e a tela o mostra.
+  const pendentes = new Set<Promise<unknown>>();
+  const agendarAnalise = (documentoId: string): void => {
+    if (!ctx.analiseAutomatica) return;
+    const p = analiseAuto.processar(banco, deposito, provedor, documentoId).finally(() => pendentes.delete(p));
+    pendentes.add(p);
+  };
+
   /** Resolve a identidade ou devolve 401. */
   async function autenticado(req: Request): Promise<Identidade | Response> {
     const token = tokenDaRequisicao(req);
@@ -103,7 +117,7 @@ export function criarApp(ctx: Contexto) {
     return identidade ?? erro('sessão inválida ou expirada', 401);
   }
 
-  return async function tratar(req: Request): Promise<Response> {
+  const tratar = async function tratar(req: Request): Promise<Response> {
     const url = new URL(req.url);
     const rota = url.pathname;
     const metodo = req.method;
@@ -369,6 +383,14 @@ export function criarApp(ctx: Contexto) {
       // documento, análise, processo e relatório se penduram nele. O `hub`
       // é onde isso tudo aparece junto.
 
+      if (rota === '/api/atividade' && metodo === 'GET') {
+        exigir(identidade.papeis, 'projeto.ler');
+        if (ehCliente) return erro('acesso negado', 403);
+        const desde = url.searchParams.get('desde');
+        return json(await banco.comoUsuario(identidade.usuarioId, (db) =>
+          atividade(db, desde && !Number.isNaN(Date.parse(desde)) ? desde : null)));
+      }
+
       if (rota === '/api/painel' && metodo === 'GET') {
         // O painel do cliente é o portal; este é o de quem trabalha no caso.
         if (ehCliente) return erro('use /api/portal/projetos', 403);
@@ -529,7 +551,7 @@ export function criarApp(ctx: Contexto) {
           });
           if (!meta.success) return erro('dados inválidos', 400, meta.error.issues);
 
-          return json(await banco.comoUsuario(identidade.usuarioId, async (db) => {
+          const guardado = await banco.comoUsuario(identidade.usuarioId, async (db) => {
             const recebido = await arquivos.receber(
               db, projetoId, arquivo, meta.data, identidade, deposito,
               ehCliente ? 'portal_cliente' : 'interno');
@@ -538,7 +560,9 @@ export function criarApp(ctx: Contexto) {
               db, meta.data.requisitoId, recebido.documentoId, identidade,
               ehCliente ? 'cliente' : 'nga');
             return { ...recebido, ...vinculo, temArquivo: true };
-          }), 201);
+          });
+          agendarAnalise(guardado.documentoId);
+          return json(guardado, 201);
         }
 
         const corpo = portal.EsquemaEnvio.safeParse(await req.json().catch(() => null));
@@ -549,6 +573,17 @@ export function criarApp(ctx: Contexto) {
               ehCliente ? 'cliente' : 'nga')),
           temArquivo: false,
         }, 201);
+      }
+
+      const mVinculo = /^\/api\/requisitos\/([0-9a-f-]{36})\/vinculo$/.exec(rota);
+      if (mVinculo && metodo === 'POST') {
+        // Organizar o que o cliente mandou solto é ato da NGA: o sistema sugere, a pessoa vincula.
+        exigir(identidade.papeis, 'documento.escrever');
+        exigir(identidade.papeis, 'projeto.escrever');
+        const corpo = z.object({ documentoId: z.string().uuid() }).safeParse(await req.json().catch(() => null));
+        if (!corpo.success) return erro('dados inválidos', 400, corpo.error.issues);
+        return json(await banco.comoUsuario(identidade.usuarioId, (db) =>
+          portal.vincularAoRequisito(db, mVinculo[1]!, corpo.data.documentoId, identidade, 'nga')));
       }
 
       const mAnalise = /^\/api\/requisitos\/([0-9a-f-]{36})\/analise$/.exec(rota);
@@ -821,6 +856,19 @@ export function criarApp(ctx: Contexto) {
           analise.extrairDoArquivo(db, mExtrair[1]!, identidade, deposito)), 201);
       }
 
+      const mDiagnostico = /^\/api\/projetos\/([0-9a-f-]{36})\/diagnostico$/.exec(rota);
+      if (mDiagnostico && metodo === 'GET') {
+        // Diagnóstico é leitura interna da NGA sobre o cliente: o cliente não o alcança.
+        exigir(identidade.papeis, 'analise.executar');
+        return json(await banco.comoUsuario(identidade.usuarioId, (db) => diagnostico(db, mDiagnostico[1]!)));
+      }
+      const mReprocessar = /^\/api\/documentos\/([0-9a-f-]{36})\/reprocessamento$/.exec(rota);
+      if (mReprocessar && metodo === 'POST') {
+        exigir(identidade.papeis, 'analise.executar');
+        const estado = await analiseAuto.processar(banco, deposito, provedor, mReprocessar[1]!);
+        return json({ estado });
+      }
+
       const mAnalises = /^\/api\/documentos\/([0-9a-f-]{36})\/analises$/.exec(rota);
       if (mAnalises && metodo === 'GET') {
         exigir(identidade.papeis, 'documento.ler');
@@ -913,6 +961,8 @@ export function criarApp(ctx: Contexto) {
       return erro('erro interno', 500);
     }
   };
+
+  return Object.assign(tratar, { aguardarAnalises: () => Promise.allSettled([...pendentes]) });
 }
 
 // ------------------------------------------------------------- esquemas ---
