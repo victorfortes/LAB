@@ -1,0 +1,7 @@
+node_modules
+.env
+*.log
+data/
+web/dist
+acervo/
+.tmp/

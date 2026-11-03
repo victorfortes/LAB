@@ -1,0 +1,262 @@
+/**
+ * Checklist documental do onboarding (§6.2).
+ *
+ * REGRA CENTRAL
+ * "O simples envio não significa aprovação." O briefing é explícito em
+ * distinguir recebimento, análise, validação e complementação — então o
+ * progresso que o cliente vê NUNCA é a contagem de arquivos enviados. São duas
+ * barras: o quanto ele já mandou e o quanto a NGA já aprovou. Só a segunda
+ * fecha o onboarding.
+ */
+
+export type SituacaoRequisito =
+  /** Nada enviado ainda. */
+  | 'pendente'
+  /** O cliente enviou; ninguém olhou. */
+  | 'enviado'
+  /** A NGA está analisando. */
+  | 'em_analise'
+  /** Conferido e aceito. Só este conta como concluído. */
+  | 'aprovado'
+  /** Recusado: o documento não serve. */
+  | 'rejeitado'
+  /** Serve em parte; falta algo. */
+  | 'complementacao';
+
+export const ROTULO_DA_SITUACAO: Readonly<Record<SituacaoRequisito, string>> = Object.freeze({
+  pendente: 'Pendente',
+  enviado: 'Recebido, aguardando análise',
+  em_analise: 'Em análise',
+  aprovado: 'Aprovado',
+  rejeitado: 'Rejeitado',
+  complementacao: 'Aguardando complementação',
+});
+
+/** Situações em que a bola está com o cliente. */
+export const AGUARDA_O_CLIENTE: readonly SituacaoRequisito[] =
+  Object.freeze(['pendente', 'rejeitado', 'complementacao']);
+
+/** Situações em que a bola está com a NGA. */
+export const AGUARDA_A_NGA: readonly SituacaoRequisito[] =
+  Object.freeze(['enviado', 'em_analise']);
+
+/**
+ * Transições permitidas.
+ *
+ * Quem envia é o cliente; quem aprova, rejeita ou pede complementação é a NGA.
+ * O cliente não consegue marcar o próprio documento como aprovado — e isso é
+ * garantido aqui, não só na interface.
+ */
+const TRANSICOES: Readonly<Record<SituacaoRequisito, readonly SituacaoRequisito[]>> = Object.freeze({
+  pendente: ['enviado'],
+  // Reenviar antes da análise é legítimo: o cliente manda o arquivo errado,
+  // percebe e manda o certo. Bloquear isso obrigaria a NGA a rejeitar primeiro.
+  enviado: ['enviado', 'em_analise', 'aprovado', 'rejeitado', 'complementacao'],
+  em_analise: ['aprovado', 'rejeitado', 'complementacao'],
+  complementacao: ['enviado'],
+  rejeitado: ['enviado'],
+  // Reabrir um item aprovado é possível, mas é ato da NGA e fica na auditoria.
+  aprovado: ['em_analise', 'complementacao'],
+});
+
+export type Autor = 'cliente' | 'nga';
+
+/** Quem pode provocar cada transição. */
+/**
+ * Quem pode levar o item a cada situação.
+ *
+ * "Enviado" aceita os DOIS lados, e isso é deliberado: significa "o documento
+ * chegou", não "o cliente clicou". Metade dos documentos de uma recuperação
+ * judicial chega por e-mail ou em papel, e é a equipe que registra. Quem
+ * registrou fica em `documentos.enviado_por`, em `origem` e na auditoria —
+ * negar o caso real só faria a equipe inventar contorno.
+ *
+ * O que nenhum lado flexibiliza é o resto: aprovar, rejeitar, pedir
+ * complementação e reabrir são atos da NGA, e o cliente não chega a eles por
+ * caminho algum (§6.2).
+ */
+const QUEM_PODE: Readonly<Record<SituacaoRequisito, readonly Autor[]>> = Object.freeze({
+  enviado: ['cliente', 'nga'],
+  em_analise: ['nga'],
+  aprovado: ['nga'],
+  rejeitado: ['nga'],
+  complementacao: ['nga'],
+  pendente: ['nga'],
+});
+
+export class TransicaoInvalida extends Error {
+  override readonly name = 'TransicaoInvalida';
+}
+
+/**
+ * Valida uma mudança de situação. Lança se for impossível ou se o autor não
+ * puder fazê-la.
+ */
+export function transicionar(
+  de: SituacaoRequisito, para: SituacaoRequisito, autor: Autor,
+): SituacaoRequisito {
+  if (!TRANSICOES[de].includes(para)) {
+    throw new TransicaoInvalida(
+      `transição inválida: ${ROTULO_DA_SITUACAO[de]} → ${ROTULO_DA_SITUACAO[para]}`);
+  }
+  if (!QUEM_PODE[para].includes(autor)) {
+    throw new TransicaoInvalida(
+      `${autor === 'cliente' ? 'o cliente' : 'a NGA'} não pode marcar o item como ` +
+      `"${ROTULO_DA_SITUACAO[para]}"`);
+  }
+  return para;
+}
+
+export interface ItemDeChecklist {
+  readonly id: string;
+  readonly categoria: string;
+  readonly titulo: string;
+  readonly situacao: SituacaoRequisito;
+  readonly obrigatorio: boolean;
+}
+
+export interface ProgressoDeCategoria {
+  readonly categoria: string;
+  readonly total: number;
+  readonly aprovados: number;
+  readonly enviados: number;
+  readonly pendentes: number;
+}
+
+export interface Progresso {
+  readonly total: number;
+  readonly obrigatorios: number;
+  /** Itens aprovados pela NGA. É o que realmente conta. */
+  readonly aprovados: number;
+  /** Itens que o cliente já mandou (enviado, em análise ou aprovado). */
+  readonly enviados: number;
+  /** Percentual de conclusão REAL: aprovados sobre obrigatórios. */
+  readonly percentualAprovado: number;
+  /** Percentual enviado — mostrado separado para não enganar o cliente. */
+  readonly percentualEnviado: number;
+  readonly aguardandoOCliente: number;
+  readonly aguardandoANGA: number;
+  readonly concluido: boolean;
+  readonly porCategoria: readonly ProgressoDeCategoria[];
+}
+
+function jaEnviou(s: SituacaoRequisito): boolean {
+  return s === 'enviado' || s === 'em_analise' || s === 'aprovado';
+}
+
+/**
+ * Calcula o progresso do onboarding.
+ *
+ * O denominador são os itens OBRIGATÓRIOS: documento opcional enviado não
+ * infla a barra, e documento opcional faltando não trava o onboarding.
+ */
+export function calcularProgresso(itens: readonly ItemDeChecklist[]): Progresso {
+  const obrigatorios = itens.filter((i) => i.obrigatorio);
+  const base = obrigatorios.length;
+
+  const aprovados = obrigatorios.filter((i) => i.situacao === 'aprovado').length;
+  const enviados = obrigatorios.filter((i) => jaEnviou(i.situacao)).length;
+
+  const categorias = [...new Set(itens.map((i) => i.categoria))];
+  const porCategoria = categorias.map((categoria) => {
+    const daCategoria = itens.filter((i) => i.categoria === categoria);
+    return {
+      categoria,
+      total: daCategoria.length,
+      aprovados: daCategoria.filter((i) => i.situacao === 'aprovado').length,
+      enviados: daCategoria.filter((i) => jaEnviou(i.situacao)).length,
+      pendentes: daCategoria.filter((i) => AGUARDA_O_CLIENTE.includes(i.situacao)).length,
+    };
+  });
+
+  return {
+    total: itens.length,
+    obrigatorios: base,
+    aprovados,
+    enviados,
+    // Sem itens obrigatórios o onboarding não está 100 % — está indefinido.
+    // Devolver 0 evita anunciar conclusão de um checklist vazio.
+    percentualAprovado: base === 0 ? 0 : Math.round((aprovados / base) * 100),
+    percentualEnviado: base === 0 ? 0 : Math.round((enviados / base) * 100),
+    aguardandoOCliente: itens.filter((i) => AGUARDA_O_CLIENTE.includes(i.situacao)).length,
+    aguardandoANGA: itens.filter((i) => AGUARDA_A_NGA.includes(i.situacao)).length,
+    concluido: base > 0 && aprovados === base,
+    porCategoria,
+  };
+}
+
+/**
+ * Modelos de checklist por tipo de procedimento (§6.2).
+ *
+ * "Uma recuperação judicial exige documentação diferente de uma investigação
+ * patrimonial." Os modelos são ponto de partida configurável, não camisa de
+ * força: a instância do projeto é que vale.
+ */
+export interface ModeloDeRequisito {
+  readonly categoria: string;
+  readonly titulo: string;
+  readonly obrigatorio: boolean;
+  readonly fundamento?: string;
+}
+
+export const MODELOS: Readonly<Record<string, readonly ModeloDeRequisito[]>> = Object.freeze({
+  recuperacao_judicial: Object.freeze([
+    { categoria: 'Contábil', titulo: 'Balanço patrimonial dos 3 últimos exercícios', obrigatorio: true,
+      fundamento: 'Art. 51, II, da Lei 11.101/2005.' },
+    { categoria: 'Contábil', titulo: 'Demonstração de resultado (DRE) dos 3 últimos exercícios', obrigatorio: true,
+      fundamento: 'Art. 51, II, da Lei 11.101/2005.' },
+    { categoria: 'Contábil', titulo: 'Demonstração de resultado acumulado', obrigatorio: true,
+      fundamento: 'Art. 51, II, "b", da Lei 11.101/2005.' },
+    { categoria: 'Contábil', titulo: 'Relatório gerencial de fluxo de caixa e projeção', obrigatorio: true,
+      fundamento: 'Art. 51, II, "d", da Lei 11.101/2005.' },
+    { categoria: 'Contábil', titulo: 'Balancete do último mês', obrigatorio: true },
+    { categoria: 'Contábil', titulo: 'Livro razão e livro diário', obrigatorio: false },
+    { categoria: 'Credores', titulo: 'Relação nominal completa de credores', obrigatorio: true,
+      fundamento: 'Art. 51, III, da Lei 11.101/2005.' },
+    { categoria: 'Credores', titulo: 'Contratos bancários e de financiamento', obrigatorio: true },
+    { categoria: 'Credores', titulo: 'Relação de garantias prestadas', obrigatorio: true },
+    { categoria: 'Societário', titulo: 'Contrato social consolidado e alterações', obrigatorio: true },
+    { categoria: 'Societário', titulo: 'Atos constitutivos e quadro societário atual', obrigatorio: true },
+    { categoria: 'Trabalhista', titulo: 'Relação de empregados e verbas em atraso', obrigatorio: true,
+      fundamento: 'Art. 51, IV, da Lei 11.101/2005.' },
+    { categoria: 'Fiscal', titulo: 'Certidões de débitos federais, estaduais e municipais', obrigatorio: true },
+    { categoria: 'Fiscal', titulo: 'Relação de parcelamentos tributários em curso', obrigatorio: true },
+    { categoria: 'Patrimonial', titulo: 'Relação de bens do ativo não circulante', obrigatorio: true,
+      fundamento: 'Art. 51, VII, da Lei 11.101/2005.' },
+    { categoria: 'Processual', titulo: 'Relação de ações judiciais em curso', obrigatorio: true,
+      fundamento: 'Art. 51, IX, da Lei 11.101/2005.' },
+  ]),
+  recuperacao_extrajudicial: Object.freeze([
+    { categoria: 'Contábil', titulo: 'Demonstrações contábeis do último exercício', obrigatorio: true },
+    { categoria: 'Contábil', titulo: 'Fluxo de caixa e projeção', obrigatorio: true },
+    { categoria: 'Credores', titulo: 'Relação de credores a serem abrangidos', obrigatorio: true },
+    { categoria: 'Credores', titulo: 'Termos de adesão colhidos', obrigatorio: true,
+      fundamento: 'Art. 163 da Lei 11.101/2005.' },
+    { categoria: 'Societário', titulo: 'Contrato social consolidado', obrigatorio: true },
+    { categoria: 'Fiscal', titulo: 'Certidões de regularidade fiscal', obrigatorio: false },
+  ]),
+  falencia: Object.freeze([
+    { categoria: 'Contábil', titulo: 'Demonstrações contábeis do último exercício', obrigatorio: true },
+    { categoria: 'Credores', titulo: 'Relação de credores', obrigatorio: true },
+    { categoria: 'Patrimonial', titulo: 'Relação de bens e direitos', obrigatorio: true },
+    { categoria: 'Societário', titulo: 'Contrato social e alterações', obrigatorio: true },
+    { categoria: 'Processual', titulo: 'Relação de ações e execuções em curso', obrigatorio: true },
+  ]),
+  investigacao_patrimonial: Object.freeze([
+    { categoria: 'Identificação', titulo: 'Qualificação completa do investigado', obrigatorio: true },
+    { categoria: 'Identificação', titulo: 'CPF ou CNPJ e documentos de identificação', obrigatorio: true },
+    { categoria: 'Documental', titulo: 'Título executivo ou contrato que embasa o crédito', obrigatorio: true },
+    { categoria: 'Processual', titulo: 'Processos em que o crédito é discutido', obrigatorio: false },
+  ]),
+  reestruturacao: Object.freeze([
+    { categoria: 'Contábil', titulo: 'Demonstrações contábeis dos 2 últimos exercícios', obrigatorio: true },
+    { categoria: 'Contábil', titulo: 'Fluxo de caixa realizado e projetado', obrigatorio: true },
+    { categoria: 'Credores', titulo: 'Mapa de endividamento por credor', obrigatorio: true },
+    { categoria: 'Societário', titulo: 'Contrato social consolidado', obrigatorio: true },
+  ]),
+});
+
+/** Modelo do procedimento, ou lista vazia quando não houver (nunca lança). */
+export function modeloDe(tipoDeProjeto: string): readonly ModeloDeRequisito[] {
+  return MODELOS[tipoDeProjeto] ?? [];
+}

@@ -1,0 +1,172 @@
+/*
+ * NGA — Design System
+ *
+ * Fonte única da identidade visual do NGA Lab. Antes desta consolidação os
+ * mesmos tokens viviam duplicados e já divergentes em três lugares:
+ *   - NGA Íntegra/web/style.css
+ *   - Agendamento de Prazos/nga-prazos/web/src/styles.css
+ *   - a apresentação NGA_Lab.html
+ * Qualquer módulo novo da plataforma importa daqui e não redefine cor alguma.
+ */
+
+:root {
+  /* --- Base --- */
+  --nga-bg: #03050A;          /* azul quase preto */
+  --nga-bg-elev: #060A12;     /* superfície elevada */
+  --nga-ink: #EAF1F8;         /* texto principal */
+  --nga-mut: #8DA0B5;         /* texto secundário */
+  --nga-faint: #5D6E82;       /* texto terciário / legendas */
+
+  /* --- Destaque --- */
+  --nga-amber: #F0A32E;       /* ação, marca, ênfase */
+  --nga-amber-soft: #FFD08A;  /* realce sobre âmbar */
+
+  /* --- Informação e estado --- */
+  --nga-cy: #4CC9F0;          /* informação, dados */
+  --nga-green: #2EE6A0;       /* sucesso, validado */
+  --nga-red: #FF6B6B;         /* erro, risco, vencido */
+  --nga-ok: var(--nga-green);
+  --nga-info: var(--nga-cy);
+  --nga-warn: var(--nga-amber);
+  --nga-bad: var(--nga-red);
+
+  /* --- Traço e profundidade --- */
+  --nga-line: rgba(255, 255, 255, .11);
+  --nga-line-strong: rgba(255, 255, 255, .22);
+  --nga-glass: linear-gradient(160deg, rgba(255,255,255,.065), rgba(255,255,255,.012));
+  --nga-shadow: 0 18px 44px rgba(0, 0, 0, .55);
+
+  /* --- Tipografia --- */
+  --nga-sans: "Barlow", "Segoe UI", system-ui, sans-serif;
+  --nga-cond: "Barlow Condensed", "Arial Narrow", sans-serif;
+  --nga-mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+
+  /* --- Ritmo --- */
+  --nga-r-sm: 8px;
+  --nga-r-md: 14px;
+  --nga-r-lg: 20px;
+  --nga-t-fast: 140ms;
+  --nga-t-base: 240ms;
+  --nga-ease: cubic-bezier(.22, .61, .36, 1);
+}
+
+/*
+ * A plataforma é escura por desenho. Esta regra atende quem força tema claro
+ * no sistema operacional sem transformar o produto num ERP branco: o contraste
+ * sobe, a identidade fica.
+ */
+@media (prefers-color-scheme: light) {
+  :root:not([data-tema="escuro"]) {
+    --nga-ink: #F2F7FC;
+    --nga-mut: #9BADC1;
+  }
+}
+
+/* Respeita quem pediu menos movimento. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+}
+
+* { box-sizing: border-box; }
+
+html, body { margin: 0; }
+
+body {
+  background: var(--nga-bg);
+  color: var(--nga-ink);
+  font-family: var(--nga-sans);
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* --- Primitivas reutilizáveis --- */
+
+.nga-card {
+  background: var(--nga-glass);
+  border: 1px solid var(--nga-line);
+  border-radius: var(--nga-r-md);
+  box-shadow: var(--nga-shadow);
+  padding: 18px 20px;
+}
+
+.nga-rotulo {
+  font-family: var(--nga-cond);
+  text-transform: uppercase;
+  letter-spacing: .14em;
+  font-size: 12px;
+  color: var(--nga-mut);
+}
+
+/* Dados técnicos: número de processo, CNPJ, valor, hash. */
+.nga-dado {
+  font-family: var(--nga-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+}
+
+.nga-valor { font-family: var(--nga-mono); font-variant-numeric: tabular-nums; }
+.nga-valor--neg { color: var(--nga-red); }
+
+.nga-selo {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-family: var(--nga-cond); text-transform: uppercase; letter-spacing: .1em;
+  font-size: 11px; padding: 3px 9px; border-radius: 999px;
+  border: 1px solid currentColor;
+}
+.nga-selo--ok { color: var(--nga-green); }
+.nga-selo--dev { color: var(--nga-amber); }
+.nga-selo--risco { color: var(--nga-red); }
+.nga-selo--info { color: var(--nga-cy); }
+
+.nga-botao {
+  font-family: var(--nga-cond); text-transform: uppercase; letter-spacing: .12em;
+  font-size: 13px; padding: 10px 18px; border-radius: var(--nga-r-sm);
+  border: 1px solid var(--nga-amber); background: transparent; color: var(--nga-amber);
+  cursor: pointer; transition: background var(--nga-t-fast) var(--nga-ease),
+    color var(--nga-t-fast) var(--nga-ease);
+}
+.nga-botao:hover { background: var(--nga-amber); color: var(--nga-bg); }
+.nga-botao:focus-visible { outline: 2px solid var(--nga-cy); outline-offset: 2px; }
+.nga-botao[disabled] { opacity: .45; cursor: not-allowed; }
+
+/* Botão secundário: ação disponível, sem disputar atenção com a principal. */
+.nga-botao--fantasma {
+  border-color: var(--nga-line-strong); color: var(--nga-mut);
+  padding: 8px 14px; font-size: 12px;
+}
+.nga-botao--fantasma:hover { background: transparent; border-color: var(--nga-cy); color: var(--nga-cy); }
+
+/* Nota de rodapé de seção: contexto que o usuário precisa ler uma vez. */
+.nga-nota {
+  font-size: 13px; color: var(--nga-mut);
+  border-left: 2px solid var(--nga-line); padding-left: 10px; margin: 10px 0;
+}
+
+/* Tabela de dados técnicos: números e identificadores em fonte monoespaçada. */
+.nga-tabela { width: 100%; border-collapse: collapse; font-size: 13px; }
+.nga-tabela th {
+  text-align: left; font-family: var(--nga-cond); text-transform: uppercase;
+  letter-spacing: .1em; font-size: 11px; color: var(--nga-faint);
+  padding: 8px 10px; border-bottom: 1px solid var(--nga-line-strong);
+}
+.nga-tabela td { padding: 9px 10px; border-bottom: 1px solid var(--nga-line); vertical-align: top; }
+.nga-tabela td small { display: block; color: var(--nga-mut); font-size: 11px; margin-top: 3px; }
+.nga-tabela tr:last-child td { border-bottom: none; }
+.nga-tabela a { color: var(--nga-cy); }
+
+/* Marca de conteúdo gerado por IA — nunca pode passar por conferência humana. */
+.nga-ia {
+  border-left: 2px solid var(--nga-cy);
+  padding-left: 10px;
+}
+.nga-ia::before {
+  content: "ANÁLISE AUTOMATIZADA · PENDENTE DE REVISÃO";
+  display: block;
+  font-family: var(--nga-cond); font-size: 10px; letter-spacing: .14em;
+  color: var(--nga-cy); margin-bottom: 4px;
+}
