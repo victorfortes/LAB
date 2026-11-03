@@ -9,7 +9,9 @@
     "typecheck": "tsc --noEmit",
     "migrate": "bun scripts/migrate.ts",
     "demo": "bun scripts/demo.ts",
-    "criar-usuario": "bun scripts/criar-usuario.ts"
+    "criar-usuario": "bun scripts/criar-usuario.ts",
+    "local": "bun scripts/servidor-local.ts",
+    "criar-usuario-local": "bun scripts/criar-usuario-local.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.3.0",
