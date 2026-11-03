@@ -65,7 +65,8 @@ class FonteHTTP:
             except (urllib.error.URLError, TimeoutError, OSError, ValueError) as e:
                 ultimo_erro = "%s: %s" % (type(e).__name__, e)
             if t < self.tentativas - 1:
-                self._dormir(self.espera_base * (2 ** t))
+                # o DJEN orienta aguardar 1 minuto ao receber 429 (swagger oficial); insistir antes pode levar a bloqueio
+                self._dormir(max(60, self.espera_base * (2 ** t)) if status == 429 and self.nome == "djen" else self.espera_base * (2 ** t))
         self._relatar(False, ultimo_erro)
         raise ErroFonte("%s: %s" % (self.nome, ultimo_erro), status)
 
