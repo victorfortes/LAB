@@ -16,7 +16,18 @@ const DIRETORIO = fileURLToPath(new URL('./migrations/', import.meta.url));
 
 export interface MigracaoAplicada { readonly nome: string; readonly jaEstava: boolean }
 
-export async function migrar(cliente: Client, diretorio = DIRETORIO): Promise<MigracaoAplicada[]> {
+/**
+ * `esquema` coloca TUDO (tabelas, funções, registro de migrações) num schema próprio em vez de `public`.
+ * Serve a bancos compartilhados com outra aplicação, como o Supabase: os nomes de tabela não colidem
+ * e o schema não fica exposto pela API REST do Supabase. As funções SECURITY DEFINER fixam o
+ * `search_path` no texto da migração, então ele é reescrito para o schema escolhido.
+ */
+export async function migrar(cliente: Client, diretorio = DIRETORIO, esquema?: string): Promise<MigracaoAplicada[]> {
+  if (esquema) {
+    if (!/^[a-z_][a-z0-9_]*$/.test(esquema)) throw new Error('nome de schema inválido');
+    await cliente.query(`CREATE SCHEMA IF NOT EXISTS ${esquema}`);
+    await cliente.query(`SET search_path = ${esquema}, public`);
+  }
   await cliente.query(`
     CREATE TABLE IF NOT EXISTS schema_migracoes (
       nome        TEXT PRIMARY KEY,
@@ -34,7 +45,13 @@ export async function migrar(cliente: Client, diretorio = DIRETORIO): Promise<Mi
       resultado.push({ nome, jaEstava: true });
       continue;
     }
-    const sql = await Bun.file(join(diretorio, nome)).text();
+    let sql = await Bun.file(join(diretorio, nome)).text();
+    if (esquema) {
+      // Os GRANTs "ON ALL TABLES IN SCHEMA public" da 004 dariam ao papel da aplicação acesso às tabelas
+      // do OUTRO app que mora em `public`. No schema próprio, os privilégios valem só para ele.
+      sql = sql.replaceAll('search_path = public, pg_temp', `search_path = ${esquema}, pg_temp`)
+        .replace(/SCHEMA public\b/g, `SCHEMA ${esquema}`);
+    }
     try {
       await cliente.query('BEGIN');
       await cliente.query(sql);

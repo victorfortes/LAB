@@ -123,7 +123,9 @@ const TIPOS: Record<string, string> = {
 };
 
 const servidor = Bun.serve({
-  port: PORTA_WEB, hostname: '127.0.0.1',
+  port: PORTA_WEB,
+  // 127.0.0.1 por padrão: só este Mac alcança. NGA_HOST=0.0.0.0 abre para a rede local (celular no mesmo Wi-Fi) — decisão explícita.
+  hostname: process.env['NGA_HOST'] ?? '127.0.0.1',
   async fetch(req) {
     const url = new URL(req.url);
     if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/arquivos/')) {

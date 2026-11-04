@@ -64,7 +64,9 @@ export function lente(container, lenteSel, itemSel, ativoFn) {
 
 export function fundo() {
   const cv = $('#fx'); if (!cv) return;
-  const modo = guardado.ler('efeitos', 'equilibrado');
+  // Celular/tablet: leve por padrão (sem canvas animado), a menos que a pessoa tenha escolhido outro modo.
+  const celular = matchMedia('(pointer: coarse)').matches || innerWidth < 900;
+  const modo = guardado.ler('efeitos', celular ? 'leve' : 'equilibrado');
   if (modo === 'completo') document.documentElement.classList.add('cheio');
   if (modo === 'leve') { document.documentElement.classList.add('leve'); return; }
   const animado = modo === 'animado'; if (animado) document.documentElement.classList.add('animado');
@@ -105,6 +107,14 @@ export function fundo() {
       marca = agora; contados = 0;
     }
     ctx.clearRect(0, 0, w, h);
+    // Os brilhos de fundo são desenhados AQUI, no mesmo canvas, e não em elementos próprios:
+    // dois elementos de 900 px sob um canvas translúcido faziam a rolagem cair de 60 para ~15 fps
+    // no Chrome Retina (medido); com tudo numa camada só, volta a 60.
+    for (const [cx, cy, cor, a] of [[-0.05 * w, -0.1 * h, '240,163,46', 0.22], [1.05 * w, 1.1 * h, '76,201,240', 0.17]]) {
+      const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, 600);
+      g.addColorStop(0, `rgba(${cor},${a})`); g.addColorStop(1, `rgba(${cor},0)`);
+      ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
+    }
     const L = alcance();
     for (const a of nos) {
       if (!semMovimento()) {

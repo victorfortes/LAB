@@ -260,3 +260,10 @@ Impedimentos que não dependem de código — detalhados em `INVENTARIO.md`:
 credenciais do Nexus, código-fonte dele, `service_role` do Supabase para migrar
 os dados, chave Anthropic para exercitar os agentes, e liberação de escrita real
 no Astrea.
+
+## Banco compartilhado (Supabase)
+
+`scripts/migrar-supabase.ts` leva o schema para um Postgres que já tem outra aplicação (o gerador de
+relatórios), **num schema próprio `nga_lab`**: nada em `public` é alterado e o papel `nga_app` não recebe
+acesso às tabelas do outro app (`tests/esquema-compartilhado.test.ts`). Sem `--aplicar` ele só lê metadados.
+A string de conexão vem da variável `NGA_SUPABASE_URL`; não a coloque em arquivo versionado.

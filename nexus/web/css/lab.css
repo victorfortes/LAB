@@ -69,9 +69,9 @@ body { font-family: var(--font); letter-spacing: .005em; }
   background-size: 70px 70px;
   -webkit-mask-image: radial-gradient(ellipse at 55% 40%, #000 8%, transparent 70%);
   mask-image: radial-gradient(ellipse at 55% 40%, #000 8%, transparent 70%);
-  animation: grade 40s linear infinite;
+  /* Estático de propósito: animar background-position de uma camada com máscara em tela cheia
+     repintava a tela inteira a cada quadro (medido: 9 fps no Chrome Retina; 60 fps sem isso). */
 }
-@keyframes grade { to { background-position: 70px 70px, 70px 70px; } }
 .wall__glow { position: absolute; width: 900px; height: 900px; border-radius: 50%; filter: blur(120px); opacity: .26; animation: flutua 22s ease-in-out infinite; }
 .wall__glow.a { left: -300px; top: -320px; background: radial-gradient(circle, #F0A32E, transparent 65%); }
 .wall__glow.b { right: -340px; bottom: -380px; background: radial-gradient(circle, #4CC9F0, transparent 65%); opacity: .2; animation-delay: -9s; }
@@ -226,7 +226,8 @@ body { font-family: var(--font); letter-spacing: .005em; }
 .passo:last-child::before { display: none; }
 .passo__no { position: relative; z-index: 1; width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; background: var(--glass-solid); border: 2px solid var(--sep); font: 600 12px var(--font-mono); color: var(--text-3); }
 .passo.feito .passo__no { border-color: var(--lab-green); color: var(--lab-green); background: #2EE6A01a; }
-.passo.atual .passo__no { border-color: var(--lab-amber); color: #1d1203; background: var(--lab-amber); box-shadow: 0 0 0 6px #F0A32E26, 0 0 24px #F0A32E88; animation: respira 2.4s ease-in-out infinite; }
+.passo.atual .passo__no { border-color: var(--lab-amber); color: #1d1203; background: var(--lab-amber); box-shadow: 0 0 0 6px #F0A32E26, 0 0 24px #F0A32E88; }
+.passo.atual .passo__no::after { content: ""; position: absolute; inset: -6px; border-radius: 50%; border: 2px solid var(--lab-amber); animation: pulsoAnel 2.4s ease-out infinite; pointer-events: none; }
 @keyframes respira { 50% { box-shadow: 0 0 0 10px #F0A32E10, 0 0 34px #F0A32E55; } }
 .passo__no svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
 .passo__txt { margin-top: 10px; font-size: 13px; line-height: 1.3; font-weight: 600; max-width: 130px; }
@@ -431,10 +432,11 @@ body { font-family: var(--font); letter-spacing: .005em; }
 .pcard:hover, .tool:hover { transform: translateY(-3px); box-shadow: 0 24px 50px -28px #000, 0 0 0 1px #F0A32E33; }
 
 /* pontos vivos e brilho de progresso */
-.vivo { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--lab-green); box-shadow: 0 0 0 0 #2EE6A088; animation: vivo 1.8s infinite; }
-.vivo.ambar { background: var(--lab-amber); box-shadow: 0 0 0 0 #F0A32E88; animation-name: vivoA; }
-@keyframes vivo { 70% { box-shadow: 0 0 0 9px #2EE6A000; } 100% { box-shadow: 0 0 0 0 #2EE6A000; } }
-@keyframes vivoA { 70% { box-shadow: 0 0 0 9px #F0A32E00; } 100% { box-shadow: 0 0 0 0 #F0A32E00; } }
+.vivo { position: relative; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--lab-green); color: var(--lab-green); }
+.vivo.ambar { background: var(--lab-amber); color: var(--lab-amber); }
+/* o pulso é um anel que cresce e some (transform/opacity: vai para a GPU, sem repintar) */
+.vivo::after { content: ""; position: absolute; inset: 0; border-radius: 50%; border: 2px solid currentColor; animation: pulsoAnel 1.8s ease-out infinite; }
+@keyframes pulsoAnel { from { transform: scale(1); opacity: .8; } to { transform: scale(3.2); opacity: 0; } }
 .fase-card__bar i, .barra__col i { position: relative; overflow: hidden; }
 .fase-card__bar i::after { content: ""; position: absolute; inset: 0; background: linear-gradient(100deg, transparent 30%, #ffffff55 50%, transparent 70%); transform: translateX(-100%); animation: brilha 1.6s 1.2s 1; }
 @keyframes brilha { to { transform: translateX(100%); } }
@@ -509,4 +511,49 @@ html:not(.cheio) .main .tk-card { -webkit-backdrop-filter: none; backdrop-filter
 .leve .wall__glow { animation: none; }
 .leve .glass, .leve .stat, .leve .modal__box, .leve .menu { -webkit-backdrop-filter: none; backdrop-filter: none; background-color: var(--glass-solid); }
 .leve .pcard, .leve .tool { transition: none; }
-.leve .vivo, .leve .fase-card__bar i::after { animation: none; }
+.leve .vivo::after, .leve .passo.atual .passo__no::after, .leve .fase-card__bar i::after { animation: none; }
+.live { animation: none; }
+
+/* Lateral e barras também sem desfoque no modo padrão: o desfoque é recalculado a cada quadro de rolagem
+   (medido no Chrome Retina: rolagem 13 → 32 fps só com isso). Mantém o vidro por cor, brilho e borda. */
+html:not(.cheio) .glass--chrome, html:not(.cheio) .side, html:not(.cheio) .toolbar__title, html:not(.cheio) .toolbar__tools, html:not(.cheio) .tabbar__bar {
+  -webkit-backdrop-filter: none; backdrop-filter: none;
+  background: linear-gradient(172deg, var(--sheen, #ffffff10) 0%, transparent 40%), color-mix(in srgb, var(--glass-solid) 90%, transparent);
+}
+
+/* brilhos agora vivem no canvas (ver fx.js) */
+.wall__glow { display: none !important; }
+
+/* ------------------------------------------------------------ celular ---- */
+html { -webkit-text-size-adjust: 100%; }
+body { -webkit-tap-highlight-color: transparent; overscroll-behavior-y: none; }
+a, button, [role=tab], .tk-card, .pcard, .lista li, .check-row, label.btn, .tab { touch-action: manipulation; }
+@media (pointer: coarse) {
+  /* sem "hover" preso depois do toque, sem inclinação, alvos de toque de 44 px */
+  .pcard:hover, .tool:hover { transform: none; box-shadow: none; }
+  .btn, .ibtn, .tbtn { min-height: 44px; min-width: 44px; }
+  .ibtn--sm { min-width: 40px; min-height: 40px; }
+  .tabs button, .seg__btn { min-height: 44px; }
+  .check-row .btn { min-height: 40px; }
+  .tk-card { touch-action: pan-y; }
+}
+@media (max-width: 899px) {
+  /* campos com 16 px: abaixo disso o iOS dá zoom ao focar e a tela "pula" */
+  .input, .select, .textarea, input, select, textarea { font-size: 16px !important; }
+  .modal { padding: 0; align-items: end; }
+  .modal__box, .modal__box.wide { width: 100%; max-height: 92dvh; border-radius: 24px 24px 0 0; padding: 20px 18px calc(18px + env(safe-area-inset-bottom)); }
+  .grid-hub, .grid2, .grid3 { grid-template-columns: 1fr; }
+  .head__title { font-size: clamp(30px, 9vw, 44px); }
+  .head__stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .head__actions { flex-wrap: wrap; }
+  .pgrid { grid-template-columns: 1fr; }
+  .tbl-wrap { -webkit-overflow-scrolling: touch; }
+  .fases, .tk-board { scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch; }
+  .fases .tk-col, .tk-board .tk-col { scroll-snap-align: center; flex: 0 0 86vw; }
+  .cat-row { grid-template-columns: 88px minmax(0, 1fr) 52px; }
+  .cmdk__box { width: calc(100vw - 24px); }
+  .cal__dia { min-height: 64px; padding: 4px; }
+  /* tabbar: espaço para a barra do sistema do iPhone */
+  .main { padding-bottom: calc(110px + env(safe-area-inset-bottom)); }
+}
+@media (hover: none) { .btn:hover, .btn--accent:hover { filter: none; } }
