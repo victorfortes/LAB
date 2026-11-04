@@ -306,9 +306,12 @@ async function abrirAnalise(id, docId, titulo, ctx) {
   });
 }
 
+/** Quem deve entregar (coluna "Atribuição" da planilha da NGA), em etiquetas. */
+const atribuicao = (a) => (a ? html`<span class="atrib">${String(a).split('/').map((x) => html`<i>${x.trim()}</i>`)}</span>` : '');
+
 // ================================================================== PORTAL ===
 
-const SIT = { pendente: ['', 'Pendente'], enviado: ['info', 'Enviado'], em_analise: ['info', 'Em análise'], aprovado: ['ok', 'Aprovado'], rejeitado: ['erro', 'Rejeitado'], complementacao: ['aviso', 'Complementar'] };
+const SIT = { pendente: ['', 'Pendente'], enviado: ['info', 'Enviado'], em_analise: ['info', 'Em análise'], aprovado: ['ok', 'Aprovado'], rejeitado: ['erro', 'Rejeitado'], complementacao: ['aviso', 'Complementar'], nao_aplicavel: ['', 'Não se aplica'] };
 
 export async function abaPortal(ctx) {
   const [portal, check, msgs] = await Promise.all([api.get(`/api/projetos/${ctx.id}/portal`), api.get(`/api/projetos/${ctx.id}/checklist`), api.get(`/api/projetos/${ctx.id}/mensagens`)]);
@@ -324,11 +327,13 @@ export async function abaPortal(ctx) {
           <p class="card__sub">${pr.total ? `${pr.aprovados} de ${pr.obrigatorios} obrigatórios aprovados · ${pr.aguardandoOCliente} aguardando o cliente · ${pr.aguardandoANGA} aguardando você` : 'O que o cliente precisa enviar, com o fundamento de cada item.'}</p></div>
           ${!pr.total && escreve ? html`<button type="button" class="btn btn--accent" data-modelo>Gerar do modelo</button>` : ''}</header>
           ${pr.total ? html`<div class="fase-card__bar" style="height:10px"><i data-w="${pr.percentualAprovado}" style="width:0;transition:width 1.1s var(--ease)"></i></div><p class="mono-sm" style="margin:8px 0 14px">${pr.percentualAprovado}% aprovado · ${pr.percentualEnviado}% enviado</p>` : ''}
-          ${pr.total ? [...porCat].map(([cat, itens]) => html`<h3 class="mini-h">${cat}</h3>${itens.map((i) => html`<div class="check-row"><span class="sit-dot ${i.situacao}"></span>
-            <div><b>${i.titulo}${i.obrigatorio ? '' : html` <span class="muted">(opcional)</span>`}</b><small>${i.fundamento ?? ''}</small>${i.observacao ? html`<small class="obs">${i.observacao}</small>` : ''}</div>
+          ${pr.total ? [...porCat].map(([cat, itens]) => html`<h3 class="mini-h">${cat}</h3>${itens.map((i) => html`<div class="check-row${i.situacao === 'nao_aplicavel' ? ' na' : ''}"><span class="sit-dot ${i.situacao}"></span>
+            <div><b>${i.titulo}${i.obrigatorio ? '' : html` <span class="muted">(opcional)</span>`}</b><small>${i.fundamento ?? ''}</small>${atribuicao(i.atribuicao)}${i.observacao ? html`<small class="obs">${i.observacao}</small>` : ''}</div>
             <span class="selo ${SIT[i.situacao]?.[0] ?? ''}">${i.rotuloDaSituacao ?? SIT[i.situacao]?.[1]}</span>
             ${i.documento_id ? html`<button type="button" class="ibtn ibtn--sm" data-baixar="${i.documento_id}" aria-label="Baixar" title="Baixar">${icone('download')}</button>` : ''}
-            ${analisa && (i.situacao === 'enviado' || i.situacao === 'em_analise') ? html`<button type="button" class="btn btn--accent" data-analisar-req="${i.id}" data-t="${i.titulo}">Analisar</button>` : ''}</div>`)}`) : vazio('check', 'Checklist ainda não gerado', 'Gerar do modelo cria a lista de documentos do procedimento deste projeto, cada item com o seu fundamento legal.')}
+            ${analisa && (i.situacao === 'enviado' || i.situacao === 'em_analise') ? html`<button type="button" class="btn btn--accent" data-analisar-req="${i.id}" data-t="${i.titulo}">Analisar</button>` : ''}
+            ${analisa && ['pendente', 'rejeitado', 'complementacao'].includes(i.situacao) ? html`<button type="button" class="btn btn--ghost" data-na="${i.id}" title="Marcar como não se aplica a este caso">N/A</button>` : ''}
+            ${analisa && i.situacao === 'nao_aplicavel' ? html`<button type="button" class="btn btn--ghost" data-reativar="${i.id}">Reativar</button>` : ''}</div>`)}`) : vazio('check', 'Checklist ainda não gerado', 'Gerar do modelo cria a lista de documentos do procedimento deste projeto, cada item com o seu fundamento legal.')}
         </section>
         <section class="card glass up"><header class="card__head"><div><h2 class="card__title">Conversa com o cliente</h2><p class="card__sub">O cliente vê estas mensagens no portal.</p></div></header>
           <div class="chat" id="chat">${cron.length ? cron.map((m) => html`<div class="msg ${m.lado === 'nga' ? 'meu' : ''}">${m.texto}<small>${m.autor ?? (m.lado === 'nga' ? 'NGA' : 'Cliente')} · ${relativo(m.criado_em)}</small></div>`) : html`<p class="dica">Sem mensagens ainda.</p>`}</div>
@@ -352,11 +357,15 @@ export async function abaPortal(ctx) {
       ouvir(el, 'click', '[data-analisar-req]', async (b) => {
         const ok = await formulario({
           titulo: 'Analisar documento do cliente', subtitulo: b.dataset.t, rotulo: 'Registrar decisão',
-          campos: [{ nome: 'situacao', rotulo: 'Decisão', tipo: 'select', obrigatorio: true, valor: 'aprovado', opcoes: [{ v: 'aprovado', t: 'Aprovar' }, { v: 'complementacao', t: 'Pedir complementação' }, { v: 'rejeitado', t: 'Rejeitar' }, { v: 'em_analise', t: 'Marcar como em análise' }] },
+          campos: [{ nome: 'situacao', rotulo: 'Decisão', tipo: 'select', obrigatorio: true, valor: 'aprovado', opcoes: [{ v: 'aprovado', t: 'Aprovar' }, { v: 'complementacao', t: 'Entregue parcialmente (pedir complementação)' }, { v: 'rejeitado', t: 'Rejeitar' }, { v: 'em_analise', t: 'Marcar como em análise' }, { v: 'nao_aplicavel', t: 'Não se aplica a este caso' }] },
             { nome: 'observacao', rotulo: 'Observação para o cliente', tipo: 'textarea', dica: 'Se rejeitar ou pedir complementação, diga o que falta.' }],
           async enviar(v) { await api.post(`/api/requisitos/${b.dataset.analisarReq}/analise`, v); toast('Decisão registrada'); },
         });
         if (ok) ctx.recarregar();
+      });
+      ouvir(el, 'click', '[data-na], [data-reativar]', async (b) => {
+        const na = !!b.dataset.na; const id = b.dataset.na ?? b.dataset.reativar;
+        try { await api.post(`/api/requisitos/${id}/analise`, na ? { situacao: 'nao_aplicavel', observacao: 'Não se aplica a este caso.' } : { situacao: 'pendente' }); toast(na ? 'Marcado como não se aplica' : 'Item reativado'); ctx.recarregar(); } catch (e) { erroDe(e); }
       });
       ouvir(el, 'change', '[data-mostra]', async (c) => {
         const campo = { documentos: 'mostraDocumentos', obrigacoes: 'mostraObrigacoes', financeiro: 'mostraFinanceiro', processos: 'mostraProcessos' }[c.dataset.mostra];

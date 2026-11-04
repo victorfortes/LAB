@@ -95,7 +95,7 @@ describe('modelos por procedimento', () => {
     const rj = modeloDe('recuperacao_judicial');
     const inv = modeloDe('investigacao_patrimonial');
     expect(rj.length).toBeGreaterThan(inv.length);
-    expect(rj.some((r) => r.titulo.includes('Relação nominal completa de credores'))).toBe(true);
+    expect(rj.some((r) => r.titulo.includes('Lista completa de credores'))).toBe(true);
     expect(inv.some((r) => r.titulo.includes('credores'))).toBe(false);
   });
 
@@ -114,6 +114,42 @@ describe('modelos por procedimento', () => {
     for (const [tipo, itens] of Object.entries(MODELOS)) {
       expect(itens.some((i) => i.obrigatorio), tipo).toBe(true);
     }
+  });
+});
+
+describe('checklists oficiais da NGA (planilhas)', () => {
+  test('cada planilha virou o modelo do seu procedimento, com a contagem da planilha', () => {
+    expect(modeloDe('recuperacao_judicial')).toHaveLength(26);
+    expect(modeloDe('recuperacao_extrajudicial')).toHaveLength(26);   // "RJ e RE" é uma planilha só
+    expect(modeloDe('reestruturacao')).toHaveLength(15);               // Gestão de Passivos
+    expect(modeloDe('negociacao_credores')).toHaveLength(15);
+    expect(modeloDe('protecao_patrimonial')).toHaveLength(27);
+  });
+
+  test('todo item traz a atribuição da planilha (quem entrega)', () => {
+    for (const tipo of ['recuperacao_judicial', 'reestruturacao', 'protecao_patrimonial']) {
+      expect(modeloDe(tipo).every((i) => ['CLIENTE', 'CONTABILIDADE', 'SÓCIOS'].some((a) => i.atribuicao?.includes(a))), tipo).toBe(true);
+    }
+  });
+
+  test('"(se houver)" não trava o onboarding; o resto da RJ é obrigatório', () => {
+    const rj = modeloDe('recuperacao_judicial');
+    expect(rj.filter((i) => !i.obrigatorio).map((i) => i.titulo)).toEqual([
+      'Contratos de Alienação Fiduciária (se houver)', 'Contratos de Leasing / Arrendamento Mercantil (se houver)']);
+  });
+
+  test('"não se aplica" sai do denominador e só a NGA decide', () => {
+    const itens = [
+      { id: '1', categoria: 'A', titulo: 'x', situacao: 'aprovado' as const, obrigatorio: true },
+      { id: '2', categoria: 'A', titulo: 'y', situacao: 'nao_aplicavel' as const, obrigatorio: true },
+    ];
+    const p = calcularProgresso(itens);
+    expect(p.obrigatorios).toBe(1);
+    expect(p.concluido).toBe(true);
+    expect(() => transicionar('pendente', 'nao_aplicavel', 'cliente')).toThrow();
+    expect(transicionar('pendente', 'nao_aplicavel', 'nga')).toBe('nao_aplicavel');
+    expect(transicionar('nao_aplicavel', 'pendente', 'nga')).toBe('pendente');
+    expect(() => transicionar('nao_aplicavel', 'aprovado', 'nga')).toThrow();
   });
 });
 

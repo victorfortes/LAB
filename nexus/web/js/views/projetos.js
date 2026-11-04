@@ -17,14 +17,14 @@ import { atualizarLateral, ir, navegar, posicionarSeg } from '../shell.js';
 const ICONE_DO_TIPO = {
   recuperacao_judicial: 'scale', recuperacao_extrajudicial: 'shield', falencia: 'anchor',
   reestruturacao: 'building', negociacao_credores: 'users', investigacao_patrimonial: 'search',
-  contencioso_estrategico: 'target', consultivo: 'doc',
+  contencioso_estrategico: 'target', consultivo: 'doc', protecao_patrimonial: 'lock',
 };
 const PILULA = { ativo: 'active', proposto: 'planning', suspenso: 'review', encerrado: 'shipped' };
 const GRUPOS_DO_QUADRO = [
   { id: 'recuperacao_judicial', rotulo: 'Recuperação judicial', tipos: ['recuperacao_judicial'] },
   { id: 'falencia', rotulo: 'Falência', tipos: ['falencia'] },
   { id: 'recuperacao_extrajudicial', rotulo: 'Extrajudicial', tipos: ['recuperacao_extrajudicial'] },
-  { id: 'outros', rotulo: 'Demais', tipos: ['reestruturacao', 'negociacao_credores', 'investigacao_patrimonial', 'contencioso_estrategico', 'consultivo'], modelo: 'consultivo' },
+  { id: 'outros', rotulo: 'Demais', tipos: ['reestruturacao', 'negociacao_credores', 'investigacao_patrimonial', 'contencioso_estrategico', 'consultivo', 'protecao_patrimonial'], modelo: 'consultivo' },
 ];
 
 const fixados = () => guardado.ler('fixados', null);
@@ -189,7 +189,7 @@ export function novoProjeto() {
       { nome: 'tipo', rotulo: 'Procedimento', tipo: 'select', obrigatorio: true, valor: 'recuperacao_judicial', opcoes: [
         { v: 'recuperacao_judicial', t: 'Recuperação judicial' }, { v: 'recuperacao_extrajudicial', t: 'Recuperação extrajudicial' },
         { v: 'falencia', t: 'Falência' }, { v: 'reestruturacao', t: 'Reestruturação' }, { v: 'negociacao_credores', t: 'Negociação com credores' },
-        { v: 'investigacao_patrimonial', t: 'Investigação patrimonial' }, { v: 'contencioso_estrategico', t: 'Contencioso estratégico' }, { v: 'consultivo', t: 'Consultivo' }] },
+        { v: 'investigacao_patrimonial', t: 'Investigação patrimonial' }, { v: 'contencioso_estrategico', t: 'Contencioso estratégico' }, { v: 'consultivo', t: 'Consultivo' }, { v: 'protecao_patrimonial', t: 'Proteção patrimonial' }] },
       { nome: 'razaoSocial', rotulo: 'Cliente (razão social)', metade: true, placeholder: 'INDÚSTRIA DEMO LTDA.' },
       { nome: 'cnpj', rotulo: 'CNPJ', metade: true, placeholder: 'Opcional — confere o dígito', dica: '' },
       { nome: 'resumo', rotulo: 'Resumo do caso', tipo: 'textarea', placeholder: 'Uma ou duas frases: o que é este projeto.' },

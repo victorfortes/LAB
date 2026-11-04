@@ -49,7 +49,7 @@ afterAll(async () => { await app.aguardarAnalises(); await banco?.encerrar(); aw
 describe('cliente envia → análise automática → diagnóstico para o advogado', () => {
   test('PDF com texto é lido, classificado e aparece no diagnóstico; o cliente não vê o diagnóstico', async () => {
     const check = await (await req(tCliente, `/api/projetos/${projeto}/checklist`)).json();
-    const item = check.itens.find((i: { categoria: string }) => i.categoria === 'Contábil');
+    const item = check.itens.find((i: { categoria: string }) => i.categoria.startsWith('Contábil'));
     const bytes = await pdfCom([
       'BALANCO PATRIMONIAL EM 31/12/2025', 'INDUSTRIA DEMONSTRACAO LTDA. CNPJ 11.222.333/0001-81',
       'Ativo circulante R$ 1.250.000,00   Passivo circulante R$ 3.400.000,00', 'Demonstracao do resultado do exercicio e notas explicativas.',

@@ -557,3 +557,10 @@ a, button, [role=tab], .tk-card, .pcard, .lista li, .check-row, label.btn, .tab 
   .main { padding-bottom: calc(110px + env(safe-area-inset-bottom)); }
 }
 @media (hover: none) { .btn:hover, .btn--accent:hover { filter: none; } }
+
+/* checklist: atribuição e "não se aplica" */
+.atrib { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 5px; }
+.atrib i { font-style: normal; font: 600 10px var(--font); letter-spacing: .1em; padding: 2px 8px; border-radius: 99px; background: var(--fill-2); color: var(--text-2); }
+.check-row.na { opacity: .55; }
+.check-row.na b { text-decoration: line-through; text-decoration-color: var(--text-3); }
+.sit-dot.nao_aplicavel { background: transparent; border: 2px solid var(--text-3); }

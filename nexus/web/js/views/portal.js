@@ -13,7 +13,7 @@ import { cabecalho, erroDe, formulario, toast, vazio } from '../ui.js';
 import { atualizarLateral, navegar } from '../shell.js';
 
 const TITULOS = { inicio: 'Início', andamento: 'Andamento', documentos: 'Documentos', plano: 'Plano de pagamento', caixa: 'Fluxo de caixa', relatorios: 'Relatórios', mensagens: 'Mensagens' };
-const SIT = { pendente: ['', 'Pendente'], enviado: ['info', 'Enviado'], em_analise: ['info', 'Em análise'], aprovado: ['ok', 'Aprovado'], rejeitado: ['erro', 'Rejeitado'], complementacao: ['aviso', 'Complementar'] };
+const SIT = { pendente: ['', 'Pendente'], enviado: ['info', 'Enviado'], em_analise: ['info', 'Em análise'], aprovado: ['ok', 'Aprovado'], rejeitado: ['erro', 'Rejeitado'], complementacao: ['aviso', 'Complementar'], nao_aplicavel: ['', 'Não se aplica'] };
 
 export default async function portal({ aba }) {
   const projetos = estado.portal.length ? estado.portal : await api.get('/api/portal/projetos');
@@ -105,8 +105,8 @@ async function documentos(p) {
         <ul class="lista">${recentes(p).map((r) => html`<li><span class="empty__ico" style="width:36px;height:36px;border-radius:11px">${icone('doc')}</span><div><b>${r.nome}</b><small>${relativo(r.quando)} · ${tamanho(r.tamanho)}</small></div>
           <div class="fim"><span class="leitura lendo"><i class="vivo ambar"></i>Em leitura</span></div></li>`)}</ul></section>` : ''}
       <section class="card glass up mt"><header class="card__head"><div><h2 class="card__title">Lista de documentos</h2><p class="card__sub">Envie cada arquivo no item correspondente. O escritório confere e responde aqui.</p></div></header>
-      ${check.itens.length ? [...porCat].map(([cat, itens]) => html`<h3 class="mini-h">${cat}</h3>${itens.map((i) => html`<div class="check-row"><span class="sit-dot ${i.situacao}"></span>
-        <div><b>${i.titulo}${i.obrigatorio ? '' : html` <span class="muted">(opcional)</span>`}</b><small>${i.fundamento ?? ''}</small>${i.observacao ? html`<small class="obs">${i.observacao}</small>` : ''}</div>
+      ${check.itens.length ? [...porCat].map(([cat, itens]) => html`<h3 class="mini-h">${cat}</h3>${itens.map((i) => html`<div class="check-row${i.situacao === 'nao_aplicavel' ? ' na' : ''}"><span class="sit-dot ${i.situacao}"></span>
+        <div><b>${i.titulo}${i.obrigatorio ? '' : html` <span class="muted">(opcional)</span>`}</b><small>${i.fundamento ?? ''}</small>${i.atribuicao ? html`<span class="atrib">${String(i.atribuicao).split('/').map((x) => html`<i>${x.trim()}</i>`)}</span>` : ''}${i.observacao ? html`<small class="obs">${i.observacao}</small>` : ''}</div>
         <span class="selo ${SIT[i.situacao]?.[0] ?? ''}">${i.rotuloDaSituacao}</span>
         ${['pendente', 'rejeitado', 'complementacao'].includes(i.situacao) ? html`<label class="btn btn--accent" style="cursor:pointer">${icone('upload')}Enviar<input type="file" hidden data-req="${i.id}" data-t="${i.titulo}" data-c="${i.categoria}"></label>` : ''}</div>`)}`)
         : vazio('doc', 'A lista ainda não foi montada', 'Assim que o escritório definir o que precisa, os itens aparecem aqui.')}</section>

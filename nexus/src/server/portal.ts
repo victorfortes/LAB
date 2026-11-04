@@ -29,7 +29,7 @@ export const EsquemaEnvio = z.object({
 });
 
 export const EsquemaAnalise = z.object({
-  situacao: z.enum(['em_analise', 'aprovado', 'rejeitado', 'complementacao']),
+  situacao: z.enum(['em_analise', 'aprovado', 'rejeitado', 'complementacao', 'nao_aplicavel', 'pendente']),
   observacao: z.string().max(2000).optional(),
 });
 
@@ -64,11 +64,11 @@ export async function checklist(db: PoolClient, projetoId: string) {
   const { rows } = await db.query<{
     id: string; categoria: string; titulo: string; fundamento: string | null;
     obrigatorio: boolean; situacao: SituacaoRequisito; observacao: string | null;
-    documento_id: string | null; analisado_em: Date | null;
+    documento_id: string | null; analisado_em: Date | null; atribuicao: string | null;
   }>(
     `SELECT id, categoria, titulo, fundamento, obrigatorio, situacao, observacao,
-            documento_id, analisado_em
-       FROM requisitos WHERE projeto_id = $1 ORDER BY categoria, ordem, titulo`,
+            documento_id, analisado_em, atribuicao
+       FROM requisitos WHERE projeto_id = $1 ORDER BY ordem, titulo`,
     [projetoId]);
 
   const itens: ItemDeChecklist[] = rows.map((r) => ({
@@ -112,9 +112,9 @@ export async function aplicarModelo(
   for (const [i, r] of modelo.entries()) {
     if (jaTem.has(r.titulo)) continue;
     await db.query(
-      `INSERT INTO requisitos (organizacao_id, projeto_id, categoria, titulo, fundamento, obrigatorio, ordem)
-       VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-      [projeto.organizacao_id, projetoId, r.categoria, r.titulo, r.fundamento ?? null, r.obrigatorio, i]);
+      `INSERT INTO requisitos (organizacao_id, projeto_id, categoria, titulo, fundamento, obrigatorio, ordem, atribuicao)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+      [projeto.organizacao_id, projetoId, r.categoria, r.titulo, r.fundamento ?? null, r.obrigatorio, i, r.atribuicao ?? null]);
     criados++;
   }
 

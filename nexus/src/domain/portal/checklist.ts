@@ -9,6 +9,8 @@
  * fecha o onboarding.
  */
 
+import { CHECKLIST_GESTAO_DE_PASSIVOS, CHECKLIST_PROTECAO_PATRIMONIAL, CHECKLIST_RJ_E_RE } from './modelos-oficiais.ts';
+
 export type SituacaoRequisito =
   /** Nada enviado ainda. */
   | 'pendente'
@@ -21,7 +23,9 @@ export type SituacaoRequisito =
   /** Recusado: o documento não serve. */
   | 'rejeitado'
   /** Serve em parte; falta algo. */
-  | 'complementacao';
+  | 'complementacao'
+  /** A NGA decidiu que o item não vale para este caso (a coluna "N/A" da planilha). */
+  | 'nao_aplicavel';
 
 export const ROTULO_DA_SITUACAO: Readonly<Record<SituacaoRequisito, string>> = Object.freeze({
   pendente: 'Pendente',
@@ -30,6 +34,7 @@ export const ROTULO_DA_SITUACAO: Readonly<Record<SituacaoRequisito, string>> = O
   aprovado: 'Aprovado',
   rejeitado: 'Rejeitado',
   complementacao: 'Aguardando complementação',
+  nao_aplicavel: 'Não se aplica',
 });
 
 /** Situações em que a bola está com o cliente. */
@@ -48,13 +53,15 @@ export const AGUARDA_A_NGA: readonly SituacaoRequisito[] =
  * garantido aqui, não só na interface.
  */
 const TRANSICOES: Readonly<Record<SituacaoRequisito, readonly SituacaoRequisito[]>> = Object.freeze({
-  pendente: ['enviado'],
+  // "Não se aplica" é decisão da NGA e é reversível: o item volta a pendente.
+  pendente: ['enviado', 'nao_aplicavel'],
   // Reenviar antes da análise é legítimo: o cliente manda o arquivo errado,
   // percebe e manda o certo. Bloquear isso obrigaria a NGA a rejeitar primeiro.
   enviado: ['enviado', 'em_analise', 'aprovado', 'rejeitado', 'complementacao'],
   em_analise: ['aprovado', 'rejeitado', 'complementacao'],
-  complementacao: ['enviado'],
-  rejeitado: ['enviado'],
+  complementacao: ['enviado', 'nao_aplicavel'],
+  rejeitado: ['enviado', 'nao_aplicavel'],
+  nao_aplicavel: ['pendente'],
   // Reabrir um item aprovado é possível, mas é ato da NGA e fica na auditoria.
   aprovado: ['em_analise', 'complementacao'],
 });
@@ -82,6 +89,7 @@ const QUEM_PODE: Readonly<Record<SituacaoRequisito, readonly Autor[]>> = Object.
   rejeitado: ['nga'],
   complementacao: ['nga'],
   pendente: ['nga'],
+  nao_aplicavel: ['nga'],
 });
 
 export class TransicaoInvalida extends Error {
@@ -151,15 +159,17 @@ function jaEnviou(s: SituacaoRequisito): boolean {
  * infla a barra, e documento opcional faltando não trava o onboarding.
  */
 export function calcularProgresso(itens: readonly ItemDeChecklist[]): Progresso {
-  const obrigatorios = itens.filter((i) => i.obrigatorio);
+  // Item "não se aplica" sai da conta: não pesa no denominador nem conta como entregue.
+  const aplicaveis = itens.filter((i) => i.situacao !== 'nao_aplicavel');
+  const obrigatorios = aplicaveis.filter((i) => i.obrigatorio);
   const base = obrigatorios.length;
 
   const aprovados = obrigatorios.filter((i) => i.situacao === 'aprovado').length;
   const enviados = obrigatorios.filter((i) => jaEnviou(i.situacao)).length;
 
-  const categorias = [...new Set(itens.map((i) => i.categoria))];
+  const categorias = [...new Set(aplicaveis.map((i) => i.categoria))];
   const porCategoria = categorias.map((categoria) => {
-    const daCategoria = itens.filter((i) => i.categoria === categoria);
+    const daCategoria = aplicaveis.filter((i) => i.categoria === categoria);
     return {
       categoria,
       total: daCategoria.length,
@@ -170,7 +180,7 @@ export function calcularProgresso(itens: readonly ItemDeChecklist[]): Progresso 
   });
 
   return {
-    total: itens.length,
+    total: aplicaveis.length,
     obrigatorios: base,
     aprovados,
     enviados,
@@ -178,8 +188,8 @@ export function calcularProgresso(itens: readonly ItemDeChecklist[]): Progresso 
     // Devolver 0 evita anunciar conclusão de um checklist vazio.
     percentualAprovado: base === 0 ? 0 : Math.round((aprovados / base) * 100),
     percentualEnviado: base === 0 ? 0 : Math.round((enviados / base) * 100),
-    aguardandoOCliente: itens.filter((i) => AGUARDA_O_CLIENTE.includes(i.situacao)).length,
-    aguardandoANGA: itens.filter((i) => AGUARDA_A_NGA.includes(i.situacao)).length,
+    aguardandoOCliente: aplicaveis.filter((i) => AGUARDA_O_CLIENTE.includes(i.situacao)).length,
+    aguardandoANGA: aplicaveis.filter((i) => AGUARDA_A_NGA.includes(i.situacao)).length,
     concluido: base > 0 && aprovados === base,
     porCategoria,
   };
@@ -197,44 +207,14 @@ export interface ModeloDeRequisito {
   readonly titulo: string;
   readonly obrigatorio: boolean;
   readonly fundamento?: string;
+  /** Quem deve entregar, como na planilha da NGA: CLIENTE, CONTABILIDADE, SÓCIOS ou combinação. */
+  readonly atribuicao?: string;
 }
 
 export const MODELOS: Readonly<Record<string, readonly ModeloDeRequisito[]>> = Object.freeze({
-  recuperacao_judicial: Object.freeze([
-    { categoria: 'Contábil', titulo: 'Balanço patrimonial dos 3 últimos exercícios', obrigatorio: true,
-      fundamento: 'Art. 51, II, da Lei 11.101/2005.' },
-    { categoria: 'Contábil', titulo: 'Demonstração de resultado (DRE) dos 3 últimos exercícios', obrigatorio: true,
-      fundamento: 'Art. 51, II, da Lei 11.101/2005.' },
-    { categoria: 'Contábil', titulo: 'Demonstração de resultado acumulado', obrigatorio: true,
-      fundamento: 'Art. 51, II, "b", da Lei 11.101/2005.' },
-    { categoria: 'Contábil', titulo: 'Relatório gerencial de fluxo de caixa e projeção', obrigatorio: true,
-      fundamento: 'Art. 51, II, "d", da Lei 11.101/2005.' },
-    { categoria: 'Contábil', titulo: 'Balancete do último mês', obrigatorio: true },
-    { categoria: 'Contábil', titulo: 'Livro razão e livro diário', obrigatorio: false },
-    { categoria: 'Credores', titulo: 'Relação nominal completa de credores', obrigatorio: true,
-      fundamento: 'Art. 51, III, da Lei 11.101/2005.' },
-    { categoria: 'Credores', titulo: 'Contratos bancários e de financiamento', obrigatorio: true },
-    { categoria: 'Credores', titulo: 'Relação de garantias prestadas', obrigatorio: true },
-    { categoria: 'Societário', titulo: 'Contrato social consolidado e alterações', obrigatorio: true },
-    { categoria: 'Societário', titulo: 'Atos constitutivos e quadro societário atual', obrigatorio: true },
-    { categoria: 'Trabalhista', titulo: 'Relação de empregados e verbas em atraso', obrigatorio: true,
-      fundamento: 'Art. 51, IV, da Lei 11.101/2005.' },
-    { categoria: 'Fiscal', titulo: 'Certidões de débitos federais, estaduais e municipais', obrigatorio: true },
-    { categoria: 'Fiscal', titulo: 'Relação de parcelamentos tributários em curso', obrigatorio: true },
-    { categoria: 'Patrimonial', titulo: 'Relação de bens do ativo não circulante', obrigatorio: true,
-      fundamento: 'Art. 51, VII, da Lei 11.101/2005.' },
-    { categoria: 'Processual', titulo: 'Relação de ações judiciais em curso', obrigatorio: true,
-      fundamento: 'Art. 51, IX, da Lei 11.101/2005.' },
-  ]),
-  recuperacao_extrajudicial: Object.freeze([
-    { categoria: 'Contábil', titulo: 'Demonstrações contábeis do último exercício', obrigatorio: true },
-    { categoria: 'Contábil', titulo: 'Fluxo de caixa e projeção', obrigatorio: true },
-    { categoria: 'Credores', titulo: 'Relação de credores a serem abrangidos', obrigatorio: true },
-    { categoria: 'Credores', titulo: 'Termos de adesão colhidos', obrigatorio: true,
-      fundamento: 'Art. 163 da Lei 11.101/2005.' },
-    { categoria: 'Societário', titulo: 'Contrato social consolidado', obrigatorio: true },
-    { categoria: 'Fiscal', titulo: 'Certidões de regularidade fiscal', obrigatorio: false },
-  ]),
+  // Os três abaixo vêm das planilhas oficiais da NGA (ver modelos-oficiais.ts).
+  recuperacao_judicial: CHECKLIST_RJ_E_RE,
+  recuperacao_extrajudicial: CHECKLIST_RJ_E_RE,
   falencia: Object.freeze([
     { categoria: 'Contábil', titulo: 'Demonstrações contábeis do último exercício', obrigatorio: true },
     { categoria: 'Credores', titulo: 'Relação de credores', obrigatorio: true },
@@ -248,12 +228,9 @@ export const MODELOS: Readonly<Record<string, readonly ModeloDeRequisito[]>> = O
     { categoria: 'Documental', titulo: 'Título executivo ou contrato que embasa o crédito', obrigatorio: true },
     { categoria: 'Processual', titulo: 'Processos em que o crédito é discutido', obrigatorio: false },
   ]),
-  reestruturacao: Object.freeze([
-    { categoria: 'Contábil', titulo: 'Demonstrações contábeis dos 2 últimos exercícios', obrigatorio: true },
-    { categoria: 'Contábil', titulo: 'Fluxo de caixa realizado e projetado', obrigatorio: true },
-    { categoria: 'Credores', titulo: 'Mapa de endividamento por credor', obrigatorio: true },
-    { categoria: 'Societário', titulo: 'Contrato social consolidado', obrigatorio: true },
-  ]),
+  reestruturacao: CHECKLIST_GESTAO_DE_PASSIVOS,
+  negociacao_credores: CHECKLIST_GESTAO_DE_PASSIVOS,
+  protecao_patrimonial: CHECKLIST_PROTECAO_PATRIMONIAL,
 });
 
 /** Modelo do procedimento, ou lista vazia quando não houver (nunca lança). */

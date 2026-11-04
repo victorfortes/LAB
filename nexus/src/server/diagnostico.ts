@@ -10,12 +10,19 @@
 import type { PoolClient } from 'pg';
 import { ROTULO_DO_TIPO, type TipoDeDocumento } from '../domain/analise/classificacao.ts';
 
-/** Categoria do checklist que cada tipo reconhecido normalmente satisfaz. */
-const CATEGORIA_DO_TIPO: Partial<Record<TipoDeDocumento, string[]>> = {
-  demonstracao_contabil: ['Contábil'], certidao: ['Fiscal', 'Processual', 'Trabalhista'],
-  contrato: ['Societário', 'Patrimonial', 'Credores'], relacao_credores: ['Credores'],
-  procuracao: ['Societário', 'Processual'], peticao_inicial_rj: ['Processual'],
-  decisao_judicial: ['Processual'], nota_fiscal: ['Contábil', 'Credores'],
+/**
+ * Categorias do checklist que cada tipo reconhecido normalmente satisfaz. São padrões, não nomes exatos:
+ * as planilhas da NGA têm categorias como "Contábil / Financeiro", "Jurídico / Societário", "Passivo Fiscal".
+ */
+const CATEGORIA_DO_TIPO: Partial<Record<TipoDeDocumento, RegExp>> = {
+  demonstracao_contabil: /cont[aá]bil|financeir/i,
+  certidao: /fiscal|processual|trabalhista|jur[ií]dico|contencioso|im[oó]veis/i,
+  contrato: /societ|patrimonial|credores|financeir|jur[ií]dico|im[oó]veis|bens|grupo/i,
+  relacao_credores: /credores|passivo/i,
+  procuracao: /societ|processual|jur[ií]dico/i,
+  peticao_inicial_rj: /processual|jur[ií]dico|contencioso/i,
+  decisao_judicial: /processual|jur[ií]dico|contencioso/i,
+  nota_fiscal: /cont[aá]bil|credores|financeir/i,
 };
 
 interface Ocorrencia { tipo: string; bruto: string; canonico: string; valido: boolean }
@@ -50,7 +57,8 @@ export async function diagnostico(db: PoolClient, projetoId: string) {
       ORDER BY CASE c.gravidade WHEN 'critico' THEN 0 WHEN 'atencao' THEN 1 ELSE 2 END, c.ordem LIMIT 40`, [projetoId]);
 
   // ---- cobertura do checklist
-  const obrig = itens.filter((i) => i.obrigatorio);
+  // "Não se aplica" sai da conta, como no resto do sistema.
+  const obrig = itens.filter((i) => i.obrigatorio && i.situacao !== 'nao_aplicavel');
   const porCategoria = new Map<string, { total: number; aprovados: number; enviados: number }>();
   for (const i of obrig) {
     const c = porCategoria.get(i.categoria) ?? { total: 0, aprovados: 0, enviados: 0 };
@@ -75,7 +83,7 @@ export async function diagnostico(db: PoolClient, projetoId: string) {
   // ---- conferência: o tipo reconhecido combina com o item do checklist onde foi enviado?
   const conferencias = docs.filter((d) => d.tipo_sugerido && d.requisito_categoria).flatMap((d) => {
     const esperado = CATEGORIA_DO_TIPO[d.tipo_sugerido as TipoDeDocumento];
-    if (!esperado || esperado.includes(d.requisito_categoria!)) return [];
+    if (!esperado || esperado.test(d.requisito_categoria!)) return [];
     return [{ documento: d.titulo, documentoId: d.id, enviadoComo: d.requisito, categoria: d.requisito_categoria, parece: ROTULO_DO_TIPO[d.tipo_sugerido as TipoDeDocumento], certeza: d.certeza }];
   });
 
@@ -86,7 +94,7 @@ export async function diagnostico(db: PoolClient, projetoId: string) {
     if (d.requisito || !d.tipo_sugerido) continue;
     const cats = CATEGORIA_DO_TIPO[(d.tipo_validado ?? d.tipo_sugerido) as TipoDeDocumento];
     if (!cats) continue;
-    const cand = livres.filter((i) => cats.includes(i.categoria)).slice(0, 6).map((i) => ({ id: i.id, titulo: i.titulo, categoria: i.categoria }));
+    const cand = livres.filter((i) => cats.test(i.categoria)).slice(0, 6).map((i) => ({ id: i.id, titulo: i.titulo, categoria: i.categoria }));
     if (cand.length) sugestoes.set(d.id, cand);
   }
 

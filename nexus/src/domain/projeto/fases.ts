@@ -22,7 +22,7 @@
 export type TipoDeProjeto =
   | 'recuperacao_judicial' | 'recuperacao_extrajudicial' | 'falencia'
   | 'reestruturacao' | 'negociacao_credores' | 'investigacao_patrimonial'
-  | 'contencioso_estrategico' | 'consultivo';
+  | 'contencioso_estrategico' | 'consultivo' | 'protecao_patrimonial';
 
 export interface Fase {
   readonly id: string;
@@ -128,6 +128,7 @@ const POR_TIPO: Readonly<Record<TipoDeProjeto, readonly Fase[]>> = Object.freeze
   investigacao_patrimonial: GENERICO,
   contencioso_estrategico: GENERICO,
   consultivo: GENERICO,
+  protecao_patrimonial: GENERICO,
 });
 
 export function fasesDe(tipo: TipoDeProjeto): readonly Fase[] {
@@ -239,4 +240,5 @@ export const ROTULO_DO_TIPO: Readonly<Record<TipoDeProjeto, string>> = Object.fr
   investigacao_patrimonial: 'Investigação patrimonial',
   contencioso_estrategico: 'Contencioso estratégico',
   consultivo: 'Consultivo',
+  protecao_patrimonial: 'Proteção patrimonial',
 });

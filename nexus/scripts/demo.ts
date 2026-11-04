@@ -131,10 +131,12 @@ await dono.query(`INSERT INTO portais (projeto_id,organizacao_cliente_id,criado_
 const modelo = modeloDe('recuperacao_judicial');
 for (const [i, r] of modelo.entries()) {
   await dono.query(
-    `INSERT INTO requisitos (organizacao_id,projeto_id,categoria,titulo,fundamento,obrigatorio,ordem)
-     VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-    [NGA, projeto, r.categoria, r.titulo, r.fundamento ?? null, r.obrigatorio, i]);
+    `INSERT INTO requisitos (organizacao_id,projeto_id,categoria,titulo,fundamento,obrigatorio,ordem,atribuicao)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+    [NGA, projeto, r.categoria, r.titulo, r.fundamento ?? null, r.obrigatorio, i, r.atribuicao ?? null]);
 }
+// Um item que a equipe já decidiu que não se aplica a este caso (coluna "N/A" da planilha).
+await dono.query(`UPDATE requisitos SET situacao='nao_aplicavel',analisado_por=$2,analisado_em=now(),observacao='Cliente não tem contrato de leasing.' WHERE projeto_id=$1 AND titulo LIKE 'Contratos de Leasing%'`, [projeto, SOCIO]);
 
 // Alguns itens já percorridos, para o portal não abrir vazio.
 const reqs = (await dono.query<{id:string}>(
@@ -419,7 +421,7 @@ const servidor = Bun.serve({
   };
   const tc = await entrar('diretor@grupodemo.com.br');
   const itens = (await (await api(new Request(`http://x/api/projetos/${projeto}/checklist`, { headers: { cookie: `nga_sessao=${tc}` } }))).json()).itens as Array<{ id: string; categoria: string; situacao: string }>;
-  const livre = itens.find((i) => i.categoria === 'Contábil' && i.situacao === 'pendente');
+  const livre = itens.find((i) => i.categoria.startsWith('Contábil') && i.situacao === 'pendente');
   const enviar = async (nome: string, titulo: string, bytes: Uint8Array, requisitoId?: string) => {
     const fd = new FormData(); fd.append('arquivo', new File([bytes as BlobPart], nome, { type: 'application/pdf' })); fd.append('titulo', titulo);
     if (requisitoId) fd.append('requisitoId', requisitoId);

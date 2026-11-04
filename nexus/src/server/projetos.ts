@@ -26,7 +26,7 @@ import { limparCnpj, validarCnpj } from '../domain/analise/identificadores.ts';
 
 const TIPOS = [
   'recuperacao_judicial', 'recuperacao_extrajudicial', 'falencia', 'reestruturacao',
-  'negociacao_credores', 'investigacao_patrimonial', 'contencioso_estrategico', 'consultivo',
+  'negociacao_credores', 'investigacao_patrimonial', 'contencioso_estrategico', 'consultivo', 'protecao_patrimonial',
 ] as const;
 
 export const EsquemaProjeto = z.object({
