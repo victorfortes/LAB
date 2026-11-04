@@ -5,6 +5,7 @@
  * web são JavaScript que o navegador carrega direto, e o CSS é o design system
  * compartilhado em `ui/tokens/`.
  */
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Banco } from '../store/conexao.ts';
@@ -30,6 +31,9 @@ const banco = new Banco({
   user: process.env.NGA_PG_USER ?? 'nga_app',
   password: exigirEnv('NGA_PG_PASSWORD'),
   database: process.env.NGA_PG_DATABASE ?? 'nga_nexus',
+  // NGA_PG_CA = caminho do certificado raiz do provedor (Supabase: prod-ca-2021.crt). Com ele a conexão é
+  // cifrada E o servidor é autenticado; não há modo "cifrar sem verificar".
+  ...(process.env.NGA_PG_CA ? { ssl: { ca: readFileSync(process.env.NGA_PG_CA, 'utf8'), rejectUnauthorized: true as const } } : {}),
 });
 
 // O acervo fica FORA de web/: se fosse alcançável pelo servidor de estáticos,

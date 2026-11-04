@@ -267,3 +267,11 @@ no Astrea.
 relatórios), **num schema próprio `nga_lab`**: nada em `public` é alterado e o papel `nga_app` não recebe
 acesso às tabelas do outro app (`tests/esquema-compartilhado.test.ts`). Sem `--aplicar` ele só lê metadados.
 A string de conexão vem da variável `NGA_SUPABASE_URL`; não a coloque em arquivo versionado.
+
+### Rodando contra o Supabase
+
+O serviço do Mac (`br.adv.nga.nexus`) roda `src/server/main.ts` com `NGA_PG_*` apontando para o schema `nga_lab` do
+Supabase, conexão TLS **verificada** com o certificado raiz da Supabase (`NGA_PG_CA`). Os dados do banco local foram
+copiados por `scripts/copiar-banco.ts` (o banco local continua intacto, como cópia de segurança). Os **arquivos** do
+acervo ainda ficam em disco (`~/Library/Application Support/NGA-Nexus/acervo`): para o sistema rodar fora deste Mac
+eles precisam ir para o Supabase Storage. Voltar ao banco local: restaurar `br.adv.nga.nexus.plist.local-bak`.

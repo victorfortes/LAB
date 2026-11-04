@@ -13,7 +13,9 @@
  */
 import { Client } from 'pg';
 import { migrar } from '../src/db/migrar.ts';
-import { readdir } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ESQUEMA = process.env['NGA_ESQUEMA'] ?? 'nga_lab';
@@ -24,7 +26,7 @@ if (!url) {
   process.exit(1);
 }
 
-const cliente = new Client({ connectionString: url, ssl: { rejectUnauthorized: false } });
+const cliente = new Client({ connectionString: url, ssl: { ca: await readFile(process.env['NGA_PG_CA'] ?? join(homedir(), 'Library/Application Support/NGA-Nexus/supabase-ca.crt'), 'utf8'), rejectUnauthorized: true } });
 await cliente.connect();
 try {
   const versao = (await cliente.query<{ v: string }>('SHOW server_version')).rows[0]!.v;

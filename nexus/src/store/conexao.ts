@@ -15,6 +15,8 @@ export interface OpcoesConexao {
   readonly password: string;
   readonly database: string;
   readonly max?: number;
+  /** Bancos gerenciados (Supabase) exigem TLS; com `ca`, a cadeia do servidor é VERIFICADA. */
+  readonly ssl?: { ca: string; rejectUnauthorized: true };
 }
 
 export class Banco {
