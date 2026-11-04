@@ -6,7 +6,7 @@
  * `prefers-reduced-motion`: quem pede menos movimento recebe o valor final
  * direto, sem animação.
  */
-import { $, $$ } from './util.js';
+import { $, $$, guardado } from './util.js';
 
 export const semMovimento = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
 
@@ -76,23 +76,44 @@ export function brilho() {
 /** Rede de partículas do fundo, no ciano e âmbar do NGA Lab. */
 export function fundo() {
   const cv = $('#fx'); if (!cv) return;
+  if (guardado.ler('efeitos', 'auto') === 'leve') { document.documentElement.classList.add('leve'); return; }
   const ctx = cv.getContext('2d'); let w, h, nos = [], mouse = { x: -999, y: -999 }, vivo = true;
   const ajustar = () => {
-    const dpr = Math.min(devicePixelRatio || 1, 2);
+    const dpr = 1;   // fundo é ornamento: meia resolução em tela Retina custa 4x de pintura sem ganho visível
     w = cv.width = innerWidth * dpr; h = cv.height = innerHeight * dpr;
     cv.style.width = `${innerWidth}px`; cv.style.height = `${innerHeight}px`;
-    const n = Math.min(70, Math.floor((innerWidth * innerHeight) / 24000));
+    const n = Math.min(34, Math.floor((innerWidth * innerHeight) / 45000));
     nos = Array.from({ length: n }, () => ({
       x: Math.random() * w, y: Math.random() * h, vx: (Math.random() - .5) * .22 * dpr, vy: (Math.random() - .5) * .22 * dpr,
       r: (Math.random() * 1.4 + .5) * dpr, cor: Math.random() < .3 ? '240,163,46' : '76,201,240',
     }));
   };
   ajustar(); addEventListener('resize', ajustar);
-  addEventListener('pointermove', (e) => { const d = Math.min(devicePixelRatio || 1, 2); mouse = { x: e.clientX * d, y: e.clientY * d }; }, { passive: true });
+  addEventListener('pointermove', (e) => { mouse = { x: e.clientX, y: e.clientY }; }, { passive: true });
   document.addEventListener('visibilitychange', () => { vivo = !document.hidden; if (vivo) quadro(); });
-  const alcance = () => 150 * (Math.min(devicePixelRatio || 1, 2));
-  const quadro = () => {
+  const alcance = () => 150;
+  // Limite de ~30 quadros e autodiagnóstico: o fundo anima por baixo de dezenas de
+  // vidros, então um quadro caro vira lentidão na tela inteira. Se a máquina não
+  // sustenta 40 fps, o fundo animado é desligado sozinho ("modo leve").
+  let ultimo = 0; let marca = performance.now(); let contados = 0; let ruins = 0; let janelas = 0;
+  // Qualquer troca de visibilidade/foco invalida a janela de medição: aba em segundo plano
+  // roda a ~1 fps e isso NÃO significa que o computador seja lento.
+  const reiniciar = () => { marca = performance.now(); contados = 0; ruins = 0; };
+  document.addEventListener('visibilitychange', reiniciar); addEventListener('blur', reiniciar); addEventListener('focus', reiniciar);
+  const quadro = (agora = performance.now()) => {
     if (!vivo) return;
+    if (document.documentElement.classList.contains('leve')) return;
+    contados++;                                   // conta quadros do NAVEGADOR (não só os desenhados)
+    if (agora - ultimo < 32) { requestAnimationFrame(quadro); return; }
+    ultimo = agora;
+    if (janelas < 3 && agora - marca > 2500) {
+      const fps = (contados * 1000) / (agora - marca);
+      if (document.visibilityState === 'visible' && document.hasFocus() && guardado.ler('efeitos', 'auto') === 'auto') {
+        ruins = fps < 30 ? ruins + 1 : 0; janelas++;
+        if (ruins >= 2) { document.documentElement.classList.add('leve'); ctx.clearRect(0, 0, w, h); return; }
+      }
+      marca = agora; contados = 0;
+    }
     ctx.clearRect(0, 0, w, h);
     const L = alcance();
     for (const a of nos) {
@@ -190,8 +211,6 @@ export function interatividade() {
         incl.style.transform = `perspective(900px) rotateX(${rx.toFixed(2)}deg) rotateY(${ry.toFixed(2)}deg) translateY(-3px)`;
       }
     }
-    document.documentElement.style.setProperty('--px', `${(x / innerWidth - 0.5).toFixed(3)}`);
-    document.documentElement.style.setProperty('--py', `${(y / innerHeight - 0.5).toFixed(3)}`);
   };
   document.addEventListener('pointermove', (e) => { ultimo = { x: e.clientX, y: e.clientY, alvo: e.target }; if (!quadro) quadro = requestAnimationFrame(aplicar); }, { passive: true });
   document.addEventListener('pointerout', (e) => {

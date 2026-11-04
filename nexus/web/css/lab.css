@@ -433,12 +433,10 @@ body { font-family: var(--font); letter-spacing: .005em; }
   background: radial-gradient(320px circle at var(--mx, 50%) var(--my, 50%), #F0A32E1c, transparent 62%);
 }
 .card.glass:hover::after, .pcard:hover::after, .tool:hover::after, .stat:hover::after, .tk-card:hover::after { opacity: 1; }
-.pcard, .tool { transition: transform .35s var(--ease), box-shadow .35s; will-change: transform; }
+.pcard, .tool { transition: transform .35s var(--ease), box-shadow .35s; }
 .pcard:hover, .tool:hover { box-shadow: 0 30px 60px -28px #000, 0 0 0 1px #F0A32E33; }
 
 /* fundo que desliza com o mouse */
-.wall__glow.a { transform: translate(calc(var(--px, 0) * -40px), calc(var(--py, 0) * -30px)); transition: transform .8s var(--ease); }
-.wall__glow.b { transform: translate(calc(var(--px, 0) * 50px), calc(var(--py, 0) * 36px)); transition: transform .8s var(--ease); }
 
 /* ondulação ao clicar */
 .btn, .ibtn, .tbtn { position: relative; overflow: hidden; }
@@ -451,7 +449,7 @@ body { font-family: var(--font); letter-spacing: .005em; }
 @keyframes vivo { 70% { box-shadow: 0 0 0 9px #2EE6A000; } 100% { box-shadow: 0 0 0 0 #2EE6A000; } }
 @keyframes vivoA { 70% { box-shadow: 0 0 0 9px #F0A32E00; } 100% { box-shadow: 0 0 0 0 #F0A32E00; } }
 .fase-card__bar i, .barra__col i { position: relative; overflow: hidden; }
-.fase-card__bar i::after { content: ""; position: absolute; inset: 0; background: linear-gradient(100deg, transparent 30%, #ffffff55 50%, transparent 70%); transform: translateX(-100%); animation: brilha 2.8s 1.2s infinite; }
+.fase-card__bar i::after { content: ""; position: absolute; inset: 0; background: linear-gradient(100deg, transparent 30%, #ffffff55 50%, transparent 70%); transform: translateX(-100%); animation: brilha 1.6s 1.2s 1; }
 @keyframes brilha { to { transform: translateX(100%); } }
 .shimmer { background: linear-gradient(100deg, var(--fill) 30%, var(--fill-2) 50%, var(--fill) 70%); background-size: 200% 100%; animation: shimmer 1.4s linear infinite; }
 @keyframes shimmer { to { background-position: -200% 0; } }
@@ -499,3 +497,22 @@ body { font-family: var(--font); letter-spacing: .005em; }
 /* no modo compacto da lateral (só ícones), o logo encolhe para caber */
 .brand { min-width: 0; max-width: 100%; }
 .brand__logo { max-width: 100%; height: auto; max-height: 34px; object-fit: contain; }
+
+/* ------------------------------------------------------ desempenho ---- */
+
+/* Os glows eram elementos de 900 px com blur(120px) animados para sempre: o filtro é
+   refeito a cada quadro. O gradiente radial já é macio, então o blur some sem perda. */
+.wall__glow { filter: none; will-change: transform; contain: strict; }
+/* Vidro com desfoque só no que fica por cima do fundo animado e é pequeno: lateral, barra
+   superior, barra inferior e modais. Os cartões do conteúdo usam fundo translúcido sólido —
+   dezenas de desfoques por quadro eram o que mais pesava. */
+.main .glass, .main .stat, .main .card, .main .pcard, .main .tool, .main .tk-col {
+  -webkit-backdrop-filter: none; backdrop-filter: none; background-color: color-mix(in srgb, var(--glass-solid) 88%, transparent);
+}
+.main .tk-card { -webkit-backdrop-filter: none; backdrop-filter: none; }
+/* Modo leve (automático em máquina lenta ou escolhido em Ajustes): sem fundo animado nem desfoque algum. */
+.leve #fx, .leve .wall__scan { display: none; }
+.leve .wall__glow { animation: none; }
+.leve .glass, .leve .stat, .leve .modal__box, .leve .menu { -webkit-backdrop-filter: none; backdrop-filter: none; background-color: var(--glass-solid); }
+.leve .pcard, .leve .tool { transition: none; }
+.leve .vivo, .leve .fase-card__bar i::after { animation: none; }

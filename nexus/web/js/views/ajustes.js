@@ -1,7 +1,7 @@
 /** Ajustes: a conta, as integrações (credenciais) e o estado real do sistema. */
 import { api } from '../api.js';
 import { estado, pode, ROTULO_DO_PAPEL } from '../estado.js';
-import { html, icone, ouvir, relativo } from '../util.js';
+import { guardado, html, icone, ouvir, raw, relativo } from '../util.js';
 import { cabecalho, confirmar, erroDe, formulario, modal, toast } from '../ui.js';
 import { navegar } from '../shell.js';
 
@@ -30,12 +30,15 @@ export default async function ajustes() {
           <section class="card glass up"><header class="card__head"><div><h2 class="card__title">Sua conta</h2></div></header>
             <p><b>${eu.usuario.nome}</b><br><span class="mono-sm">${eu.usuario.email}</span></p>
             <p class="dica">${eu.papeis.map((p) => ROTULO_DO_PAPEL[p] ?? p).join(', ')} · ${eu.organizacoes.map((o) => o.nome).join(', ')}</p></section>
+          <section class="card glass up"><header class="card__head"><div><h2 class="card__title">Efeitos visuais</h2><p class="card__sub">${document.documentElement.classList.contains('leve') ? 'Modo leve ativo: sem fundo animado nem desfoque.' : 'Fundo animado e vidro ativos.'}</p></div></header>
+            <label class="field"><span>Modo</span><select class="select" id="efeitos">${[['auto', 'Automático (desliga sozinho se o computador não acompanhar)'], ['completo', 'Completo'], ['leve', 'Leve (mais rápido)']].map(([v, t]) => html`<option value="${v}" ${guardado.ler('efeitos', 'auto') === v ? raw('selected') : ''}>${t}</option>`)}</select></label></section>
           <section class="card glass up"><header class="card__head"><div><h2 class="card__title">Sistema</h2></div></header>
             <ul class="lista">
               <li><div><b>Leitura por IA</b><small>${ia ? (ia.disponivel ? 'Configurada' : ia.impedimento) : '—'}</small></div><div class="fim"><span class="selo ${ia?.disponivel ? 'ok' : 'aviso'}">${ia?.disponivel ? 'ativa' : 'desligada'}</span></div></li>
               <li><div><b>Armazenamento de arquivos</b><small>${arq ? (arq.descricao ?? arq.modo ?? JSON.stringify(arq).slice(0, 120)) : '—'}</small></div></li></ul></section>
         </div></div>`,
     depois(el) {
+      el.querySelector('#efeitos')?.addEventListener('change', (e) => { guardado.gravar('efeitos', e.target.value); toast('Efeitos atualizados'); setTimeout(() => location.reload(), 400); });
       ouvir(el, 'click', '[data-nova]', async () => {
         let r = null;
         await formulario({
