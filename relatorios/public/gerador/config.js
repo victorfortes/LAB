@@ -1,0 +1,1 @@
+window.NGA_SHELL_CONFIG = {"url":"https://ndwgzqkbxnjkkkbguytm.supabase.co","key":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5kd2d6cWtieG5qa2trYmd1eXRtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE3Njk3MjAsImV4cCI6MjEwNzM0NTcyMH0.TJO9yrdG5ymrJGAhKSehY7Otb6e-IBnqOjZxy1VDtu0","inatividadeMin":30};

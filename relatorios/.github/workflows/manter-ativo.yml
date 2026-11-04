@@ -1,0 +1,27 @@
+name: manter-ativo
+# O plano gratuito do Supabase PAUSA o projeto depois de cerca de 1 semana sem uso, e o login do site para de funcionar.
+# Esta rotina faz uma consulta leve a cada 3 dias (mantém o projeto ativo) e FALHA, avisando por e-mail, se o projeto
+# estiver pausado ou fora do ar. Só usa a URL e a chave anon, que são públicas (config/supabase.public.json).
+on:
+  schedule:
+    - cron: '17 9 */3 * *'
+  workflow_dispatch:
+permissions: { contents: read }
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Consulta ao projeto Supabase
+        run: |
+          URL=$(python3 -c "import json;print(json.load(open('config/supabase.public.json'))['url'])")
+          KEY=$(python3 -c "import json;print(json.load(open('config/supabase.public.json'))['anonKey'])")
+          for tentativa in 1 2 3; do
+            CODIGO=$(curl -s -m 30 -o /dev/null -w '%{http_code}' "$URL/rest/v1/perfis?select=user_id&limit=1" -H "apikey: $KEY" -H "Authorization: Bearer $KEY" || true)
+            echo "tentativa $tentativa: HTTP $CODIGO"
+            # 2xx e 4xx = o banco respondeu (o anônimo é barrado de propósito pelo RLS); 000 ou 5xx = pausado ou fora do ar
+            case "$CODIGO" in 2*|4*) exit 0;; esac
+            sleep 20
+          done
+          echo "::error::O projeto Supabase não respondeu (pausado ou fora do ar). Entre no painel do Supabase e use 'Resume project'."
+          exit 1

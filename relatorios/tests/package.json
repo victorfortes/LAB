@@ -1,0 +1,17 @@
+{
+  "name": "nga-gerador-testes",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Testes e ferramentas do Gerador NGA (isolados do pacote do Lovable na raiz do repositório).",
+  "scripts": {
+    "test:db": "node --test db/rls.test.mjs db/backup.test.mjs db/rls_producao.test.mjs",
+    "test:e2e": "playwright test",
+    "test": "npm run test:db && npm run test:e2e"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.2.17",
+    "@playwright/test": "1.49.1",
+    "pixelmatch": "6.0.0",
+    "pngjs": "7.0.0"
+  }
+}

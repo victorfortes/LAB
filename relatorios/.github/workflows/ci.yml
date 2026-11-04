@@ -1,0 +1,51 @@
+name: ci
+on:
+  push: { branches: [main] }
+  pull_request:
+permissions: { contents: read }
+jobs:
+  testes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - name: public/gerador está atualizado (gerado pelo build a partir de original/ + patches)
+        run: |
+          node scripts/build.mjs
+          git diff --exit-code -- public/gerador || (echo 'public/gerador desatualizado: rode node scripts/build.mjs e commite'; exit 1)
+      - run: npm ci
+        working-directory: tests
+      - name: Banco (RLS, versões, auditoria, backup/restauração) com PostgreSQL real (PGlite)
+        run: npm run test:db
+        working-directory: tests
+      - name: Navegador para os testes de interface
+        run: npx playwright install --with-deps chromium
+        working-directory: tests
+      - name: Build + testes ponta a ponta (login, permissões, persistência, equivalência com o original)
+        run: npm run test:e2e
+        working-directory: tests
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with: { name: playwright-report, path: tests/playwright-report/, retention-days: 7 }
+  segredos:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Recusa chave secreta ou token (JWT) gravado no repositório
+        run: |
+          if grep -rEn --exclude-dir={node_modules,.git,.tools,dist,original,playwright-report,test-results,config,gerador} "sb_secret_[A-Za-z0-9_]{20,}|eyJ[A-Za-z0-9_-]{30,}\.[A-Za-z0-9_-]{30,}\." . ; then echo "possível segredo encontrado"; exit 1; fi
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - name: As únicas chaves JWT permitidas (config/ e public/gerador/config.js) têm de ser a chave pública "anon" do mesmo projeto
+        run: |
+          node -e "
+          const fs=require('fs');
+          const pl=k=>JSON.parse(Buffer.from(k.split('.')[1],'base64url').toString());
+          const cfg=require('./config/supabase.public.json');
+          const pub=JSON.parse(fs.readFileSync('public/gerador/config.js','utf8').replace(/^window\\.NGA_SHELL_CONFIG\\s*=\\s*/,'').replace(/;\\s*\$/,''));
+          for (const [nome,k] of [['config/supabase.public.json',cfg.anonKey],['public/gerador/config.js',pub.key]]) {
+            const p=pl(k); if(p.role!=='anon'){console.error(nome+': papel inesperado '+p.role);process.exit(1)}
+            console.log(nome+': papel anon OK, projeto '+p.ref);
+          }
+          if(cfg.anonKey!==pub.key||cfg.url!==pub.url){console.error('config.js publicado diverge de config/');process.exit(1)}"

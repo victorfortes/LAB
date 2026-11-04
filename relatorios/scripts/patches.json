@@ -1,0 +1,542 @@
+[
+ {
+  "id": "P1-fontes-locais",
+  "motivo": "Fontes hospedadas no próprio site (sem chamar o Google a cada acesso). Mesmas famílias e pesos.",
+  "de": "<link rel=\"preconnect\" href=\"https://fonts.googleapis.com\"><link rel=\"preconnect\" href=\"https://fonts.gstatic.com\" crossorigin>\n<link href=\"https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap\" rel=\"stylesheet\">",
+  "para": "<link rel=\"stylesheet\" href=\"fonts/fonts.css\">"
+ },
+ {
+  "id": "P2-sem-conta-padrao",
+  "motivo": "SEGURANÇA: remove a conta de administrador padrão (admin@nga.adv.br) com senha fixa no código.",
+  "de": "    if (!lista.some(function (u) { return String(u.email).toLowerCase() === \"admin@nga.adv.br\"; })) {\n      lista.unshift({ email: \"admin@nga.adv.br\", hash: await sha256(\"nga2026\"), role: \"admin\", criadoEm: new Date().toLocaleDateString(\"pt-BR\") });\n      salvarUsuarios(lista);\n    }\n",
+  "para": "    // (conta padrão removida na migração: o acesso agora é por usuário individual no Supabase)\n"
+ },
+ {
+  "id": "P3-config-da-casca",
+  "motivo": "O módulo 'nuvem' do original lê a configuração do Supabase da página que o hospeda (a casca).",
+  "de": "var cfg = window.NGA_NUVEM_CFG || null;",
+  "para": "var cfg = window.NGA_NUVEM_CFG || (function () { try { return window.parent !== window ? window.parent.NGA_SHELL_CFG : null; } catch (e) { return null; } })();"
+ },
+ {
+  "id": "P4-sair-pela-casca",
+  "motivo": "Sair encerra a sessão do Supabase na casca (o original só recarregava a página).",
+  "de": "    logout: function() {\n",
+  "para": "    logout: function() {\n      if (window.parent !== window) { window.parent.postMessage({ nga: \"logout\" }, location.origin); return; }\n"
+ },
+ {
+  "id": "P5-usuarios-pela-casca",
+  "motivo": "O botão Usuários abre a administração real (Supabase) na casca, não a lista local do navegador.",
+  "de": "ligar(\"topbar-btn-gerenciar\", \"click\", function () { window.NGA_AUTH.abrirGerenciador(); });",
+  "para": "ligar(\"topbar-btn-gerenciar\", \"click\", function () { if (window.parent !== window) window.parent.postMessage({ nga: \"admin\" }, location.origin); else window.NGA_AUTH.abrirGerenciador(); });"
+ },
+ {
+  "id": "P6-so-dentro-da-casca",
+  "motivo": "SEGURANÇA: o gerador só funciona dentro da casca autenticada; aberto direto, volta para a entrada.",
+  "de": "<title>Relatórios Jurídicos, NGA</title>",
+  "para": "<title>Relatórios Jurídicos, NGA</title>\n<script>if (window.parent === window) { location.replace(\"../index.html\"); }</script>"
+ },
+ {
+  "id": "P8-experiencia-e-icone",
+  "motivo": "Entradas mais intuitivas sem alterar o motor de PDF; ícone NGA.",
+  "de": "<link rel=\"stylesheet\" href=\"fonts/fonts.css\">",
+  "para": "<link rel=\"stylesheet\" href=\"fonts/fonts.css\">\n<link rel=\"stylesheet\" href=\"../experiencia.css\">\n<link rel=\"icon\" type=\"image/png\" href=\"/favicon.png\">\n<script src=\"../experiencia.js\"></script>"
+ },
+ {
+  "id": "P9-filtro-clientes",
+  "motivo": "Busca por nome e separação Cível/Empresarial preservam o cliente selecionado.",
+  "de": "      astreaClienteSelect.value = atual;",
+  "para": "      astreaClienteSelect.value = atual;\n      window.NGA_FILTRAR_CLIENTES(lista, atual);"
+ },
+ {
+  "id": "P10-selecao-andamentos",
+  "motivo": "Checkbox coletivo com estado parcial e seleção em lote.",
+  "de": "    $(\"an-gerar\").addEventListener(\"click\", gerarPDF);",
+  "para": "    var selecao = document.createElement(\"div\"); selecao.className = \"nga-andamentos-selecao\";\n    selecao.innerHTML = '<label><input type=\"checkbox\" id=\"an-todos\"> Selecionar todos</label>';\n    $(\"an-tabela\").before(selecao);\n    $(\"an-todos\").addEventListener(\"change\", function () {\n      var marcado = this.checked;\n      S.lista.forEach(function (l) { if (marcado) delete S.desmarcados[l.id]; else S.desmarcados[l.id] = 1; });\n      sec.querySelectorAll(\"[data-an]\").forEach(function (c) { c.checked = marcado; });\n      atualizaContagem();\n    });\n    $(\"an-gerar\").addEventListener(\"click\", gerarPDF);"
+ },
+ {
+  "id": "P11-contagem-selecao",
+  "motivo": "Sincroniza seleção coletiva, contagem e disponibilidade de PDF.",
+  "de": "  function atualizaContagem() { var n = selecionadas().length; $(\"an-gerar\").disabled = !n; $(\"an-info\").textContent = \" · \" + n + \" andamento(s) no relatório\"; }",
+  "para": "   function atualizaContagem() {\n     var n = selecionadas().length; $(\"an-gerar\").disabled = !n; $(\"an-info\").textContent = \" · \" + n + \" andamento(s) no relatório\";\n     var todos = $(\"an-todos\"); if (todos) { todos.disabled = !S.lista.length; todos.checked = !!n && n === S.lista.length; todos.indeterminate = n > 0 && n < S.lista.length; }\n   }"
+ },
+ {
+  "id": "P12-andamentos-competencia",
+  "motivo": "Prévia e PDF usam apenas históricos registrados no mês configurado, antes do limite por processo.",
+  "de": "    var porProc = {}; todas.forEach(function (a, i) { if (ehManual(a)) (porProc[a.numero_processo] = porProc[a.numero_processo] || []).push({ a: a, i: i }); });",
+  "para": "    var periodo = /^(\\d{4})-(0[1-9]|1[0-2])$/.exec(estado.periodoISO || \"\");\n    var inicio = periodo ? Date.UTC(+periodo[1], +periodo[2] - 1, 1) : null;\n    var fim = periodo ? Date.UTC(+periodo[1], +periodo[2], 1) : null;\n    var porProc = {}; todas.forEach(function (a, i) {\n      var reg = tsBR(a.data), valida = new Date(reg);\n      var partes = /^(\\d{2})\\/(\\d{2})\\/(\\d{4})$/.exec(a.data || \"\");\n      var dataValida = partes && valida.getUTCDate() === +partes[1] && valida.getUTCMonth() + 1 === +partes[2] && valida.getUTCFullYear() === +partes[3];\n      if (periodo && dataValida && reg >= inicio && reg < fim && ehManual(a)) (porProc[a.numero_processo] = porProc[a.numero_processo] || []).push({ a: a, i: i });\n    });"
+ },
+ {
+  "id": "P13-andamentos-periodo-visivel",
+  "motivo": "Mostra o mês efetivamente usado pela prévia e sinaliza competência ausente.",
+  "de": "    $(\"an-cliente\").textContent = e.cliente || \"\";",
+  "para": "    $(\"an-cliente\").textContent = (e.cliente || \"\") + (e.periodoISO ? \" · \" + e.periodoISO.slice(5, 7) + \"/\" + e.periodoISO.slice(0, 4) : \"\");\n    var periodoValido = /^\\d{4}-(0[1-9]|1[0-2])$/.test(e.periodoISO || \"\");\n    $(\"an-alert\").hidden = periodoValido;\n    $(\"an-alert\").textContent = periodoValido ? \"\" : \"Configure o mês de referência do relatório para listar os andamentos.\";"
+ },
+ {
+  "id": "P14-revisional-beta-admin",
+  "motivo": "Revisional beta aparece apenas para administrador identificado pela casca, sem ler papel do armazenamento local.",
+  "de": "    var sw = $(\"mode-switch\"); if (!sw || sw.querySelector('[data-mode=\"revisional\"]')) return;",
+  "para": "    var sw = $(\"mode-switch\"); if (!window.NGA_ADMIN_ATUAL() || !sw || sw.querySelector('[data-mode=\"revisional\"]')) return;"
+ },
+ {
+  "id": "P15-revisional-rotulo-beta",
+  "motivo": "Identifica a análise revisional como beta.",
+  "de": "b.textContent = \"Análise revisional (contrato bancário)\";",
+  "para": "b.textContent = \"Análise revisional (contrato bancário) · Beta\";"
+ },
+ {
+  "id": "P16-revisional-clique-admin",
+  "motivo": "Revalida a exibição do revisional no clique pela identidade da casca.",
+  "de": "      $(\"panel-revisional\").hidden = false; renderPainel();",
+  "para": "      if (!window.NGA_ADMIN_ATUAL()) return;\n      $(\"panel-revisional\").hidden = false; renderPainel();"
+ },
+ {
+  "id": "P17-marcos-cadastro-prevalece",
+  "motivo": "A data do marco informada no cadastro do cliente passa a valer no PDF; a conferência com o Astrea vira apenas aviso na revisão (antes, o que o Astrea não comprovava saía 'a confirmar').",
+  "de": "      if (v.situacao !== \"confirmado\") { m.data_cadastro = m.data; m.data = null; m.data_a_confirmar = true; }",
+  "para": "      if (v.situacao !== \"confirmado\") { m.data_cadastro = m.data; m.divergencia = v.situacao; }"
+ },
+ {
+  "id": "P17b-aviso-divergente",
+  "motivo": "Texto do aviso de data divergente: vale a data do cadastro.",
+  "de": ".join(\"; \")) + '. No PDF a data sai como \"a confirmar\".</p>';",
+  "para": ".join(\"; \")) + '. No PDF vale a data do cadastro; se o Astrea estiver certo, corrija o cadastro do cliente.</p>';"
+ },
+ {
+  "id": "P17c-aviso-sem-registro",
+  "motivo": "Texto do aviso de data sem registro no Astrea: vale a data do cadastro.",
+  "de": "Sem comprovação no Astrea: o cadastro informa ' + esc(m.data_cadastro) + '. No PDF a data sai como \"a confirmar\".</p>'",
+  "para": "Sem registro identificável no Astrea: vale a data informada no cadastro (' + esc(m.data_cadastro) + ').</p>'"
+ },
+ {
+  "id": "P17d-intro-marcos",
+  "motivo": "Explica na revisão que a conferência com o Astrea é só aviso.",
+  "de": "Cada data é conferida com o Astrea: o que não tem registro identificável sai \"a confirmar\" no PDF.",
+  "para": "Cada data é conferida com o Astrea apenas como aviso: no PDF vale a data do cadastro."
+ },
+ {
+  "id": "P17e-ajuizamento-re-ficha",
+  "motivo": "Na recuperação extrajudicial, a distribuição da ficha do processo também serve de prova do ajuizamento.",
+  "de": "AJUIZAMENTO: function (f) { return /PEDIDO DE HOMOLOGACAO|AJUIZAD\\w*.*RECUPERACAO EXTRAJUDICIAL/.test(f.n); },",
+  "para": "AJUIZAMENTO: function (f) { return (f.ficha && /RECUPERACAO EXTRAJUDICIAL/.test(nrm((f.acao || \"\") + \" \" + (f.juizo || \"\")))) || /PEDIDO DE HOMOLOGACAO|AJUIZAD\\w*.*RECUPERACAO EXTRAJUDICIAL/.test(f.n); },"
+ },
+ {
+  "id": "P18a-evento-usa-titulo",
+  "motivo": "Só para clientes com 'Destaques do comitê' ligado: em evento realizado, o título do evento (ex.: 'Comitê de Credores da NB') entra na classificação.",
+  "de": "      t = generico ? (real.feito + \" \" + real.prazo) : real.feito;",
+  "para": "      t = (regrasUsuario && regrasUsuario.destaquesComite && /^EVENTO/.test(tipoN)) ? (real.prazo + \" \" + real.feito) : (generico ? (real.feito + \" \" + real.prazo) : real.feito);"
+ },
+ {
+  "id": "P18b-naturezas-comite",
+  "motivo": "Só para clientes com 'Destaques do comitê' ligado: reunião do comitê de credores (evento) e comunicação ao comitê/credores têm natureza própria.",
+  "de": "    { nat:\"Pedido de restituição\", fn:\"ENTREGA\", peso:4, area:\"insolvencia\", forca:9,",
+  "para": "    { nat:\"Reunião do comitê de credores\", fn:\"EVENTO\", peso:5, area:\"ambas\", forca:11, opt:\"destaquesComite\",\n      p:[/^COMITE\\s+DE\\s+CREDORES\\b/,/\\bREUNIAO\\s+(?:DO\\s+)?COMITE\\b/] },\n    { nat:\"Comunicação ao comitê / credores\", fn:\"ENTREGA\", peso:3, area:\"ambas\", forca:13, opt:\"destaquesComite\",\n      p:[/\\bMEMBROS\\s+DO\\s+COMITE\\b/,/\\bCONVOCACAO\\b.*\\b(?:REUNIAO|CREDORES|COMITE)\\b/,/\\bPAUTA\\b.*\\bREUNIAO\\b/] },\n    { nat:\"Pedido de restituição\", fn:\"ENTREGA\", peso:4, area:\"insolvencia\", forca:9,"
+ },
+ {
+  "id": "P19-resumo-exibicao-e-agenda",
+  "motivo": "Funções auxiliares da camada de inteligência: texto de exibição sem saudação de e-mail e leitura de reunião agendada no histórico.",
+  "de": "  function dataParaExibicao(a) { return a.data_efetiva || a.data_narrada || a.data; }",
+  "para": "  function dataParaExibicao(a) { return a.data_efetiva || a.data_narrada || a.data; }\n  // Reunião ou ato futuro agendado no texto (\"fica agendada... Data e horário: 02 de dezembro de 2026, às 14h00\").\n  var MES_EXT = { JANEIRO: 1, FEVEREIRO: 2, MARCO: 3, ABRIL: 4, MAIO: 5, JUNHO: 6, JULHO: 7, AGOSTO: 8, SETEMBRO: 9, OUTUBRO: 10, NOVEMBRO: 11, DEZEMBRO: 12 };\n  function agendaNoTexto(txt) {\n    var t = norm(txt).replace(/\\s+/g, \" \");\n    var m = /(?:DATA\\s+E\\s+HORARIO|AGENDAD[OA]\\w*)[^.]{0,120}?\\b(\\d{1,2})\\s+DE\\s+(JANEIRO|FEVEREIRO|MARCO|ABRIL|MAIO|JUNHO|JULHO|AGOSTO|SETEMBRO|OUTUBRO|NOVEMBRO|DEZEMBRO)\\s+DE\\s+(\\d{4})(?:\\s*,?\\s*AS\\s+(\\d{1,2})\\s*H\\s*(\\d{2})?)?/.exec(t);\n    if (!m) return null;\n    var d = +m[1], mo = MES_EXT[m[2]], y = +m[3];\n    return { ts: Date.UTC(y, mo - 1, d), data: (\"0\" + d).slice(-2) + \"/\" + (\"0\" + mo).slice(-2) + \"/\" + y, hora: m[4] ? (m[4] + \"h\" + (m[5] || \"00\")) : \"\", comite: /COMITE/.test(t) };\n  }\n  // Texto de exibição. E-mail copiado no histórico vira \"E-mail encaminhado a ..., com anexo(s): ...\", só com o que o próprio texto diz\n  // (destinatário, anexos, reunião agendada); o resto fica na opção \"Texto completo\". Demais textos: sem saudação/fecho e cortados em fim de frase.\n  function resumoExibicao(txt, tipo) {\n    var bruto = String(txt || \"\"), t = bruto.replace(/\\s+/g, \" \").trim();\n    if (/^EVENTO/.test(norm(tipo))) { var ev = /^(.+?)\\s+-\\s+Realizado:/i.exec(t); if (ev) return ev[1] + \" (realizado)\"; }\n    var rz = /^(.+?)\\s+-\\s+Realizado:\\s*(.*)$/i.exec(t);   // \"NOME DO PRAZO - Realizado: texto\": o texto do Astrea (anotações internas) não vai ao cliente\n    if (rz) return nominalizar(rz[1]);\n    var sal = /^Prezad[oa]s?(?:\\([oa]s?\\))?\\s+Senhor[a-z]*(?:\\([oa]s?\\))?\\s+([^,]{3,90}),\\s*/i.exec(t), sal2 = sal ? null : /^(?:Prezad[oa]s?|Car[oa]s?)(?:\\([oa]s?\\))?\\s+([^,]{2,60}),\\s*/i.exec(t);\n    if (sal || sal2) {\n      var corpo = t.slice((sal || sal2)[0].length), quem = sal ? \"aos \" + sal[1] : \"a \" + sal2[1], partes = [];\n      if (/em complemento ao e-?mail anterior/i.test(corpo)) partes.push(\"em complemento ao e-mail anterior\");\n      var ap = /participa[cç][aã]o\\s+(?:de todos\\s+)?na\\s+([^.,]{3,80})[.,]/i.exec(corpo); if (ap) partes.push(\"após a \" + ap[1].trim());\n      var anexos = [], re = /em anexo(?:,\\s*também)?\\s*,\\s*([^.]+?)\\.(?:\\s|$)/gi, mm;\n      while ((mm = re.exec(corpo))) anexos.push(mm[1].trim().replace(/^(?:a|o|as|os)\\s+/i, \"\"));\n      if (anexos.length) partes.push((anexos.length > 1 ? \"com anexos: \" : \"com anexo: \") + anexos.join(\"; \"));\n      if (/posicionamento/i.test(corpo) && /aderir/i.test(corpo) && /prosseguir\\s+com\\s+a\\s+execu/i.test(corpo)) partes.push(\"para subsidiar o posicionamento do Comitê sobre a proposta de acordo (aderir ou prosseguir com a execução do crédito)\");\n      var ag = agendaNoTexto(corpo);\n      var r = \"E-mail encaminhado \" + quem + (partes.length ? \", \" + partes.join(\", \") : \"\") + (ag ? \". Reunião agendada para \" + ag.data + (ag.hora ? \", às \" + ag.hora : \"\") : \"\");\n      if (!partes.length && !ag) { var s1 = /^.{20,300}?[.!?](?:\\s|$)/.exec(corpo); r += \": \" + (s1 ? s1[0].trim() : corpo.slice(0, 160).replace(/\\s+\\S*$/, \"\") + \"…\"); }\n      else r += \".\";\n      return r.length > 420 ? r.slice(0, 417).replace(/[\\s;,]+\\S*$/, \"\") + \"…\" : r;\n    }\n    t = t.replace(/\\s*(?:Permanecemos|Seguimos|Ficamos)\\s+à\\s+disposição[^.]*\\.?\\s*(?:At\\.?te\\.?|Atenciosamente\\.?)?\\s*$/i, \"\");\n    t = t.replace(/\\s*(?:At\\.?te\\.?|Atenciosamente\\.?)\\s*$/i, \"\");\n    if (t.length > 340) {   // corta no fim de uma frase (até 340 caracteres, o que cabe nas 6 linhas do cartão), sem deixar o texto pela metade\n      var corte = 0, rs = /[.!?]\\s+/g, m2;\n      while ((m2 = rs.exec(t)) && m2.index + 1 <= 340) corte = m2.index + 1;\n      t = corte ? t.slice(0, corte) : t.slice(0, 337).replace(/\\s+\\S*$/, \"\") + \"…\";\n    }\n    return t || bruto;\n  }\n  // Reuniões já agendadas no histórico viram candidatos a próximo passo na revisão; nada entra no PDF sem confirmação.\n  function agendamentosDoTexto(atividades, hoje) {\n    var ref = hoje || new Date(), base = Date.UTC(ref.getUTCFullYear(), ref.getUTCMonth(), ref.getUTCDate()), out = [], vistos = {};\n    (atividades || []).forEach(function (a) {\n      var g = agendaNoTexto(a.descricao);\n      if (!g || g.ts < base) return;\n      var quem = g.comite ? \"Reunião do Comitê de Credores\" : \"Reunião\", k = g.data + \"|\" + quem;\n      if (vistos[k]) return; vistos[k] = 1;\n      out.push({ descricao: quem + \" agendada\" + (g.hora ? \" às \" + g.hora : \"\") + \" (conforme registro de \" + (a.data || \"data não informada\") + \")\", data: g.data, responsavel: \"\", numero_processo: a.numero_processo });\n    });\n    return out;\n  }\n  // \"Enviar convocação ...\" -> \"Envio de convocação ...\": nome do prazo no substantivo, como se lê num relatório ao cliente.\n  var VERBO_SUBST = { ENVIAR: \"Envio de\", ELABORAR: \"Elaboração de\", PROTOCOLAR: \"Protocolo de\", ANALISAR: \"Análise de\", CONFERIR: \"Conferência de\", MANIFESTAR: \"Manifestação:\", SOLICITAR: \"Solicitação de\", PEDIR: \"Pedido de\", AGENDAR: \"Agendamento de\", CONVOCAR: \"Convocação de\", REALIZAR: \"Realização de\", APRESENTAR: \"Apresentação de\", PREPARAR: \"Preparação de\", REVISAR: \"Revisão de\", MINUTAR: \"Minuta de\", VERIFICAR: \"Verificação de\", ACOMPANHAR: \"Acompanhamento de\", NOTIFICAR: \"Notificação de\" };\n  function nominalizar(nome) {\n    var s = String(nome || \"\").replace(/\\s+/g, \" \").trim(), m = /^(\\S+)\\s+(.*)$/.exec(s);\n    var sub = m && VERBO_SUBST[norm(m[1])];\n    return sub ? sub + \" \" + m[2] : s;\n  }\n  // Mesma data e mesmo anexo: o e-mail (\"com anexo: Nota Técnica ...\") e a tarefa \"Envio da Nota Técnica\" são um fato só.\n  function mesclarMesmoFato(lista) {\n    var out = lista.slice();\n    lista.forEach(function (em) {\n      var m = /^E-mail encaminhado .*?\\bcom anexos?:\\s*(.+?)\\.?\\s*$/.exec(String(em.descricao || \"\"));\n      if (!m) return;\n      m[1].split(\";\").forEach(function (anx) {\n        var w = norm(anx.replace(/^(?:a|o|as|os)\\s+/i, \"\")).split(/\\s+/).filter(Boolean), chave = w.slice(0, 2).join(\" \");\n        if (chave.length < 10) chave = w.slice(0, 3).join(\" \");\n        if (chave.length < 8) return;\n        out = out.filter(function (o) {\n          if (o === em || o.data !== em.data || (o.numero_processo || \"\") !== (em.numero_processo || \"\")) return true;\n          if (/^E-mail encaminhado/.test(String(o.descricao || \"\"))) return true;\n          return norm(o.descricao).indexOf(chave) === -1;\n        });\n      });\n    });\n    return out;\n  }\n  function ordenarPorData(lista) {\n    return lista.map(function (x, i) { return { x: x, i: i }; }).sort(function (a, b) {\n      var da = dataBRtoDate(a.x.data), db = dataBRtoDate(b.x.data);\n      return ((da ? da.getTime() : Infinity) - (db ? db.getTime() : Infinity)) || (a.i - b.i);\n    }).map(function (o) { return o.x; });\n  }\n  // Próxima providência a partir dos próprios históricos: reunião agendada (com formato), antecedência da pauta e posicionamento aguardado.\n  function providenciaDoTexto(atividades, hoje) {\n    var ref = hoje || new Date(), base = Date.UTC(ref.getUTCFullYear(), ref.getUTCMonth(), ref.getUTCDate()), partes = [], ag = null, fmt = \"\", antec = null, pos = false;\n    (atividades || []).forEach(function (a) {\n      var t = String(a.descricao || \"\"), g = agendaNoTexto(t);\n      if (g && g.ts >= base && !ag) {\n        ag = g; var f = /Formato:\\s*(h[ií]brid[ao]|presencial|remot[ao]|virtual)/i.exec(t);\n        if (f) fmt = f[1].toLowerCase().replace(/ida$/, \"ido\").replace(/ota$/, \"oto\");\n        var an = /anteced[eê]ncia\\s+m[ií]nima\\s+de\\s+(\\d+)\\s+dias\\s+(?:úteis|uteis|corridos)/i.exec(t);\n        if (an) antec = { n: an[1], tipo: /corridos/i.test(an[0]) ? \"corridos\" : \"úteis\", plano: /prevista\\s+no\\s+Plano/i.test(t) };\n      }\n      if (/posicionamento/i.test(t) && /aderir/i.test(t) && /prosseguir\\s+com\\s+a\\s+execu/i.test(t)) pos = true;\n    });\n    if (ag) partes.push((ag.comite ? \"Reunião do Comitê de Credores\" : \"Reunião\") + \" em \" + ag.data + (ag.hora ? \", às \" + ag.hora : \"\") + (fmt ? \" (formato \" + fmt + \")\" : \"\"));\n    if (antec) partes.push(\"envio da pauta e do link com antecedência mínima de \" + antec.n + \" dias \" + antec.tipo + (antec.plano ? \", conforme o Plano\" : \"\"));\n    if (pos) partes.push(\"aguardar o posicionamento do Comitê sobre a proposta de acordo (aderir ou prosseguir com a execução do crédito)\");\n    return partes.length ? partes.join(\"; \") + \".\" : \"\";\n  }"
+ },
+ {
+  "id": "P19b-acontecimentos-resumo",
+  "motivo": "Só com 'Destaques do comitê': acontecimentos candidatos mostram resumo (e-mail encaminhado, sem saudação/fecho).",
+  "de": "        idx: idx, data: dataParaExibicao(a), dataRegistro: a.data, descricao: a.descricao, tipo: a.tipo,",
+  "para": "        idx: idx, data: dataParaExibicao(a), dataRegistro: a.data, descricao: avancado ? resumoExibicao(a.descricao, a.tipo) : a.descricao, linhasMax: avancado ? 6 : 3, descricao_integral: String(a.descricao || \"\").replace(/\\s+/g, \" \").trim(), tipo: a.tipo,"
+ },
+ {
+  "id": "P19c-entregas-resumo",
+  "motivo": "Só com 'Destaques do comitê': entregas candidatas mostram resumo (e-mail encaminhado, sem saudação/fecho).",
+  "de": "          idx: idx, data: dataParaExibicao(a), descricao: a.descricao,\n",
+  "para": "          idx: idx, data: dataParaExibicao(a), descricao: avancado ? resumoExibicao(a.descricao, a.tipo) : a.descricao, linhasMax: avancado ? 6 : 3, descricao_integral: String(a.descricao || \"\").replace(/\\s+/g, \" \").trim(), \n"
+ },
+ {
+  "id": "P20-proximos-passos-agenda",
+  "motivo": "Só com 'Destaques do comitê': reuniões já agendadas no histórico viram próximos passos sugeridos.",
+  "de": "      proximosPassos: classificarProximosPassos(tarefasFuturas, opts.hoje),",
+  "para": "      proximosPassos: classificarProximosPassos(tarefasFuturas.concat(config.destaquesComite ? agendamentosDoTexto(atividades, opts.hoje) : []), opts.hoje),"
+ },
+ {
+  "id": "P21-peso-evento",
+  "motivo": "Só com 'Destaques do comitê': eventos (reunião, audiência, assembleia) pesam pelo esforço e aparecem entre os principais acontecimentos.",
+  "de": "      var peso = pesoDoAto(a);",
+  "para": "      var peso = pesoDoAto(a) + (avancado && a.funcao === \"EVENTO\" ? (a.esforco || 1) * 6 : 0);"
+ },
+ {
+  "id": "P22-entrega-sem-desfecho",
+  "motivo": "Só com 'Destaques do comitê': prazo cumprido sem desfecho claro não é listado como entrega produzida.",
+  "de": "      if (explicita || ehEntrega(a)) {",
+  "para": "      if (explicita || (ehEntrega(a) && !(avancado && a.natureza === \"Prazo com desfecho a confirmar\"))) {"
+ },
+ {
+  "id": "P23-providencia-sugerida",
+  "motivo": "Só com 'Destaques do comitê': a próxima providência da revisão vem preenchida com o que os históricos dizem (reunião agendada, antecedência da pauta, posicionamento aguardado), ou com o primeiro próximo passo datado. Editável.",
+  "de": "    document.getElementById(\"rev-providencia\").value = \"\";",
+  "para": "    document.getElementById(\"rev-providencia\").value = (estado.clienteCad && estado.clienteCad.config && estado.clienteCad.config.destaquesComite) ? (Inteligencia.providenciaDoTexto(estado.atividadesClassificadas || []) || (function () { var ps = (b.proximosPassos || []).filter(function (p) { return p.faixa !== \"vencida\" && p.faixa !== \"sem_data\"; }); return ps.length ? ps[0].acao + (ps[0].data ? \" (\" + ps[0].data + \")\" : \"\") : \"\"; })()) : \"\";"
+ },
+ {
+  "id": "P24-acontecimento-sem-desfecho",
+  "motivo": "Só com 'Destaques do comitê': prazo cumprido sem desfecho claro (muitas vezes anotação interna) não é sugerido como acontecimento quando o processo tem outros candidatos.",
+  "de": "    candidatos.sort(function (x, y) { return (y.peso - x.peso) || porData(x, y); });\n\n    // 1ª passada",
+  "para": "    var temOutro = {};\n    if (avancado) {\n    candidatos.forEach(function (c) { if (c.natureza !== \"Prazo com desfecho a confirmar\") temOutro[c.numero_processo || \"\"] = 1; });\n    candidatos = candidatos.filter(function (c) { return c.natureza !== \"Prazo com desfecho a confirmar\" || !temOutro[c.numero_processo || \"\"]; });\n    }\n    candidatos.sort(function (x, y) { return (y.peso - x.peso) || porData(x, y); });\n\n    // 1ª passada"
+ },
+ {
+  "id": "P25-revisao-texto-completo-acont",
+  "motivo": "Na revisão, cada acontecimento sugerido tem a opção 'Texto completo no PDF'.",
+  "de": "'<div class=\"ri-body\"><b>' + escapeHtml(Etiquetas.limpar(a.descricao)) + '</b>' +",
+  "para": "'<div class=\"ri-body\"><b>' + escapeHtml(Etiquetas.limpar(a.descricao)) + '</b>' + '<label class=\"rv-ver-chk\"><input type=\"checkbox\" data-acont-full=\"' + i + '\"> Texto completo no PDF (sem resumo; pode ocupar mais linhas)</label>' +"
+ },
+ {
+  "id": "P25b-revisao-texto-completo-entrega",
+  "motivo": "Na revisão, cada entrega sugerida tem a opção 'Texto completo no PDF'.",
+  "de": "'<div class=\"ri-body\"><b>' + escapeHtml(Etiquetas.limpar(e.descricao)) + '</b>' +",
+  "para": "'<div class=\"ri-body\"><b>' + escapeHtml(Etiquetas.limpar(e.descricao)) + '</b>' + '<label class=\"rv-ver-chk\"><input type=\"checkbox\" data-entrega-full=\"' + i + '\"> Texto completo no PDF (sem resumo; pode ocupar mais linhas)</label>' +"
+ },
+ {
+  "id": "P26-alternar-texto-completo",
+  "motivo": "Marcar 'Texto completo' mostra na própria revisão o conteúdo integral; desmarcar volta ao resumo.",
+  "de": "  document.getElementById(\"rev-voltar\").addEventListener(\"click\", function () {",
+  "para": "  function alternarTextoCompleto(e, atrib, lista) {\n    var ck = e.target.closest(\"[\" + atrib + \"]\"); if (!ck) return;\n    var it = lista()[Number(ck.getAttribute(atrib))], b = ck.closest(\".ri-body\").querySelector(\"b\");\n    if (it && b) b.textContent = Etiquetas.limpar(ck.checked ? (it.descricao_integral || it.descricao) : it.descricao);\n  }\n  document.getElementById(\"rev-acontecimentos\").addEventListener(\"change\", function (e) { alternarTextoCompleto(e, \"data-acont-full\", function () { return (ultimoResultado.briefing || {}).acontecimentos || []; }); });\n  document.getElementById(\"rev-entregas\").addEventListener(\"change\", function (e) { alternarTextoCompleto(e, \"data-entrega-full\", function () { return (ultimoResultado.briefing || {}).entregas || []; }); });\n\n  document.getElementById(\"rev-voltar\").addEventListener(\"click\", function () {"
+ },
+ {
+  "id": "P27-geracao-texto-completo-acont",
+  "motivo": "Ao gerar, acontecimento com 'Texto completo' marcado vai com o conteúdo integral e sem o corte de três linhas.",
+  "de": "    var acontSel = (b.acontecimentos || []).filter(function (_, i) { var c = document.querySelector('[data-acont=\"' + i + '\"]'); return c && c.checked; })\n      .map(function (a) { return Object.assign({}, a, { descricao: Etiquetas.limpar(a.descricao) }); });",
+  "para": "    var acontSel = (b.acontecimentos || []).map(function (a, i) { return { a: a, i: i }; }).filter(function (x) { var c = document.querySelector('[data-acont=\"' + x.i + '\"]'); return c && c.checked; })\n      .map(function (x) { var full = document.querySelector('[data-acont-full=\"' + x.i + '\"]'); return Object.assign({}, x.a, full && full.checked ? { descricao: Etiquetas.limpar(x.a.descricao_integral || x.a.descricao), completo: true } : { descricao: Etiquetas.limpar(x.a.descricao) }); });"
+ },
+ {
+  "id": "P27b-acontecimento-manual-completo",
+  "motivo": "Acontecimento digitado na revisão sai por inteiro.",
+  "de": "if (c && c.checked) acontSel.push({ data: a.data, numero_processo: a.numero_processo, descricao: a.descricao, manual: true });",
+  "para": "if (c && c.checked) acontSel.push({ data: a.data, numero_processo: a.numero_processo, descricao: a.descricao, manual: true, completo: true });"
+ },
+ {
+  "id": "P27c-geracao-texto-completo-entrega",
+  "motivo": "Ao gerar, entrega com 'Texto completo' marcado vai com o conteúdo integral e sem o corte de três linhas.",
+  "de": "    var entrSel = (b.entregas || []).filter(function (_, i) { var c = document.querySelector('[data-entrega=\"' + i + '\"]'); return c && c.checked; })\n      .map(function (e) { return Object.assign({}, e, { descricao: Etiquetas.limpar(e.descricao) }); });",
+  "para": "    var entrSel = (b.entregas || []).map(function (e, i) { return { e: e, i: i }; }).filter(function (x) { var c = document.querySelector('[data-entrega=\"' + x.i + '\"]'); return c && c.checked; })\n      .map(function (x) { var full = document.querySelector('[data-entrega-full=\"' + x.i + '\"]'); return Object.assign({}, x.e, full && full.checked ? { descricao: Etiquetas.limpar(x.e.descricao_integral || x.e.descricao), completo: true } : { descricao: Etiquetas.limpar(x.e.descricao) }); });"
+ },
+ {
+  "id": "P28-pdf-partes-completas",
+  "motivo": "Layout do PDF: item marcado como completo não é cortado em 3 linhas; textos muito longos são divididos em blocos que cabem na coluna (o motor jsPDF não muda).",
+  "de": "GeradorRelatorioPDF.prototype._paginaEntregas = function (doc, dados, pagina) {",
+  "para": "// Itens com texto completo (sem corte de 3 linhas): divide em blocos que caibam numa coluna, cortando em fim de frase ou espaço.\nfunction partesCompletas(lista, max) {\n  var out = [];\n  (lista || []).forEach(function (a) {\n    var t = String(a.descricao || \"\");\n    if (!a.completo || t.length <= max) { out.push(a); return; }\n    var i = 0;\n    while (t.length > max) {\n      var corte = t.lastIndexOf(\". \", max), sp = t.lastIndexOf(\" \", max);\n      if (corte < max * 0.6) corte = sp > 0 ? sp : max; else corte += 1;\n      out.push(Object.assign({}, a, { descricao: t.slice(0, corte).trim(), data: i ? ((a.data ? a.data + \" \" : \"\") + \"(continuação)\") : a.data }));\n      t = t.slice(corte).trim(); i++;\n    }\n    out.push(Object.assign({}, a, { descricao: t, data: i ? ((a.data ? a.data + \" \" : \"\") + \"(continuação)\") : a.data }));\n  });\n  return out;\n}\nGeradorRelatorioPDF.prototype._paginaEntregas = function (doc, dados, pagina) {"
+ },
+ {
+  "id": "P28b-pdf-acontecimentos-completo",
+  "motivo": "Cartão de acontecimento sem corte quando marcado como completo.",
+  "de": "    eventos.forEach(function (a) {\n      var linhas = this._linhas(doc, a.descricao, colW - 24, 10, 3);",
+  "para": "    partesCompletas(eventos, 1100).forEach(function (a) {\n      var linhas = this._linhas(doc, a.descricao, colW - 24, 10, a.completo ? 0 : (a.linhasMax || 3));"
+ },
+ {
+  "id": "P28c-pdf-entregas-completo",
+  "motivo": "Cartão de entrega sem corte quando marcado como completo.",
+  "de": "  ents.forEach(function (e) {\n    var linhas = this._linhas(doc, e.descricao, colW - 16, 10.5, 3);",
+  "para": "  partesCompletas(ents, 1000).forEach(function (e) {\n    var linhas = this._linhas(doc, e.descricao, colW - 16, 10.5, e.completo ? 0 : (e.linhasMax || 3));"
+ },
+ {
+  "id": "P18c-natureza-opcional",
+  "motivo": "As naturezas marcadas com 'opt' só pontuam quando o cliente liga a opção correspondente.",
+  "de": "    BASE.forEach(function (r) {\n      var hits = 0;",
+  "para": "    BASE.forEach(function (r) {\n      if (r.opt && !(regrasUsuario && regrasUsuario[r.opt])) return;\n      var hits = 0;"
+ },
+ {
+  "id": "P18d-opcao-na-classificacao",
+  "motivo": "Repassa a opção 'Destaques do comitê' do cadastro do cliente ao classificador.",
+  "de": "      var calculo = calcularIndicadores(extraido.processos, extraido.atividades, inicio, fim, regrasParaMotor, extraido.atividadesAdministrativas || []);",
+  "para": "      regrasParaMotor.destaquesComite = !!(clienteCad && clienteCad.config && clienteCad.config.destaquesComite);\n      var calculo = calcularIndicadores(extraido.processos, extraido.atividades, inicio, fim, regrasParaMotor, extraido.atividadesAdministrativas || []);"
+ },
+ {
+  "id": "P29-assinatura-acontecimentos",
+  "motivo": "Seleção de acontecimentos recebe a configuração do cliente.",
+  "de": "  function selecionarAcontecimentos(atividades, Etiquetas) {",
+  "para": "  function selecionarAcontecimentos(atividades, Etiquetas, config) {\n    var avancado = !!(config && config.destaquesComite);"
+ },
+ {
+  "id": "P29b-assinatura-entregas",
+  "motivo": "Seleção de entregas recebe a configuração do cliente.",
+  "de": "  function selecionarEntregas(atividades, Etiquetas) {",
+  "para": "  function selecionarEntregas(atividades, Etiquetas, config) {\n    var avancado = !!(config && config.destaquesComite);"
+ },
+ {
+  "id": "P29c-briefing-config",
+  "motivo": "O briefing repassa a configuração do cliente à seleção.",
+  "de": "      acontecimentos: selecionarAcontecimentos(atividades, Etiquetas),\n      entregas: selecionarEntregas(atividades, Etiquetas),",
+  "para": "      acontecimentos: selecionarAcontecimentos(atividades, Etiquetas, config),\n      entregas: selecionarEntregas(atividades, Etiquetas, config),"
+ },
+ {
+  "id": "P30-cadastro-opcao-html",
+  "motivo": "Cadastro do cliente: opção 'Destaques do comitê de credores e resumo de e-mails' (desligada por padrão; usada no Grupo NB).",
+  "de": "<div class=\"toggle-row\"><span>Exibir próximos passos</span><label class=\"switch\"><input type=\"checkbox\" id=\"cf-passos\" checked><span class=\"slider\"></span></label></div>",
+  "para": "<div class=\"toggle-row\"><span>Exibir próximos passos</span><label class=\"switch\"><input type=\"checkbox\" id=\"cf-passos\" checked><span class=\"slider\"></span></label></div>\n<div class=\"toggle-row\"><span>Destaques do comitê de credores e resumo de e-mails (modelo Grupo NB)</span><label class=\"switch\"><input type=\"checkbox\" id=\"cf-comite\"><span class=\"slider\"></span></label></div>"
+ },
+ {
+  "id": "P30b-cadastro-opcao-ler",
+  "motivo": "Ao abrir o cliente, mostra a opção salva.",
+  "de": "      document.getElementById(\"cf-passos\").checked = cfg.exibirProximosPassos !== false;",
+  "para": "      document.getElementById(\"cf-passos\").checked = cfg.exibirProximosPassos !== false;\n      document.getElementById(\"cf-comite\").checked = !!cfg.destaquesComite;"
+ },
+ {
+  "id": "P30c-cadastro-opcao-salvar",
+  "motivo": "Ao salvar o cliente, grava a opção.",
+  "de": "      exibirProximosPassos: document.getElementById(\"cf-passos\").checked,",
+  "para": "      exibirProximosPassos: document.getElementById(\"cf-passos\").checked,\n      destaquesComite: document.getElementById(\"cf-comite\").checked,"
+ },
+ {
+  "id": "P32-acontecimentos-cronologicos",
+  "motivo": "Só com 'Destaques do comitê': acontecimentos em ordem cronológica e sem o mesmo fato repetido (e-mail com anexo + tarefa de envio do mesmo anexo).",
+  "de": "    return selecionados.sort(function (x, y) { return (y.peso - x.peso) || porData(x, y); });",
+  "para": "    var ordenados = selecionados.sort(function (x, y) { return (y.peso - x.peso) || porData(x, y); });\n    return avancado ? ordenarPorData(mesclarMesmoFato(ordenados)) : ordenados;"
+ },
+ {
+  "id": "P32b-entregas-cronologicas",
+  "motivo": "Só com 'Destaques do comitê': entregas em ordem cronológica e sem o mesmo fato repetido.",
+  "de": "    return entregas.slice(0, 8);",
+  "para": "    entregas = entregas.slice(0, 8);\n    return avancado ? ordenarPorData(mesclarMesmoFato(entregas)) : entregas;"
+ },
+ {
+  "id": "P32c-api-providencia",
+  "motivo": "Expõe a leitura da próxima providência.",
+  "de": "    classificarProximosPassos: classificarProximosPassos,\n    compararComAnterior: compararComAnterior,",
+  "para": "    classificarProximosPassos: classificarProximosPassos,\n    providenciaDoTexto: providenciaDoTexto,\n    compararComAnterior: compararComAnterior,"
+ },
+ {
+  "id": "P31-convocacao-nao-pendente",
+  "motivo": "Só com 'Destaques do comitê': prazo cumprido já classificado como reunião/comunicação ao comitê não conta como 'a classificar'.",
+  "de": "    if (desfecho === \"INDETERMINADO\" && (NATUREZAS_PECA.indexOf(nat) !== -1 || nat === \"Outros\" || fn === \"DECISAO\")) nat = NAT_A_CONFIRMAR;",
+  "para": "    if (desfecho === \"INDETERMINADO\" && regrasUsuario && regrasUsuario.destaquesComite && (nat === \"Comunicação ao comitê / credores\" || nat === \"Reunião do comitê de credores\")) desfecho = null;\n    if (desfecho === \"INDETERMINADO\" && (NATUREZAS_PECA.indexOf(nat) !== -1 || nat === \"Outros\" || fn === \"DECISAO\")) nat = NAT_A_CONFIRMAR;"
+ },
+ {
+  "id": "P33-comunicacao-comite-processual",
+  "motivo": "Só com 'Destaques do comitê' (as naturezas só existem com a opção): convocação e comunicação ao comitê, mesmo como prazo cumprido, contam como atuação processual e não como acompanhamento.",
+  "de": "      if (a.desfecho === \"PROTOCOLADO\") return \"processual\";",
+  "para": "      if (a.desfecho === \"PROTOCOLADO\" || a.natureza === \"Comunicação ao comitê / credores\" || a.natureza === \"Reunião do comitê de credores\") return \"processual\";"
+ },
+ {
+  "id": "P34-quadro-onde-estamos-texto-longo",
+  "motivo": "No quadro 'Onde estamos', texto longo (ex.: próxima providência com vários itens) reduz a fonte até caber, em vez de ser cortado em 5 linhas sem aviso. Texto curto não muda.",
+  "de": "    this._linhas(doc, texto, boxW - 12, 8.5, 5).forEach(function (linha, j) {\n      this._text(doc, x + 6, boxY + boxH - 15 - j * 4.4, linha.t, { size: 8.5, color: b[1] ? this.tema.texto : this.tema.cinza, just: linha.just });\n    }, this);",
+  "para": "    var tam = 8.5, passo = 4.4, lin = this._linhas(doc, texto, boxW - 12, tam, 5);\n    if (this._linhas(doc, texto, boxW - 12, tam).length > 5) {   // texto longo: reduz a fonte até caber, em vez de cortar o fim\n      [7.5, 6.8, 6.2].some(function (s) { var l = this._linhas(doc, texto, boxW - 12, s), cap = Math.floor(24 / (s * 0.518)); tam = s; passo = s * 0.518; lin = l.slice(0, cap); return l.length <= cap; }, this);\n    }\n    lin.forEach(function (linha, j) {\n      this._text(doc, x + 6, boxY + boxH - 15 - j * passo, linha.t, { size: tam, color: b[1] ? this.tema.texto : this.tema.cinza, just: linha.just });\n    }, this);"
+ },
+ {
+  "id": "P35-ficha-caso-campos",
+  "motivo": "Ficha do caso: lê OBJETO, valor da causa e da condenação (antes o OBJETO ficava colado na data de criação).",
+  "de": "    const outros = \"CLIENTE|T[ÍI]TULO|ENVOLVIDOS|ADVOGADO|CRIADO EM|VALOR DA CAUSA|VALOR DA CONDENA[ÇC][ÃA]O|STATUS|PASTA|EQUIPE|FASE|SJ\";",
+  "para": "    const outros = \"CLIENTE|T[ÍI]TULO|OBJETO|ENVOLVIDOS|ADVOGADO|CRIADO EM|VALOR DA CAUSA|VALOR DA CONDENA[ÇC][ÃA]O|STATUS|PASTA|EQUIPE|FASE|SJ\";"
+ },
+ {
+  "id": "P35b-ficha-caso-retorno",
+  "motivo": "Ficha do caso devolve também objeto e valores.",
+  "de": "    return { cliente: campo(\"CLIENTE\"), titulo: campo(\"T[ÍI]TULO\"), advogado: campo(\"ADVOGADO\"), criado_em: campo(\"CRIADO EM\"), status: campo(\"STATUS\") };",
+  "para": "    return { cliente: limparCampoDaFicha(campo(\"CLIENTE\")), titulo: limparCampoDaFicha(campo(\"T[ÍI]TULO\")), objeto: limparCampoDaFicha(campo(\"OBJETO\")), advogado: (limparCampoDaFicha(campo(\"ADVOGADO\")) || \"\").replace(/\\s+\\d{2}\\.\\d{3}\\.\\d{3}\\/\\d{4}-\\d{2}.*$/, \"\") || null, criado_em: limparCampoDaFicha(campo(\"CRIADO EM\")), valor_causa: valorDoBloco(bloco, /VALOR DA CAUSA\\s*:\\s*(R\\$\\s*[\\d.]+,\\d{2})/i), valor_condenacao: valorDoBloco(bloco, /CONDENA[ÇC][ÃA]O\\s*:\\s*(R\\$\\s*[\\d.]+,\\d{2})/i) || valorDoBloco(bloco, /(R\\$\\s*[\\d.]+,\\d{2})\\s+CONDENA[ÇC][ÃA]O/i), status: (/^(?:Ativo|Inativo|Arquivad[oa]|Encerrad[oa]|Suspens[oa])(?:\\s+\\d+º\\s+Grau)?/i.exec(limparCampoDaFicha(campo(\"STATUS\")) || \"\") || [limparCampoDaFicha(campo(\"STATUS\"))])[0] };"
+ },
+ {
+  "id": "P36-resultado-tarefas-casos",
+  "motivo": "Guarda as tarefas futuras dos casos (antes descartadas).",
+  "de": "const result = { processos: [], atividades: [], tarefasFuturas: [],",
+  "para": "const result = { tarefasFuturasCasos: [], processos: [], atividades: [], tarefasFuturas: [],"
+ },
+ {
+  "id": "P37-atividade-do-caso-indice",
+  "motivo": "Atividade de caso guarda o índice do caso (casos de mesmo título não se misturam).",
+  "de": "result.atividadesAdministrativas.push(Object.assign({}, registro, { numero_processo: null, caso: process.titulo, administrativo: true }));",
+  "para": "result.atividadesAdministrativas.push(Object.assign({}, registro, { numero_processo: null, caso: process.titulo, caso_idx: process._idx, administrativo: true }));"
+ },
+ {
+  "id": "P38-tarefa-futura-do-caso",
+  "motivo": "Tarefa futura de caso é guardada (usada quando o export é de casos).",
+  "de": "  if (process && process.administrativo) return;\n  var descricao = clean(tarefa.description);\n  if (!descricao) return;",
+  "para": "  var descricao = clean(tarefa.description);\n  if (!descricao) return;\n  if (process && process.administrativo) { result.tarefasFuturasCasos.push({ caso_idx: process._idx, data: tarefa.data || null, descricao: descricao, tipo: clean(tarefa.type) || null, responsavel: process.advogado || null }); return; }"
+ },
+ {
+  "id": "P39-indice-do-caso",
+  "motivo": "Cada ficha do caso recebe um índice.",
+  "de": "      current = Object.assign({ administrativo: true, numero_processo: null }, fichaCaso);",
+  "para": "      current = Object.assign({ administrativo: true, numero_processo: null, _idx: result.casosAdministrativos.length }, fichaCaso);\n      registrarCaso(result, lines, current);"
+ },
+ {
+  "id": "P40-base-casos",
+  "motivo": "Export do Astrea só com 'Ficha do caso' (sem ficha de processo): cada caso passa a ser a unidade-base do relatório, no lugar do processo, com a mesma lógica (indicadores, natureza, acontecimentos, próximos passos). Export com processos continua como antes.",
+  "de": "// \"Ficha do caso\" é um cadastro administrativo do Astrea (ex.: um projeto), sem número judicial.",
+  "para": "function valorDoBloco(bloco, re) { var m = re.exec(bloco); return m ? m[1].trim() : null; }\n// Export só de casos: cada caso vira a unidade-base (no lugar do processo), identificada pelo título do caso.\nfunction converterCasosEmUnidades(result) {\n  if (result.processos.length || !result.casosAdministrativos.length) return;\n  var usados = {}, chaves = [];\n  result.casosAdministrativos.forEach(function (c, i) {\n    var base = c.titulo || (\"Caso \" + (i + 1)), chave = base, n = 2;\n    while (usados[chave]) chave = base + \" (\" + (n++) + \")\";\n    usados[chave] = 1; chaves[i] = chave;\n    var p = {}; PROCESS_COLUMNS.forEach(function (k) { p[k] = null; });\n    p.numero_processo = chave; p.cliente = c.cliente; p.titulo = c.titulo; p.advogado = c.advogado; p.criado_em = c.criado_em; p.status = c.status;\n    p._ficha = c._ficha; p.acao = c.objeto || null; p.valor_causa = c.valor_causa || null; p.valor_condenacao = c.valor_condenacao || null; p.unidade = \"caso\";\n    result.processos.push(p);\n  });\n  result.atividadesAdministrativas.forEach(function (a) {\n    var k = chaves[a.caso_idx]; if (!k) return;\n    var r = Object.assign({}, a, { numero_processo: k }); delete r.administrativo; delete r.caso; delete r.caso_idx;\n    result.atividades.push(r);\n  });\n  (result.tarefasFuturasCasos || []).forEach(function (t) {\n    var k = chaves[t.caso_idx]; if (k) result.tarefasFuturas.push({ numero_processo: k, data: t.data, descricao: t.descricao, tipo: t.tipo, responsavel: t.responsavel });\n  });\n  result.atividadesAdministrativas = []; result.casosAdministrativos = []; result.baseCasos = true;\n}\n\n// \"Ficha do caso\" é um cadastro administrativo do Astrea (ex.: um projeto), sem número judicial."
+ },
+ {
+  "id": "P40b-base-casos-chamada",
+  "motivo": "Converte os casos em unidades ao fim da leitura.",
+  "de": "  if (tarefa && current) finishTarefaFutura(tarefa, current, result);\n  return result;\n}",
+  "para": "  if (tarefa && current) finishTarefaFutura(tarefa, current, result);\n  conferirFichas(result, pdfDoc);\n  converterCasosEmUnidades(result);\n  return result;\n}"
+ },
+ {
+  "id": "P41-sinal-base-casos",
+  "motivo": "Informa ao gerador de PDF que a base é de casos (rótulos 'caso' no lugar de 'processo').",
+  "de": "      var calculo = calcularIndicadores(extraido.processos, extraido.atividades, inicio, fim, regrasParaMotor, extraido.atividadesAdministrativas || []);",
+  "para": "      window.NGA_BASE_CASOS = !!extraido.baseCasos;\n      var calculo = calcularIndicadores(extraido.processos, extraido.atividades, inicio, fim, regrasParaMotor, extraido.atividadesAdministrativas || []);"
+ },
+ {
+  "id": "P42-rotulos-de-caso",
+  "motivo": "No PDF, com base de casos, os rótulos 'processo' viram 'caso' (só rótulos fixos; o texto dos registros nunca é alterado).",
+  "de": "  _text(doc, x, y, text, { size = 9, font = \"helvetica\", style = \"normal\", color = \"#000000\", align = \"left\", just = 0 } = {}) {\n    doc.setFont(font, style);",
+  "para": "  _text(doc, x, y, text, { size = 9, font = \"helvetica\", style = \"normal\", color = \"#000000\", align = \"left\", just = 0 } = {}) {\n    if (window.NGA_BASE_CASOS && typeof text === \"string\") text = rotuloDeCaso(text);\n    doc.setFont(font, style);"
+ },
+ {
+  "id": "P42b-funcao-rotulos",
+  "motivo": "Tabela de rótulos fixos trocados em base de casos.",
+  "de": "// Nome do cliente para cabeçalho e rodapé: uma linha, sem texto de ficha grudado.",
+  "para": "// Base de casos: troca só os rótulos fixos do relatório (\"PROCESSOS MOVIMENTADOS\" -> \"CASOS MOVIMENTADOS\").\nvar ROTULOS_CASO = { \"PROCESSOS MOVIMENTADOS\": \"CASOS MOVIMENTADOS\", \"processos movimentados\": \"casos movimentados\", \"REGISTROS POR PROCESSO\": \"REGISTROS POR CASO\", \"registros por processo\": \"registros por caso\", \"PROCESSOS ATIVOS\": \"CASOS ATIVOS\", \"PROCESSOS ATIVOS NA CARTEIRA\": \"CASOS ATIVOS NA CARTEIRA\", \"processos ativos\": \"casos ativos\", \"processos ativos na carteira\": \"casos ativos na carteira\", \"PROCESSOS POR RESPONSÁVEL\": \"CASOS POR RESPONSÁVEL\", \"Processos por responsável\": \"Casos por responsável\", \"Processos por equipe responsável\": \"Casos por equipe responsável\", \"PROCESSO\": \"CASO\", \"Processos movimentados no mês\": \"Casos movimentados no mês\", \"PROCESSOS COM VALOR INFORMADO\": \"CASOS COM VALOR INFORMADO\", \"Sem processo vinculado\": \"Sem caso vinculado\" };\nfunction rotuloDeCaso(t) {\n  if (Object.prototype.hasOwnProperty.call(ROTULOS_CASO, t)) return ROTULOS_CASO[t];\n  if (/^\\d+ processos? · /.test(t)) return t.replace(/^(\\d+) processos? · /, function (m, n) { return n + (n === \"1\" ? \" caso · \" : \" casos · \"); });\n  return t.indexOf(\"Fatos materialmente relevantes do período, agrupados por processo.\") === 0 ? t.replace(\"agrupados por processo\", \"agrupados por caso\") : t;\n}\n\n// Nome do cliente para cabeçalho e rodapé: uma linha, sem texto de ficha grudado."
+ },
+ {
+  "id": "P43-rotulo-tela-casos",
+  "motivo": "Na tela de resultado, 'processos analisados' vira 'casos analisados' quando a base é de casos.",
+  "de": "statusRight.textContent = \"Gerado em \" + agora + \" · \" + numberFmt(data.total_processos) + \" processos analisados\";",
+  "para": "statusRight.textContent = \"Gerado em \" + agora + \" · \" + numberFmt(data.total_processos) + (window.NGA_BASE_CASOS ? \" casos analisados\" : \" processos\" + (data.carteira && data.carteira.sem_numero ? \" · \" + data.carteira.sem_numero + \" sem número\" : \"\") + (data.carteira && data.carteira.casos ? \" · \" + data.carteira.casos + (data.carteira.casos === 1 ? \" caso extrajudicial\" : \" casos extrajudiciais\") : \"\") + \" analisados\");"
+ },
+ {
+  "id": "P44-ficha-sem-numero",
+  "motivo": "Reconhece 'Ficha do processo' sem número (processo sem CNJ): antes ela era absorvida pela ficha anterior e seus registros iam para o processo errado.",
+  "de": "    if (m) return [i, m[1].replace(/\\s+/g, \"\")];\n  }\n  return [-1, null];\n}",
+  "para": "    if (m) return [i, m[1].replace(/\\s+/g, \"\")];\n  }\n  for (let i = 0; i < lines.length; i++) {   // \"Ficha do processo   51/70\": processo sem número (CNJ)\n    if (/^Ficha\\s+do\\s+processo(?:\\s+\\d+\\s*\\/\\s*\\d+)?\\s*$/i.test(lineText(lines[i]).replace(/\\s+/g, \" \").trim())) return [i, \"\\u00a7SN\"];\n  }\n  return [-1, null];\n}"
+ },
+ {
+  "id": "P44b-registrar-ficha",
+  "motivo": "Cada ficha lida é registrada (tipo de cabeçalho, contador n/N, chave do processo sem número, valor da causa nos dois layouts).",
+  "de": "      parseHeaderFields(lines.slice(titleIndex + 1, hEnd), current, pageWidth);",
+  "para": "      parseHeaderFields(lines.slice(titleIndex + 1, hEnd), current, pageWidth);\n      registrarFicha(result, lines.slice(titleIndex, hEnd), current, number === \"\\u00a7SN\");"
+ },
+ {
+  "id": "P44c-registro-com-ficha",
+  "motivo": "Cada registro guarda de qual ficha veio (permite contar fichas movimentadas e conferir com o texto bruto).",
+  "de": "      _primeiraDaPagina: !!activity.primeiraDaPagina,\n    };",
+  "para": "      _primeiraDaPagina: !!activity.primeiraDaPagina,\n      ficha: process && process._ficha != null ? process._ficha : null,\n    };"
+ },
+ {
+  "id": "P45-funcoes-de-ficha",
+  "motivo": "Funções de leitura de ficha, valor da causa e conferência do contador n/N.",
+  "de": "async function parseAstreaPDF(pdfDoc) {",
+  "para": "function valorCausaDoBloco(linhas) {   // \"VALOR DA CAUSA\" com o R$ depois, antes (mesma linha) ou na linha acima do rótulo\n  var t = linhas.map(function (l) { return lineText(l).replace(/\\s+/g, \" \").trim(); }), RS = \"(R\\\\$\\\\s*[\\\\d.]+,\\\\d{2})\";\n  for (var i = 0; i < t.length; i++) {\n    if (!/VALOR\\s+DA\\s+CAUSA/i.test(t[i])) continue;\n    var m = new RegExp(\"VALOR\\\\s+DA\\\\s+CAUSA\\\\s*:?\\\\s*\" + RS, \"i\").exec(t[i]) || new RegExp(RS + \"\\\\s+VALOR\\\\s+DA\\\\s+CAUSA\", \"i\").exec(t[i]);\n    if (m) return m[1].replace(/\\s+/g, \" \");\n    var acima = i > 0 ? new RegExp(\"^\" + RS + \"$\").exec(t[i - 1]) : null;\n    if (acima) return acima[1].replace(/\\s+/g, \" \");\n  }\n  return null;\n}\n// Em fichas com título longo as colunas se misturam no texto: tira rótulo solto (\"VALOR DA R$ 0,00 ... CONDENAÇÃO:\") e contador de página.\nfunction limparCampoDaFicha(t) {\n  if (t == null) return t;\n  return String(t).replace(/\\s*VALOR\\s+DA\\s+R\\$\\s*[\\d.]+,\\d{2}\\s*/gi, \" \").replace(/\\s*CONDENA[ÇC][ÃA]O\\s*:?/gi, \" \").replace(/\\s+\\d{1,4}\\s*\\/\\s*\\d{1,4}\\s*$/, \"\").replace(/\\s+/g, \" \").trim();\n}\nfunction tipoCanonicoDoAstrea(t) {\n  var n = String(t || \"\").normalize(\"NFD\").replace(/[\\u0300-\\u036f]/g, \"\").toLowerCase().trim();\n  var M = { tarefa: \"Tarefa realizada\", prazo: \"Prazo realizado\", evento: \"Evento realizado\", audiencia: \"Audiência realizada\", historico: \"Histórico manual\" };\n  return M[n] || t;\n}\nfunction diagnosticoFichas(result) {\n  return result.diagnostico || (result.diagnostico = { numeradas: 0, sem_numero: 0, casos: 0, contadores: [], paginas_pdf: null, esperadas: null, lidas: 0, avisos: [] });\n}\nfunction contadorDaFicha(linha, seguinte) {   // o \"n/N\" fica no fim da linha do cabeçalho ou, em algumas leituras, numa linha própria logo abaixo\n  var c = /(\\d+)\\s*\\/\\s*(\\d+)\\s*$/.exec(lineText(linha).replace(/\\s+/g, \" \").trim()) || (seguinte ? /^(\\d+)\\s*\\/\\s*(\\d+)$/.exec(lineText(seguinte).replace(/\\s+/g, \" \").trim()) : null);\n  return c ? { n: +c[1], N: +c[2] } : { n: null, N: null };\n}\n// STATUS: acha a palavra de status (\"Ativo 1º Grau\", \"Arquivado\"...) onde ela estiver, mesmo com R$ ou outro texto colado pela leitura por colunas.\nfunction statusDaFicha(bruto, txt) {\n  var TOK = /(Ativo|Inativo|Arquivad[oa]|Encerrad[oa]|Suspens[oa])(?:\\s+(?:\\d+º\\s+Grau|Superior))?/i, m = TOK.exec(String(bruto || \"\"));\n  if (m) return m[0].trim();\n  m = /STATUS\\s*:\\s*(Ativo|Inativo|Arquivad[oa]|Encerrad[oa]|Suspens[oa])(?:\\s+(?:\\d+º\\s+Grau|Superior))?/i.exec(txt || \"\");\n  if (m) return m[0].replace(/^STATUS\\s*:\\s*/i, \"\").trim();\n  m = /(Ativo|Inativo|Arquivad[oa]|Encerrad[oa]|Suspens[oa])(?:\\s+(?:\\d+º\\s+Grau|Superior))?\\s+STATUS\\s*:/i.exec(txt || \"\") || /\\b(Ativo|Inativo|Arquivad[oa])\\s+(?:\\d+º\\s+Grau|Superior)\\b/i.exec(txt || \"\");\n  return m ? m[0].replace(/\\s+STATUS\\s*:$/i, \"\").trim() : null;\n}\nfunction registrarFicha(result, linhas, proc, semNumero) {\n  var d = diagnosticoFichas(result);\n  d.contadores.push(contadorDaFicha(linhas[0], linhas[1]));\n  proc._ficha = d.contadores.length - 1;\n  if (semNumero) {\n    proc.sem_numero = true; d.sem_numero++;\n    var base = \"Sem nº · pasta \" + (proc.pasta || (\"ficha \" + (d.contadores[proc._ficha].n || (proc._ficha + 1)))), chave = base, k = 2;\n    while (result.processos.some(function (p) { return p !== proc && p.numero_processo === chave; })) chave = base + \" (\" + (k++) + \")\";\n    proc.numero_processo = chave;\n  } else d.numeradas++;\n  proc.status = limparCampoDaFicha(proc.status); proc.fase = limparCampoDaFicha(proc.fase);\n  var txt = linhas.map(function (l) { return lineText(l).replace(/\\s+/g, \" \").trim(); }).join(\" \");   // STATUS e FASE também pelo texto, quando a leitura por coluna não os pegou\n  proc.status = statusDaFicha(proc.status, txt) || proc.status;\n  if (!proc.fase) { var mf = /FASE\\s*:\\s*(.+?)(?:\\s+SJ\\s*:|$)/.exec(txt); if (mf) proc.fase = limparCampoDaFicha(mf[1]); }\n  var v = valorCausaDoBloco(linhas);\n  if (v && !/^R\\$\\s*[\\d.]+,\\d{2}$/.test(String(proc.valor_causa || \"\").trim())) proc.valor_causa = v;\n}\nfunction registrarCaso(result, lines, caso) {\n  var d = diagnosticoFichas(result), i = lines.findIndex(function (l) { return /\\bFicha do caso\\b/i.test(lineText(l)); });\n  d.contadores.push(i >= 0 ? contadorDaFicha(lines[i], lines[i + 1]) : { n: null, N: null });\n  caso._ficha = d.contadores.length - 1; d.casos++;\n}\n// Conferência: o número de fichas lidas tem de ser igual ao N do contador \"n/N\" que o Astrea imprime em cada ficha.\nfunction conferirFichas(result, pdfDoc) {\n  var d = diagnosticoFichas(result);\n  d.paginas_pdf = pdfDoc.numPages; d.lidas = d.numeradas + d.sem_numero + d.casos;\n  var Ns = d.contadores.map(function (c) { return c.N; }).filter(Boolean);\n  d.esperadas = Ns.length ? Math.max.apply(null, Ns) : null;\n  if (d.esperadas != null && d.lidas !== d.esperadas) {\n    var vistos = {}; d.contadores.forEach(function (c) { if (c.n) vistos[c.n] = 1; });\n    var faltam = []; for (var n = 1; n <= d.esperadas; n++) if (!vistos[n]) faltam.push(n);\n    d.avisos.push(\"Fichas lidas: \" + d.lidas + \"; o rodapé do Astrea indica \" + d.esperadas + (faltam.length ? \" (ficha(s) \" + faltam.slice(0, 8).join(\", \") + \" não reconhecida(s))\" : \"\") + \". Confira o relatório.\");\n  }\n  result.avisos = (result.avisos || []).concat(d.avisos);\n  if (typeof console !== \"undefined\") { if (d.avisos.length) console.warn(\"[NGA] \" + d.avisos.join(\" \")); else console.info(\"[NGA] fichas lidas: \" + d.numeradas + \" numeradas, \" + d.sem_numero + \" sem número, \" + d.casos + \" caso(s) = \" + d.lidas + \" de \" + d.esperadas + \" esperadas; páginas do PDF: \" + d.paginas_pdf); }\n}\n\nasync function parseAstreaPDF(pdfDoc) {"
+ },
+ {
+  "id": "P46-assinatura-casos",
+  "motivo": "calcularIndicadores recebe também os casos extrajudiciais (fichas do caso).",
+  "de": "function calcularIndicadores(processos, atividades, inicio, fim, regrasUsuario, administrativas) {",
+  "para": "// ---------------------------------------------------------------------------\n// CARTEIRA  ·  como o relatório conta processos, fichas e casos\n//  - Ficha = uma ficha do Astrea (pastas diferentes, como 003325 e 003325.01, são fichas diferentes do mesmo CNJ).\n//  - Processo = CNJ distinto. Fichas do mesmo CNJ contam uma vez; o valor da causa é o MAIOR entre as fichas do grupo.\n//  - Processo sem número (ficha sem CNJ) e caso extrajudicial (\"Ficha do caso\") são itens à parte, com rótulo próprio.\n//  - Ativo = STATUS começando em \"Ativo\" e FASE diferente de ARQUIVADO (processo com ao menos uma ficha ativa). Sem STATUS em nenhuma ficha: n/d.\nfunction montarCarteira(processos, casos) {\n  var P = processos || [], C = casos || [], grupos = {}, ordem = [], semNum = [];\n  var vb = function (v) { try { return valorBRL(v); } catch (e) { return 0; } };\n  P.forEach(function (p) {\n    if (p.sem_numero) { semNum.push(p); return; }\n    if (!grupos[p.numero_processo]) { grupos[p.numero_processo] = []; ordem.push(p.numero_processo); }\n    grupos[p.numero_processo].push(p);\n  });\n  var arquivada = function (p) { return /^ARQUIVAD/.test(NUCLEO.nrm(p.fase)); };\n  var ativa = function (p) { return NUCLEO.nrm(p.status).indexOf(\"ATIVO\") === 0 && !arquivada(p); };\n  var cnj = ordem.map(function (k) { return grupos[k]; });\n  var maior = function (g) { return Math.max.apply(null, g.map(function (p) { return vb(p.valor_causa); }).concat([0])); };\n  var temStatus = P.some(function (p) { return /^(ATIVO|INATIVO|ARQUIVAD|ENCERRAD|SUSPENS)/.test(NUCLEO.nrm(p.status)); });\n  return {\n    fichas_processo: P.length, fichas_total: P.length + C.length, cnj_distintos: ordem.length, sem_numero: semNum.length, casos: C.length,\n    arquivadas: P.filter(arquivada).length,\n    ativos: temStatus ? cnj.filter(function (g) { return g.some(ativa); }).length + semNum.filter(ativa).length : null,\n    valor_total: cnj.reduce(function (s, g) { return s + maior(g); }, 0) + semNum.reduce(function (s, p) { return s + vb(p.valor_causa); }, 0) + C.reduce(function (s, c) { return s + vb(c.valor_causa); }, 0),\n    unicos: cnj.map(function (g) { return g[0]; }).concat(semNum),\n  };\n}\nfunction unidadeDe(a, porProc) {\n  if (a.administrativo) return { tipo: \"caso\", chave: String(a.caso_idx != null ? a.caso_idx : (a.caso || \"\")) };\n  var p = porProc[a.numero_processo];\n  return { tipo: p && p.sem_numero ? \"sem_numero\" : \"cnj\", chave: a.numero_processo };\n}\nfunction somaTipos(tipos, re) { var s = 0; Object.keys(tipos).forEach(function (k) { if (re.test(NUCLEO.nrm(k))) s += tipos[k]; }); return s; }\n\nfunction calcularIndicadores(processos, atividades, inicio, fim, regrasUsuario, administrativas, casos) {"
+ },
+ {
+  "id": "P46b-chamada-casos",
+  "motivo": "Passa os casos ao cálculo.",
+  "de": "      var calculo = calcularIndicadores(extraido.processos, extraido.atividades, inicio, fim, regrasParaMotor, extraido.atividadesAdministrativas || []);",
+  "para": "      var calculo = calcularIndicadores(extraido.processos, extraido.atividades, inicio, fim, regrasParaMotor, extraido.atividadesAdministrativas || [], extraido.casosAdministrativos || []);"
+ },
+ {
+  "id": "P47-equipes-por-processo",
+  "motivo": "Equipe e advogado são contados por processo (CNJ distinto + sem número), não por ficha.",
+  "de": "  var equipes = {}, advogados = {};\n  (processos || []).forEach(function (p) {",
+  "para": "  var equipes = {}, advogados = {};\n  var carteira = montarCarteira(processos, casos);\n  carteira.unicos.forEach(function (p) {"
+ },
+ {
+  "id": "P47b-totais-e-movimentados",
+  "motivo": "Movimentados contam processos (CNJ), processos sem número e casos extrajudiciais com registro no mês; fichas movimentadas à parte.",
+  "de": "  var totalProcessos = (processos || []).length;\n  var totalAtividades = filtradas.length;\n  var movCount = Object.keys(movimentados).length;",
+  "para": "  var totalProcessos = carteira.cnj_distintos;\n  var totalAtividades = filtradas.length;\n  var movU = { cnj: {}, sem_numero: {}, caso: {} }, movFichas = {};\n  filtradas.forEach(function (a) { var u = unidadeDe(a, porProc); movU[u.tipo][u.chave] = true; if (a.ficha != null) movFichas[a.ficha] = true; });\n  var movDetalhe = { processos: Object.keys(movU.cnj).length, sem_numero: Object.keys(movU.sem_numero).length, casos: Object.keys(movU.caso).length, fichas: Object.keys(movFichas).length };\n  var movCount = movDetalhe.processos + movDetalhe.sem_numero + movDetalhe.casos;"
+ },
+ {
+  "id": "P47c-ativos",
+  "motivo": "Processos ativos: STATUS 'Ativo' e FASE diferente de ARQUIVADO; n/d quando não dá para calcular.",
+  "de": "    processos_ativos: (processos || []).filter(function (p) { return NUCLEO.nrm(p.status).indexOf(\"ATIVO\") === 0; }).length,",
+  "para": "    processos_ativos: carteira.ativos,\n    carteira: { fichas_total: carteira.fichas_total, fichas_processo: carteira.fichas_processo, processos_distintos: carteira.cnj_distintos, sem_numero: carteira.sem_numero, casos: carteira.casos, arquivadas: carteira.arquivadas, ativos: carteira.ativos },"
+ },
+ {
+  "id": "P47d-valor-por-cnj",
+  "motivo": "Valor total das causas: uma vez por CNJ (o maior valor entre as fichas do mesmo CNJ).",
+  "de": "    valor_total_causa: (processos || []).reduce(function (acc, p) { return acc + valorBRL(p.valor_causa); }, 0),",
+  "para": "    valor_total_causa: carteira.valor_total,"
+ },
+ {
+  "id": "P47e-eventos-com-audiencia",
+  "motivo": "Eventos nas barras por tipo incluem audiências realizadas (antes ficavam fora de qualquer barra e a soma não fechava).",
+  "de": "    quantidade_eventos_realizados: tipos[\"Evento realizado\"] || 0,",
+  "para": "    quantidade_eventos_realizados: somaTipos(tipos, /^(EVENTO|AUDIENCIA)/),\n    registros_por_tipo: tipos,"
+ },
+ {
+  "id": "P47f-media-mesmo-numerador",
+  "motivo": "Registros por processo = registros do cartão 'Registros no Astrea' dividido pelos processos movimentados do cartão ao lado.",
+  "de": "    media_atividades_por_processo_movimentado: movCount ? Math.round((judiciais.length / movCount) * 100) / 100 : 0.0,",
+  "para": "    media_atividades_por_processo_movimentado: movCount ? Math.round((totalAtividades / movCount) * 100) / 100 : 0.0,"
+ },
+ {
+  "id": "P47g-detalhe-movimentados",
+  "motivo": "Detalhe dos movimentados (processos, sem número, casos, fichas).",
+  "de": "    quantidade_processos_movimentados: movCount,",
+  "para": "    quantidade_processos_movimentados: movCount,\n    movimentados_detalhe: movDetalhe,"
+ },
+ {
+  "id": "P47h-equipes-denominador",
+  "motivo": "Percentual por equipe/advogado sobre os processos contados (CNJ + sem número).",
+  "de": "    distribuicao_por_equipe: distribuicao(equipes, totalProcessos),\n    distribuicao_por_advogado: distribuicao(advogados, totalProcessos),",
+  "para": "    distribuicao_por_equipe: distribuicao(equipes, carteira.unicos.length),\n    distribuicao_por_advogado: distribuicao(advogados, carteira.unicos.length),"
+ },
+ {
+  "id": "P47i-silenciosos",
+  "motivo": "Processos silenciosos = processos (CNJ) sem registro no mês.",
+  "de": "    processos_silenciosos: totalProcessos - movCount,",
+  "para": "    processos_silenciosos: totalProcessos - movDetalhe.processos,"
+ },
+ {
+  "id": "P47j-avisos-metricas",
+  "motivo": "Confere se a soma das barras por tipo fecha com o total de registros e se a média usa o mesmo numerador e denominador exibidos; registra aviso.",
+  "de": "  Object.assign(indicadores, pecas);",
+  "para": "  Object.assign(indicadores, pecas);\n  // Regra de espelhamento (mantida): \"Histórico manual\" que espelha outro lançamento no mesmo processo, em até 2 dias, e é a mesma peça\n  // com a data citada no texto (ou descrição idêntica) conta uma vez como atividade (ver marcarDuplicidades). Os registros seguem contados\n  // no total do Astrea; as tarefas gêmeas (\"Analisar Intimação ... / 2\") NÃO são agrupadas.\n  indicadores.avisos_metricas = [];\n  var somaBarras = indicadores.quantidade_tarefas_realizadas + indicadores.quantidade_prazos_realizados + indicadores.quantidade_andamentos + indicadores.quantidade_historicos_manuais + indicadores.quantidade_eventos_realizados;\n  if (somaBarras !== totalAtividades) indicadores.avisos_metricas.push(\"A soma dos registros por tipo (\" + somaBarras + \") é diferente do total de registros (\" + totalAtividades + \"). Tipos lidos: \" + Object.keys(tipos).map(function (k) { return k + \" \" + tipos[k]; }).join(\", \") + \".\");\n  if (movCount && Math.abs(indicadores.media_atividades_por_processo_movimentado - totalAtividades / movCount) > 0.006) indicadores.avisos_metricas.push(\"Registros por processo não confere com registros ÷ processos movimentados.\");"
+ },
+ {
+  "id": "P48-cartao-nd",
+  "motivo": "Cartão de indicador aceita texto (n/d) em vez de número.",
+  "de": "      : Number.isInteger(valor) ? inteiro(valor) : decimal(valor);",
+  "para": "      : typeof valor === \"string\" ? valor : Number.isInteger(valor) ? inteiro(valor) : decimal(valor);"
+ },
+ {
+  "id": "P48b-ativos-nd",
+  "motivo": "Processos ativos mostram n/d (nunca 0) quando o critério não pode ser calculado.",
+  "de": "      [d.processos_ativos, \"processos ativos na carteira\", PALETA[3]],",
+  "para": "      [d.processos_ativos == null ? \"n/d\" : d.processos_ativos, \"processos ativos na carteira\", PALETA[3]],"
+ },
+ {
+  "id": "P48c-nota-carteira-chamada",
+  "motivo": "Nota discreta sob o subtítulo de 'O mês em números'.",
+  "de": "    this._explicacao(doc, \"Este panorama resume os registros do Astrea (lançamentos do período, inclusive movimentações do tribunal) e o alcance da atuação sobre a carteira do cliente.\");",
+  "para": "    this._explicacao(doc, \"Este panorama resume os registros do Astrea (lançamentos do período, inclusive movimentações do tribunal) e o alcance da atuação sobre a carteira do cliente.\");\n    this._notaCarteira(doc, d);"
+ },
+ {
+  "id": "P48d-nota-carteira",
+  "motivo": "Nota com a composição dos movimentados (processos, sem número, casos, fichas), a carteira (fichas e arquivadas) e os registros espelhados.",
+  "de": "  _distribuicao(doc, cliente, d, pagina) {",
+  "para": "  _notaCarteira(doc, d) {\n    const partes = [], q = d.movimentados_detalhe, c = d.carteira;\n    if (q && (q.sem_numero || q.casos || (q.fichas != null && q.fichas !== q.processos))) {\n      const m = [`${q.processos} processo${q.processos === 1 ? \"\" : \"s\"}`];\n      if (q.sem_numero) m.push(`${q.sem_numero} sem número`);\n      if (q.casos) m.push(`${q.casos} caso${q.casos === 1 ? \"\" : \"s\"} extrajudicia${q.casos === 1 ? \"l\" : \"is\"}`);\n      partes.push(`Movimentados: ${m.join(\" · \")} (${q.fichas} ficha${q.fichas === 1 ? \"\" : \"s\"}).`);\n    }\n    if (c && c.fichas_total) partes.push(`Carteira: ${c.fichas_total} ficha${c.fichas_total === 1 ? \"\" : \"s\"}, ${c.arquivadas} arquivada${c.arquivadas === 1 ? \"\" : \"s\"}.`);\n    const esp = (d.duplicidades_removidas || []).length;\n    if (esp) partes.push(`${esp} registro${esp === 1 ? \" espelhado contado\" : \"s espelhados contados\"} uma vez.`);\n    doc.setFont(\"helvetica\", \"normal\"); doc.setFontSize(7);\n    while (partes.length && doc.getTextWidth(partes.join(\" \")) > 255) partes.pop();\n    if (partes.length) this._text(doc, this.M, this.H - 61.5, partes.join(\" \"), { size: 7, color: this.tema.cinza });\n  }\n\n  _distribuicao(doc, cliente, d, pagina) {"
+ },
+ {
+  "id": "P49-tela-ativos-nd",
+  "motivo": "Na tela, processos ativos mostram n/d quando não dá para calcular.",
+  "de": "      [numberFmt(data.processos_ativos), \"Processos ativos\"],",
+  "para": "      [data.processos_ativos == null ? \"n/d\" : numberFmt(data.processos_ativos), \"Processos ativos\"],"
+ },
+ {
+  "id": "P50-diagnostico-na-tela",
+  "motivo": "Bloco de diagnóstico (fora do PDF): fichas lidas por tipo de cabeçalho, páginas esperadas e avisos.",
+  "de": "    return partes.join(\" \");",
+  "para": "    if (extraido && extraido.diagnostico) { var dg = extraido.diagnostico; partes.push(\"Diagnóstico: fichas lidas \" + dg.numeradas + \" com número, \" + dg.sem_numero + \" sem número, \" + dg.casos + \" caso(s) = \" + dg.lidas + (dg.esperadas != null ? \" de \" + dg.esperadas + \" indicadas no rodapé do Astrea\" : \"\") + \"; páginas do PDF: \" + dg.paginas_pdf + \".\"); }\n    (extraido && extraido.avisos || []).forEach(function (a) { partes.push(\"ATENÇÃO: \" + a); });\n    ((d && d.avisos_metricas) || []).forEach(function (a) { partes.push(\"ATENÇÃO: \" + a); });\n    ((d && d.correcoes_auditoria) || []).forEach(function (c) { partes.push(\"Auditoria corrigiu: \" + c + \".\"); });\n    return partes.join(\" \");"
+ },
+ {
+  "id": "P51-auditoria",
+  "motivo": "Auditoria independente: recalcula as métricas do texto bruto do PDF e compara com o motor a cada geração; bloqueia (com opção consciente de seguir) se houver diferença.",
+  "de": "if (typeof module !== \"undefined\") {\n  module.exports = { parseAstreaPDF, extractWordsFromPage, groupLines, PROCESS_COLUMNS };\n}",
+  "para": "// ---------------------------------------------------------------------------\n// AUDITORIA  ·  recalcula as métricas direto do texto bruto do PDF, por um caminho independente do leitor principal\n// (sem colunas por posição: só linhas de texto e expressões regulares), e compara com o que o motor calculou.\n// Base de comparação dos registros: DATA DE LANÇAMENTO no Astrea (a data narrada no texto só desloca o período do relatório).\nasync function linhasBrutasDoPdf(pdfDoc) {\n  var out = [];\n  for (var pg = 1; pg <= pdfDoc.numPages; pg++) {\n    var tc = await (await pdfDoc.getPage(pg)).getTextContent(), itens = tc.items.filter(function (i) { return i.str && i.str.trim(); })\n      .map(function (i) { return { x: i.transform[4], y: i.transform[5], s: i.str }; }).sort(function (a, b) { return b.y - a.y; });\n    var grupo = null, grupos = [];\n    itens.forEach(function (it) {   // linha = itens com y próximo do primeiro da linha; dentro da linha, da esquerda para a direita\n      if (grupo && Math.abs(grupo.y - it.y) <= 2.5) grupo.itens.push(it); else { grupo = { y: it.y, itens: [it] }; grupos.push(grupo); }\n    });\n    grupos.forEach(function (g) { out.push(g.itens.sort(function (a, b) { return a.x - b.x; }).map(function (i) { return i.s; }).join(\" \")); });\n  }\n  return out.map(function (l) { return l.replace(/\\s+/g, \" \").trim(); });\n}\nfunction auditoriaDataBR(s) { var m = /^(\\d{2})\\/(\\d{2})\\/(\\d{4})$/.exec(s); return m ? Date.UTC(+m[3], +m[2] - 1, +m[1]) : null; }\nfunction AUD_CANON(t) {\n  var n = String(t || \"\").normalize(\"NFD\").replace(/[\\u0300-\\u036f]/g, \"\").toLowerCase().trim();\n  if (/^tarefa/.test(n)) return \"Tarefa realizada\"; if (/^prazo/.test(n)) return \"Prazo realizado\"; if (/^evento/.test(n)) return \"Evento realizado\";\n  if (/^audiencia/.test(n)) return \"Audiência realizada\"; if (/^historico/.test(n)) return \"Histórico manual\"; if (/^andamento/.test(n)) return \"Andamento\";\n  return String(t || \"\");\n}\nvar AUD_TIPOS = [[\"Tarefa realizada\", /Tarefa\\s+realizada/i], [\"Prazo realizado\", /Prazo\\s+realizado/i], [\"Evento realizado\", /Evento\\s+realizado/i], [\"Audiência realizada\", /Audi[eê]ncia\\s+realizada/i], [\"Histórico manual\", /Hist[oó]rico\\s+manual/i], [\"Andamento\", /Andamento/i]];\n// O tipo (coluna da direita) pode vir numa linha só (\"Tarefa realizada\") ou em duas (\"Histórico\" ... \"manual\"), no fim das linhas.\nvar AUD_PARES = [[\"Tarefa realizada\", /Tarefa$/i, /realizada$/i], [\"Prazo realizado\", /Prazo$/i, /realizado$/i], [\"Evento realizado\", /Evento$/i, /realizado$/i], [\"Audiência realizada\", /Audi[eê]ncia$/i, /realizada$/i], [\"Histórico manual\", /Hist[oó]rico$/i, /manual$/i]];\nfunction auditoriaTipoDoRegistro(L) {\n  for (var i = 0; i < L.length; i++) {\n    for (var k = 0; k < AUD_TIPOS.length - 1; k++) if (new RegExp(AUD_TIPOS[k][1].source + \"$\", \"i\").test(L[i])) return AUD_TIPOS[k][0];\n    for (var p = 0; p < AUD_PARES.length; p++) {\n      if (!AUD_PARES[p][1].test(L[i])) continue;\n      for (var j = i + 1; j < Math.min(i + 4, L.length); j++) if (AUD_PARES[p][2].test(L[j])) return AUD_PARES[p][0];\n    }\n    if (/(^|\\s)Andamento$/i.test(L[i])) return \"Andamento\";\n  }\n  for (var q = 0; q < L.length; q++) for (var w = 0; w < AUD_PARES.length; w++) if (AUD_PARES[w][1].test(L[q])) return AUD_PARES[w][0];   // só a primeira palavra do tipo (\"Histórico\")\n  return null;\n}\nasync function auditoriaTextoBruto(pdfDoc, extraido, calculo, inicio, fim) {\n  var linhas = await linhasBrutasDoPdf(pdfDoc), fichas = [], atual = null, secao = null;\n  var H = /^Ficha do (processo|caso)\\b(.*)$/i, CONT = /(?:^|\\s)(\\d+)\\s*\\/\\s*(\\d+)$/;\n  linhas.forEach(function (l, li) {\n    var m = H.exec(l);\n    if (m) {\n      // cabeçalho tolerante: \"Ficha do processo - Nº X n/N\", \"Ficha do processo n/N\" (sem número) ou \"Ficha do caso n/N\"; o contador pode estar na linha seguinte\n      var resto = m[2].trim(), ct = CONT.exec(resto) || (/^\\d+\\s*\\/\\s*\\d+$/.test(linhas[li + 1] || \"\") ? CONT.exec(linhas[li + 1]) : null);\n      if (ct && CONT.exec(resto)) resto = resto.replace(CONT, \"\").trim();\n      var nm = /^-\\s*N[ºo°]?\\s*(.+)$/i.exec(resto);\n      atual = { tipo: m[1].toLowerCase(), cnj: nm ? nm[1].replace(/\\s+/g, \"\") : null, n: ct ? +ct[1] : null, N: ct ? +ct[2] : null, cab: [], regs: [], todas: [] }; fichas.push(atual); secao = \"cab\"; return;\n    }\n    if (atual && /^\\d+\\s*\\/\\s*\\d+$/.test(l) && atual.cab.length === 0 && secao === \"cab\") return;   // contador solto logo abaixo do cabeçalho\n    if (!atual) return;\n    atual.todas.push(l);\n    if (/^Hist[oó]rico\\b/i.test(l)) { secao = \"hist\"; return; }\n    if (/^Atividades a concluir/i.test(l)) { secao = \"fut\"; return; }\n    if (secao === \"cab\") { atual.cab.push(l); return; }\n    if (secao !== \"hist\") return;\n    if (/^DATA\\s+DESCRI/i.test(l) || /^\\d{2}\\/\\d{2}\\/\\d{4},\\s*\\d{1,2}:\\d{2}\\s+Astrea/i.test(l) || /^https?:\\/\\/(?:app\\.)?astrea\\.net\\.br/i.test(l)) return;\n    var r = /^(\\d{2}\\/\\d{2}\\/\\d{4})\\s+(?!\\d{1,2}:\\d{2}(?::\\d{2})?\\b)/.exec(l);\n    if (r) atual.regs.push({ data: r[1], linhas: [l] }); else if (atual.regs.length) atual.regs[atual.regs.length - 1].linhas.push(l);\n  });\n  var ini = inicio.getTime(), fi = fim.getTime(), RS = /R\\$\\s*[\\d.]+,\\d{2}/g, num = function (s) { return Number(s.replace(/[^0-9,]/g, \"\").replace(\",\", \".\")); };\n  var res = { fichas: { processo: 0, sem_numero: 0, caso: 0 }, registros: 0, porTipo: {}, semTipo: 0, fichasMov: {}, unidades: {}, porDia: {}, valor: 0, ativos: 0, temStatus: false };\n  var grupos = {}, snValor = 0, casoValor = 0, snAtivos = 0, detalhe = [], regsBrutos = [];\n  fichas.forEach(function (f, idx) {\n    var cabTxt = f.cab.join(\" \"), todoTxt = f.todas.join(\" \");\n    if (f.tipo === \"caso\") res.fichas.caso++; else if (f.cnj) res.fichas.processo++; else res.fichas.sem_numero++;\n    // valor da causa: o R$ mais próximo do rótulo, sem cruzar o rótulo da condenação\n    var ix = cabTxt.search(/VALOR\\s+DA\\s+CAUSA/i), valor = 0;\n    if (ix >= 0) {\n      var lab = /VALOR\\s+DA\\s+CAUSA\\s*:?/i.exec(cabTxt), fimLab = ix + lab[0].length, depois = cabTxt.slice(fimLab), antes = cabTxt.slice(0, ix);\n      var a = RS.exec(depois); RS.lastIndex = 0; var b = null, mm; while ((mm = RS.exec(antes))) b = mm; RS.lastIndex = 0;\n      var dA = a && !/CONDENA/i.test(depois.slice(0, a.index)) ? a.index : Infinity, dB = b ? antes.length - (b.index + b[0].length) : Infinity;\n      if (dA < Infinity || dB < Infinity) valor = dA <= dB ? num(a[0]) : num(b[0]);\n    }\n    var st = /STATUS:\\s*(Ativo|Inativo|Arquivad\\w+|Encerrad\\w+|Suspens\\w+)/i.exec(todoTxt) || /(Ativo|Inativo|Arquivad\\w+|Encerrad\\w+|Suspens\\w+)(?:\\s+\\d+º\\s+Grau)?\\s+STATUS:/i.exec(todoTxt) || /\\b(Ativo|Inativo|Arquivad\\w+|Encerrad\\w+|Suspens\\w+)\\s+(?:\\d+º\\s+Grau|Superior)\\b/i.exec(todoTxt), fase = /FASE:\\s*(.+?)(?:\\s+SJ:|$)/.exec(todoTxt);\n    var ativa = !!st && /^ativo/i.test(st[1]) && !/^ARQUIVAD/i.test(fase ? fase[1].trim().normalize(\"NFD\").replace(/[̀-ͯ]/g, \"\").toUpperCase() : \"\");\n    if (st) res.temStatus = true;\n    detalhe.push({ idx: idx, cnj: f.cnj, tipo: f.tipo, ativa: ativa, status: st ? st[1] : null, fase: fase ? fase[1].trim() : null, valor: valor });\n    if (f.tipo === \"caso\" && extraido.baseCasos) grupos[\"caso|\" + idx] = { v: valor, a: ativa };\n    else if (f.tipo === \"caso\") casoValor += valor;\n    else if (f.cnj) { var g = grupos[f.cnj] || (grupos[f.cnj] = { v: 0, a: false }); g.v = Math.max(g.v, valor); g.a = g.a || ativa; }\n    else { snValor += valor; if (ativa) snAtivos++; }\n    f.regs.forEach(function (r) {\n      var tipo = auditoriaTipoDoRegistro(r.linhas); regsBrutos.push({ idx: idx, data: r.data, tipo: tipo, linhas: r.linhas });\n      var ts = auditoriaDataBR(r.data); if (ts == null || ts < ini || ts > fi) return;\n      res.registros++; if (tipo) res.porTipo[tipo] = (res.porTipo[tipo] || 0) + 1; else res.semTipo++;\n      res.fichasMov[idx] = true; res.unidades[f.tipo === \"caso\" ? \"caso|\" + idx : (f.cnj || \"sn|\" + idx)] = true; res.porDia[r.data] = (res.porDia[r.data] || 0) + 1;\n    });\n  });\n  var cnjs = Object.keys(grupos);\n  res.valor = cnjs.reduce(function (s, k) { return s + grupos[k].v; }, 0) + snValor + casoValor;\n  res.ativos = cnjs.filter(function (k) { return grupos[k].a; }).length + snAtivos;\n  res.cnj = cnjs.length;\n\n  // ---- lado do motor (mesma base: data de lançamento)\n  var ind = calculo.indicadores, todas = calculo.todasClassificadas || [], porProc = {};\n  (extraido.processos || []).forEach(function (p) { porProc[p.numero_processo] = p; });\n  var emPer = todas.filter(function (a) { return a._tsReg >= ini && a._tsReg <= fi; });\n  var extrasNaoLidos = (extraido.naoClassificados || []).filter(function (x) { var t = auditoriaDataBR(x.data); return t != null && t >= ini && t <= fi; });\n  var reimp = (extraido.reimpressoes || []).filter(function (x) { var t = auditoriaDataBR(x.data); return t != null && t >= ini && t <= fi; });\n  var mot = { registros: emPer.length + extrasNaoLidos.length + reimp.length, porTipo: {}, fichasMov: {}, unidades: {}, porDia: {} };\n  var tipoCanon = function (t) { return AUD_CANON(t); };\n  emPer.concat(reimp).forEach(function (a) { var t = tipoCanon(a.tipo); mot.porTipo[t] = (mot.porTipo[t] || 0) + 1; });\n  emPer.forEach(function (a) { var u = unidadeDe(a, porProc); mot.unidades[u.tipo + \"|\" + u.chave] = true; if (a.ficha != null) mot.fichasMov[a.ficha] = true; mot.porDia[a.data] = (mot.porDia[a.data] || 0) + 1; });\n  reimp.forEach(function (a) { mot.porDia[a.data] = (mot.porDia[a.data] || 0) + 1; });\n  extrasNaoLidos.forEach(function (a) { mot.porDia[a.data] = (mot.porDia[a.data] || 0) + 1; });\n\n  var dif = [], corrigiveis = [], fm = function (n) { return String(Math.round(n * 100) / 100).replace(\".\", \",\"); };\n  // chave = indicador que a própria auditoria corrige usando o valor recalculado do texto bruto (sem pedir nada a ninguém);\n  // sem chave = diferença que não dá para corrigir sozinho (registros perdidos na leitura): vai para decisão de quem gera.\n  var cmp = function (rot, bruto, motor, chave) { if (bruto === motor) return; var txt = rot + \": texto bruto \" + fm(bruto) + \" × relatório \" + fm(motor); if (chave) corrigiveis.push({ chave: chave, valor: bruto, anterior: motor, texto: txt }); else dif.push(txt); };\n  var dg = extraido.diagnostico || {};\n  var estrutura = { ok: res.fichas.processo === (dg.numeradas || 0) && res.fichas.sem_numero === (dg.sem_numero || 0) && res.fichas.caso === (dg.casos || 0), bruto: res.fichas, motor: { processo: dg.numeradas || 0, sem_numero: dg.sem_numero || 0, caso: dg.casos || 0 }, cabecalhos: linhas.filter(function (l) { return /^Ficha do/i.test(l); }).length, amostra: linhas.filter(function (l) { return /^Ficha do/i.test(l); }).slice(0, 3), contadorEsperado: dg.esperadas == null ? null : dg.esperadas };\n  cmp(\"registros no período (por data de lançamento)\", res.registros, mot.registros);\n  AUD_TIPOS.forEach(function (t) { cmp(\"registros do tipo \" + t[0], res.porTipo[t[0]] || 0, mot.porTipo[t[0]] || 0); });\n  cmp(\"fichas movimentadas\", Object.keys(res.fichasMov).length, Object.keys(mot.fichasMov).length);\n  cmp(\"itens movimentados (processos + sem número + casos)\", Object.keys(res.unidades).length, Object.keys(mot.unidades).length);\n  var dias = {}; Object.keys(res.porDia).concat(Object.keys(mot.porDia)).forEach(function (d) { dias[d] = 1; });\n  var difDias = Object.keys(dias).filter(function (d) { return (res.porDia[d] || 0) !== (mot.porDia[d] || 0); });\n  if (difDias.length) dif.push(\"atividades por dia: diferem em \" + difDias.sort().slice(0, 6).join(\", \") + (difDias.length > 6 ? \"…\" : \"\"));\n  var unExib = {}, fiExib = {};\n  (calculo.atividadesClassificadas || []).forEach(function (a) { var u = unidadeDe(a, porProc); unExib[u.tipo + \"|\" + u.chave] = true; if (a.ficha != null) fiExib[a.ficha] = true; });\n  cmp(\"itens movimentados (cartão)\", Object.keys(unExib).length, ind.quantidade_processos_movimentados, \"itens\");\n  if (ind.movimentados_detalhe) cmp(\"fichas movimentadas (cartão)\", Object.keys(fiExib).length, ind.movimentados_detalhe.fichas, \"fichas_mov\");\n  cmp(\"valor total das causas\", Math.round(res.valor * 100) / 100, Math.round(ind.valor_total_causa * 100) / 100, \"valor\");\n  if (res.temStatus) cmp(\"processos ativos\", res.ativos, ind.processos_ativos == null ? -1 : ind.processos_ativos, \"ativos\");\n  cmp(\"processos (CNJ distintos)\", res.cnj, ind.total_processos, \"cnj\");\n  return { estrutura: estrutura, regsBrutos: regsBrutos, detalhe: detalhe, diferencas: dif, corrigiveis: corrigiveis, unidadesExibidas: unExib, independente: { fichas: res.fichas, registros: res.registros, porTipo: res.porTipo, fichasMovimentadas: Object.keys(res.fichasMov).length, itensMovimentados: Object.keys(res.unidades).length, valorTotal: res.valor, ativos: res.ativos, cnjDistintos: res.cnj, registrosSemTipo: res.semTipo }, motor: { registros: mot.registros, porTipo: mot.porTipo } };\n}\n// Aplica ao relatório o que o confronto com o texto bruto já resolveu: corrige os indicadores escalares divergentes e registra cada correção.\nfunction aplicarCorrecoesDaAuditoria(aud, extraido, calculo) {\n  var ind = calculo.indicadores, feitas = [];\n  (aud.corrigiveis || []).forEach(function (c) {\n    if (c.chave === \"ativos\") { ind.processos_ativos = c.valor; if (ind.carteira) ind.carteira.ativos = c.valor; }\n    else if (c.chave === \"valor\") ind.valor_total_causa = c.valor;\n    else if (c.chave === \"cnj\") { ind.total_processos = c.valor; if (ind.carteira) ind.carteira.processos_distintos = c.valor; }\n    else if (c.chave === \"fichas_mov\") { if (ind.movimentados_detalhe) ind.movimentados_detalhe.fichas = c.valor; }\n    else if (c.chave === \"itens\") {\n      var k = Object.keys(aud.unidadesExibidas || {}), sn = k.filter(function (x) { return x.indexOf(\"sem_numero|\") === 0; }).length, cs = extraido.baseCasos ? 0 : k.filter(function (x) { return x.indexOf(\"caso|\") === 0; }).length;\n      ind.quantidade_processos_movimentados = c.valor;\n      if (ind.movimentados_detalhe) { ind.movimentados_detalhe.sem_numero = sn; ind.movimentados_detalhe.casos = cs; ind.movimentados_detalhe.processos = c.valor - sn - cs; }\n      ind.media_atividades_por_processo_movimentado = c.valor ? Math.round((ind.quantidade_total_atividades_periodo / c.valor) * 100) / 100 : 0;\n    } else return;\n    feitas.push(c.texto.replace(\": texto bruto \", \": corrigido de \").replace(\" × relatório \", \" para \").replace(/^(.*): corrigido de (\\S+) para (\\S+)$/, function (m, r, bruto, rel) { return r + \": \" + rel + \" → \" + bruto; }));\n  });\n  ind.correcoes_auditoria = feitas;\n  return feitas;\n}\n// Reconciliação por ficha: a leitura principal usa posição de colunas (sensível a medidas de fonte, que mudam de máquina para máquina);\n// a leitura da auditoria usa só linhas de texto. Nas fichas em que as duas divergem (registro perdido, a mais ou com outro tipo),\n// vale o texto bruto: os registros da ficha são substituídos pelos lidos do texto e o relatório é recalculado.\nfunction reconciliarRegistros(aud, extraido) {\n  var proc = {}, caso = {}, motor = {}, bruto = {}, reimp = {}, fichas = {}, novos = [], removidos = 0;\n  (extraido.processos || []).forEach(function (p) { if (p._ficha != null) proc[p._ficha] = p; });\n  (extraido.casosAdministrativos || []).forEach(function (c) { if (c._ficha != null) caso[c._ficha] = c; });\n  var chave = function (f, d, t) { return f + \"|\" + d + \"|\" + AUD_CANON(t); };\n  var todasMotor = (extraido.atividades || []).concat(extraido.atividadesAdministrativas || []);\n  todasMotor.forEach(function (a) { if (a.ficha == null) return; var k = chave(a.ficha, a.data, a.tipo); motor[k] = (motor[k] || 0) + 1; });\n  (extraido.reimpressoes || []).forEach(function (x) { var k = x.numero_processo + \"|\" + x.data + \"|\" + AUD_CANON(x.tipo); reimp[k] = (reimp[k] || 0) + 1; });\n  (aud.regsBrutos || []).forEach(function (r) { if (!r.tipo) return; var k = chave(r.idx, r.data, r.tipo); bruto[k] = (bruto[k] || 0) + 1; });\n  var reimpUsadas = {};\n  Object.keys(bruto).concat(Object.keys(motor)).forEach(function (k) {\n    var f = +k.split(\"|\")[0], b = bruto[k] || 0, m = motor[k] || 0, p = proc[f];\n    if (b > m && p) { var rk = p.numero_processo + \"|\" + k.split(\"|\").slice(1).join(\"|\"), usa = Math.min(b - m, (reimp[rk] || 0) - (reimpUsadas[rk] || 0)); if (usa > 0) { reimpUsadas[rk] = (reimpUsadas[rk] || 0) + usa; m += usa; } }\n    if (b !== m) fichas[f] = true;\n  });\n  var RUIDO = /NITSCHKE|^ADV - NGA|@nga\\.adv\\.br|^Contato:|^Rua Castro|^CNPJ 07\\.045|^\\d+\\s*\\/\\s*\\d+$|\\bAstrea$/i;\n  Object.keys(fichas).forEach(function (fs) {\n    var f = +fs, p = proc[f], c = caso[f]; if (!p && !c) return;\n    var antes = (extraido.atividades || []).length + (extraido.atividadesAdministrativas || []).length;\n    extraido.atividades = (extraido.atividades || []).filter(function (a) { return a.ficha !== f; });\n    extraido.atividadesAdministrativas = (extraido.atividadesAdministrativas || []).filter(function (a) { return a.ficha !== f; });\n    removidos += antes - (extraido.atividades.length + extraido.atividadesAdministrativas.length);\n    var pulaReimp = {};\n    (aud.regsBrutos || []).filter(function (r) { return r.idx === f && r.tipo; }).forEach(function (r) {\n      var rk = p ? p.numero_processo + \"|\" + r.data + \"|\" + AUD_CANON(r.tipo) : null;\n      if (rk && (reimp[rk] || 0) - (pulaReimp[rk] || 0) > 0) { pulaReimp[rk] = (pulaReimp[rk] || 0) + 1; return; }   // reimpressão de fronteira de página, descartada de propósito\n      var linhas = r.linhas.filter(function (l) { return !RUIDO.test(l); }).map(function (l) { return l.replace(/\\s+(Tarefa|Prazo|Evento|Audi[eê]ncia|Hist[oó]rico)(?:\\s+(?:realizad[oa]|manual))?$/i, \"\").replace(/^(?:realizad[oa]|manual)$/i, \"\"); });\n      var descricao = linhas.join(\" \").replace(/^\\d{2}\\/\\d{2}\\/\\d{4}\\s+/, \"\").replace(/\\s+/g, \" \").trim();\n      if (!descricao) return;\n      var reg = { numero_processo: p ? p.numero_processo : null, data: r.data, data_narrada: extrairDataNarrada(descricao), descricao: descricao, tipo: AUD_CANON(r.tipo), _pagina: 0, _primeiraDaPagina: false, ficha: f, reconstruido_pela_auditoria: true };\n      if (p) extraido.atividades.push(reg); else { reg.administrativo = true; reg.caso = c.titulo; reg.caso_idx = c._idx; extraido.atividadesAdministrativas.push(reg); }\n      novos.push(reg);\n    });\n  });\n  extraido.reconstruidos = (extraido.reconstruidos || []).concat(novos);\n  novos.fichas = Object.keys(fichas).length; novos.removidos = removidos;\n  return novos;\n}\nasync function auditarGeracaoCore(pdfDoc, extraido, calculo, inicio, fim, recalcular) {\n  var aud = await auditoriaTextoBruto(pdfDoc, extraido, calculo, inicio, fim), rec = [];\n  if (!aud.estrutura.ok) {   // a leitura por linhas não achou as mesmas fichas que a principal: não dá para saber qual está certa, então a auditoria não corrige nem bloqueia\n    aud.inconclusiva = true; aud.diferencas = []; aud.corrigiveis = []; aud.correcoes = []; aud.reconstruidos = [];\n    window.NGA_DIAGNOSTICO = { fichas: extraido.diagnostico || null, auditoria: aud }; extraido.auditoria = aud;\n    if (typeof console !== \"undefined\") console.warn(\"[NGA] auditoria inconclusiva: fichas no texto \" + JSON.stringify(aud.estrutura.bruto) + \" × leitura principal \" + JSON.stringify(aud.estrutura.motor) + \"; cabeçalhos \\\"Ficha do…\\\" vistos no texto: \" + aud.estrutura.cabecalhos + \" (contador do Astrea: \" + aud.estrutura.contadorEsperado + \"); amostra: \" + JSON.stringify(aud.estrutura.amostra) + \". Seguindo com a leitura principal.\");\n    extraido.avisos = (extraido.avisos || []).concat([\"Auditoria inconclusiva neste arquivo (as duas leituras não acharam as mesmas fichas); os números são os da leitura principal.\"]);\n    return calculo;\n  }\n  if (aud.diferencas.length && typeof recalcular === \"function\") {\n    rec = reconciliarRegistros(aud, extraido);\n    if (rec.length || rec.removidos) { calculo = recalcular(); aud = await auditoriaTextoBruto(pdfDoc, extraido, calculo, inicio, fim); }\n  }\n  aud.reconstruidos = rec;\n  aud.correcoes = aplicarCorrecoesDaAuditoria(aud, extraido, calculo);\n  if (rec.length || rec.removidos) { aud.correcoes.unshift(\"registros de \" + rec.fichas + \" ficha(s) em que a leitura por colunas divergiu do texto bruto foram refeitos pelo texto (\" + rec.removidos + \" lidos antes, \" + rec.length + \" refeitos)\"); calculo.indicadores.correcoes_auditoria = aud.correcoes.slice(); }\n  window.NGA_DIAGNOSTICO = { fichas: extraido.diagnostico || null, auditoria: aud };\n  extraido.auditoria = aud;\n  if (typeof console !== \"undefined\") console.info(\"[NGA] auditoria do texto bruto:\", aud.correcoes.length ? \"corrigido: \" + aud.correcoes.join(\"; \") : \"sem correções\", aud.diferencas.length ? aud.diferencas : \"sem diferenças pendentes\", aud.independente);\n  if (aud.diferencas.length) {\n    var msg = \"A auditoria recalculou as métricas direto do texto do PDF e encontrou diferenças que não conseguiu corrigir sozinha:\\n- \" + aud.diferencas.join(\"\\n- \");\n    var seguir = typeof window.confirm === \"function\" && window.confirm(msg + \"\\n\\nOK = gerar mesmo assim, por sua conta e risco.\\nCancelar = bloquear a geração do PDF.\");\n    if (!seguir) throw new Error(\"Geração bloqueada pela auditoria. Diferenças: \" + aud.diferencas.join(\" | \"));\n  }\n  return calculo;\n}\n\n// Erro interno da própria auditoria (PDF fora do padrão, etc.) nunca derruba nem bloqueia a geração: registra no console e segue com o cálculo da leitura principal.\nasync function auditarGeracao(pdfDoc, extraido, calculo, inicio, fim, recalcular) {\n  try { return await auditarGeracaoCore(pdfDoc, extraido, calculo, inicio, fim, recalcular); }\n  catch (e) {\n    if (/^Geração bloqueada/.test(String(e && e.message))) throw e;\n    if (typeof console !== \"undefined\") console.warn(\"[NGA] a auditoria não pôde ser concluída (\" + (e && e.message) + \"); seguindo com o cálculo da leitura principal.\");\n    extraido.avisos = (extraido.avisos || []).concat([\"A auditoria do texto bruto não pôde ser concluída neste arquivo; os números são os da leitura principal.\"]);\n    return calculo;\n  }\n}\n\nif (typeof module !== \"undefined\") {\n  module.exports = { parseAstreaPDF, extractWordsFromPage, groupLines, PROCESS_COLUMNS };\n}"
+ },
+ {
+  "id": "P51b-auditoria-chamada",
+  "motivo": "Executa a auditoria em toda geração, logo depois do cálculo.",
+  "de": "      var calculo = calcularIndicadores(extraido.processos, extraido.atividades, inicio, fim, regrasParaMotor, extraido.atividadesAdministrativas || [], extraido.casosAdministrativos || []);",
+  "para": "      var calculo = calcularIndicadores(extraido.processos, extraido.atividades, inicio, fim, regrasParaMotor, extraido.atividadesAdministrativas || [], extraido.casosAdministrativos || []);\n      calculo = await auditarGeracao(pdfDoc, extraido, calculo, inicio, fim, function () { return calcularIndicadores(extraido.processos, extraido.atividades, inicio, fim, regrasParaMotor, extraido.atividadesAdministrativas || [], extraido.casosAdministrativos || []); });"
+ },
+ {
+  "id": "P52-tipo-canonico",
+  "motivo": "O tipo do registro lido só com a primeira palavra ('Histórico', 'Tarefa'...) vira o tipo completo; antes essas linhas ficavam fora das barras por tipo.",
+  "de": "  const activityType = clean(activity.type).replace(/(\\s+\\d{1,4}\\/\\d{1,4})+\\s*$/, \"\").replace(/^(\\d{1,4}\\/\\d{1,4}\\s+)+/, \"\");",
+  "para": "  const activityType = tipoCanonicoDoAstrea((clean(activity.type) || \"\").replace(/(\\s+\\d{1,4}\\/\\d{1,4})+\\s*$/, \"\").replace(/^(\\d{1,4}\\/\\d{1,4}\\s+)+/, \"\"));"
+ }
+]

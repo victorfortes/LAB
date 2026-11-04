@@ -1,0 +1,1 @@
+@supabase/supabase-js 2.46.1 (dist/umd/supabase.js), MIT. Copiado do pacote npm oficial; conferir com SHA256SUMS.
