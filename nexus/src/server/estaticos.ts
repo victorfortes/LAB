@@ -33,3 +33,66 @@ export async function servirEstatico(
   }
   return new Response(arquivo, { headers: base });
 }
+
+// ------------------------------------------------------------ Gerador de Relatórios ---
+
+/**
+ * O Gerador de Relatórios (pasta `relatorios/` do monorepo) é uma aplicação estática com login próprio
+ * (Supabase Auth). Servi-la POR AQUI, sob `/gerador/`, evita mais um processo e mais uma porta para manter, e
+ * faz a ferramenta responder no mesmo endereço do NGA LAB (inclusive quando o acesso não for 127.0.0.1).
+ *
+ * NÃO abre dentro de um iframe do NGA LAB, e isso é desenho dela, não defeito daqui: o `shell.js` do gerador
+ * expulsa a página do quadro (`window.top.location = window.self.location`) como defesa contra clickjacking
+ * na tela de login. Por isso a tela de Ferramentas abre o gerador em nova aba.
+ *
+ * Os cabeçalhos de segurança são os do próprio `public/_headers` do gerador, lidos do arquivo — não copiados. */
+import { join, normalize, sep } from 'node:path';
+import { readFile } from 'node:fs/promises';
+
+const TIPOS: Record<string, string> = {
+  '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
+  '.mjs': 'text/javascript; charset=utf-8', '.json': 'application/json; charset=utf-8', '.svg': 'image/svg+xml',
+  '.png': 'image/png', '.jpg': 'image/jpeg', '.ico': 'image/x-icon', '.woff2': 'font/woff2', '.woff': 'font/woff',
+  '.ttf': 'font/ttf', '.map': 'application/json', '.txt': 'text/plain; charset=utf-8',
+};
+
+type Regras = Array<{ padrao: string; cabecalhos: Array<[string, string]> }>;
+async function lerCabecalhos(arquivo: string): Promise<Regras> {
+  let texto = '';
+  try { texto = await readFile(arquivo, 'utf8'); } catch { return []; }
+  const regras: Regras = [];
+  for (const linha of texto.split('\n')) {
+    if (!linha.trim()) continue;
+    if (!/^\s/.test(linha)) { regras.push({ padrao: linha.trim(), cabecalhos: [] }); continue; }
+    const i = linha.indexOf(':'); const atual = regras[regras.length - 1];
+    if (i > 0 && atual) atual.cabecalhos.push([linha.slice(0, i).trim(), linha.slice(i + 1).trim()]);
+  }
+  return regras;
+}
+const casa = (padrao: string, caminho: string) => (padrao.endsWith('/*') ? caminho.startsWith(padrao.slice(0, -1)) : padrao === caminho);
+
+export function servidorDoGerador(raizDoRepo: string, https = false) {
+  const pasta = join(raizDoRepo, 'public');
+  const regrasP = lerCabecalhos(join(pasta, '_headers'));
+  return async function servir(req: Request, url: URL): Promise<Response | null> {
+    if (url.pathname === '/gerador') return Response.redirect(`${url.origin}/gerador/`, 308);
+    if (!url.pathname.startsWith('/gerador/')) return null;
+    let relativo = decodeURIComponent(url.pathname);
+    if (relativo.endsWith('/')) relativo += 'index.html';
+    const destino = normalize(join(pasta, relativo));
+    // Dentro de public/gerador, não de public/: `/gerador/..%2f_headers` decodifica para um irmão da pasta.
+    if (!destino.startsWith(join(pasta, 'gerador') + sep)) return new Response('não encontrado', { status: 404 });
+    const arquivo = Bun.file(destino);
+    if (!(await arquivo.exists())) return new Response('não encontrado', { status: 404 });
+    const base = await servirEstatico(arquivo, TIPOS[destino.slice(destino.lastIndexOf('.'))] ?? 'application/octet-stream', req);
+    const h = new Headers(base.headers);
+    for (const r of await regrasP) {
+      if (!casa(r.padrao, url.pathname)) continue;
+      for (const [k, v] of r.cabecalhos) {
+        if (!https && k.toLowerCase() === 'strict-transport-security') continue;   // HSTS só vale em HTTPS
+        h.set(k, v);
+      }
+    }
+    return new Response(base.body, { status: base.status, headers: h });
+  };
+}

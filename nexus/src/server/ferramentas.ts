@@ -18,10 +18,16 @@ export interface Ferramenta {
   readonly id: string;
   readonly nome: string;
   readonly descricao: string;
-  readonly aplicacao: 'prazos' | 'integra' | 'sentinela' | 'radar' | 'painel';
+  readonly aplicacao: 'prazos' | 'integra' | 'sentinela' | 'radar' | 'painel' | 'relatorios';
   /** Endereço para abrir e para sondar; nulo quando não há interface. */
   readonly url: string | null;
   readonly estado: 'entregue' | 'em_uso' | 'em_desenvolvimento';
+  /** Caminho na MESMA origem do NGA LAB, para abrir dentro da tela (iframe) sem violar frame-ancestors. */
+  readonly caminho?: string;
+  /** Aplicação com login e banco próprios: não entrega dados ao Lab, e isso é o desenho, não uma falha. */
+  readonly independente?: boolean;
+  /** A aplicação se recusa a abrir dentro de outra página (defesa própria contra clickjacking). */
+  readonly semIncorporar?: boolean;
 }
 
 function url(env: string, padrao: string): string {
@@ -47,6 +53,14 @@ export function catalogo(): readonly Ferramenta[] {
       nome: 'NGA Íntegra',
       descricao: 'Captura a íntegra dos autos e divide em partes para triagem.',
       url: url('NGA_URL_INTEGRA', 'http://127.0.0.1:8791'),
+    },
+    {
+      id: 'relatorios', aplicacao: 'relatorios', estado: 'em_uso', independente: true, semIncorporar: true,
+      nome: 'NGA Relatórios',
+      descricao: 'Gerador de relatórios jurídicos da NGA, com login individual e banco próprio no Supabase.',
+      // Servido por este mesmo servidor, sob /gerador/ (ver estaticos.ts). Abre em nova aba: não aceita iframe.
+      url: `${url('NGA_URL_RELATORIOS', `http://127.0.0.1:${process.env.NGA_PORTA ?? 8790}/gerador`)}/`,
+      caminho: '/gerador/',
     },
     {
       id: 'radar', aplicacao: 'radar', estado: 'em_desenvolvimento',

@@ -13,7 +13,7 @@ import { join } from 'node:path';
 import { migrar } from '../src/db/migrar.ts';
 import { Banco } from '../src/store/conexao.ts';
 import { criarApp } from '../src/server/app.ts';
-import { servirEstatico } from '../src/server/estaticos.ts';
+import { servidorDoGerador, servirEstatico } from '../src/server/estaticos.ts';
 import { ArmazenamentoLocal } from '../src/store/arquivos.ts';
 import { contarPrazo, prazoUsual } from '../src/domain/processo/prazos.ts';
 import { deposito as montarDeposito } from '../src/server/arquivos.ts';
@@ -389,10 +389,14 @@ const TIPOS: Record<string, string> = {
   '.js': 'text/javascript; charset=utf-8',
 };
 
+// Gerador de Relatórios (monorepo: ../relatorios), servido sob /gerador/ para abrir dentro do NGA LAB.
+const gerador = servidorDoGerador(join(RAIZ, '../relatorios'));
+
 const servidor = Bun.serve({
   port: PORTA_WEB, hostname: '127.0.0.1',
   async fetch(req) {
     const url = new URL(req.url);
+    const doGerador = await gerador(req, url); if (doGerador) return doGerador;
     if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/arquivos/')) return api(req);
     if (url.pathname === '/nga.css') {
       return new Response(Bun.file(join(RAIZ, 'ui/tokens/nga.css')), { headers: { 'content-type': TIPOS['.css']! } });

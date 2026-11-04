@@ -9,7 +9,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Banco } from '../store/conexao.ts';
-import { servirEstatico } from './estaticos.ts';
+import { servidorDoGerador, servirEstatico } from './estaticos.ts';
 import { criarApp } from './app.ts';
 import { ArmazenamentoLocal } from '../store/arquivos.ts';
 import { deposito as montarDeposito } from './arquivos.ts';
@@ -53,11 +53,15 @@ const TIPOS: Record<string, string> = {
   '.png': 'image/png',
 };
 
+// Gerador de Relatórios (monorepo: ../relatorios), servido sob /gerador/ para abrir dentro do NGA LAB.
+const gerador = servidorDoGerador(join(RAIZ, '../relatorios'));
+
 const servidor = Bun.serve({
   port: porta,
   hostname: process.env.NGA_HOST ?? '127.0.0.1',
   async fetch(req) {
     const url = new URL(req.url);
+    const doGerador = await gerador(req, url); if (doGerador) return doGerador;
 
     // O download vive fora de /api/ porque o link é usado como URL comum, em
     // nova aba e sem cookie; quem autentica ali é o token assinado.

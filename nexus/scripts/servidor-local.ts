@@ -26,7 +26,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Banco } from '../src/store/conexao.ts';
-import { servirEstatico } from '../src/server/estaticos.ts';
+import { servidorDoGerador, servirEstatico } from '../src/server/estaticos.ts';
 import { criarApp } from '../src/server/app.ts';
 import { migrar } from '../src/db/migrar.ts';
 import { ArmazenamentoLocal } from '../src/store/arquivos.ts';
@@ -122,12 +122,16 @@ const TIPOS: Record<string, string> = {
   '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png',
 };
 
+// Gerador de Relatórios (monorepo: ../relatorios), servido sob /gerador/ para abrir dentro do NGA LAB.
+const gerador = servidorDoGerador(join(RAIZ, '../relatorios'));
+
 const servidor = Bun.serve({
   port: PORTA_WEB,
   // 127.0.0.1 por padrão: só este Mac alcança. NGA_HOST=0.0.0.0 abre para a rede local (celular no mesmo Wi-Fi) — decisão explícita.
   hostname: process.env['NGA_HOST'] ?? '127.0.0.1',
   async fetch(req) {
     const url = new URL(req.url);
+    const doGerador = await gerador(req, url); if (doGerador) return doGerador;
     if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/arquivos/')) {
       const r = await api(req);
       r.headers.set('x-content-type-options', 'nosniff');
