@@ -19,7 +19,19 @@ BEGIN
 END $$;
 
 -- Explicitamente sem bypass de RLS, mesmo que algum script futuro tente dar.
-ALTER ROLE nga_app NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;
+-- Em bancos gerenciados (Supabase) quem migra não é superusuário e o ALTER ROLE é recusado. Tudo bem se o
+-- papel já nasceu sem esses atributos — e é isto que se VERIFICA logo abaixo: o que importa é o estado final.
+DO $$
+BEGIN
+  BEGIN
+    ALTER ROLE nga_app NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;
+  EXCEPTION WHEN insufficient_privilege THEN
+    RAISE NOTICE 'ALTER ROLE nga_app recusado (sem superusuário); verificando atributos';
+  END;
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'nga_app' AND (rolsuper OR rolbypassrls)) THEN
+    RAISE EXCEPTION 'nga_app tem SUPERUSER ou BYPASSRLS: o RLS seria ignorado. Corrija o papel antes de continuar.';
+  END IF;
+END $$;
 
 GRANT USAGE ON SCHEMA public TO nga_app;
 
