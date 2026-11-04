@@ -5,7 +5,7 @@
  */
 import { $, html, icone, raw } from '../util.js';
 import { api } from '../api.js';
-import { fundo, brilho } from '../fx.js';
+import { fundo } from '../fx.js';
 
 export function mostrarLogin(aoEntrar) {
   document.body.innerHTML = html`
@@ -33,7 +33,7 @@ export function mostrarLogin(aoEntrar) {
         <p class="dica">Acesso restrito. Cada cliente enxerga somente o próprio processo.</p>
       </section>
     </main>`.toString();
-  fundo(); brilho();
+  fundo();
 
   const form = $('#lf');
   form.addEventListener('submit', async (e) => {

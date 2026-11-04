@@ -62,21 +62,12 @@ export function lente(container, lenteSel, itemSel, ativoFn) {
   el.style.opacity = 1; el.classList.add('is-on');
 }
 
-/** O brilho que segue o ponteiro nos cards de vidro. */
-export function brilho() {
-  if (semMovimento()) return;
-  document.addEventListener('pointermove', (ev) => {
-    const g = ev.target.closest?.('.glass'); if (!g) return;
-    const r = g.getBoundingClientRect();
-    g.style.setProperty('--gx', `${ev.clientX - r.left}px`);
-    g.style.setProperty('--gy', `${ev.clientY - r.top}px`);
-  }, { passive: true });
-}
-
-/** Rede de partículas do fundo, no ciano e âmbar do NGA Lab. */
 export function fundo() {
   const cv = $('#fx'); if (!cv) return;
-  if (guardado.ler('efeitos', 'auto') === 'leve') { document.documentElement.classList.add('leve'); return; }
+  const modo = guardado.ler('efeitos', 'equilibrado');
+  if (modo === 'completo') document.documentElement.classList.add('cheio');
+  if (modo === 'leve') { document.documentElement.classList.add('leve'); return; }
+  const animado = modo === 'animado'; if (animado) document.documentElement.classList.add('animado');
   const ctx = cv.getContext('2d'); let w, h, nos = [], mouse = { x: -999, y: -999 }, vivo = true;
   const ajustar = () => {
     const dpr = 1;   // fundo é ornamento: meia resolução em tela Retina custa 4x de pintura sem ganho visível
@@ -88,8 +79,7 @@ export function fundo() {
       r: (Math.random() * 1.4 + .5) * dpr, cor: Math.random() < .3 ? '240,163,46' : '76,201,240',
     }));
   };
-  ajustar(); addEventListener('resize', ajustar);
-  addEventListener('pointermove', (e) => { mouse = { x: e.clientX, y: e.clientY }; }, { passive: true });
+  ajustar(); addEventListener('resize', () => { ajustar(); if (!animado) quadro(); });
   document.addEventListener('visibilitychange', () => { vivo = !document.hidden; if (vivo) quadro(); });
   const alcance = () => 150;
   // Limite de ~30 quadros e autodiagnóstico: o fundo anima por baixo de dezenas de
@@ -108,7 +98,7 @@ export function fundo() {
     ultimo = agora;
     if (janelas < 3 && agora - marca > 2500) {
       const fps = (contados * 1000) / (agora - marca);
-      if (document.visibilityState === 'visible' && document.hasFocus() && guardado.ler('efeitos', 'auto') === 'auto') {
+      if (document.visibilityState === 'visible' && document.hasFocus() && animado) {
         ruins = fps < 30 ? ruins + 1 : 0; janelas++;
         if (ruins >= 2) { document.documentElement.classList.add('leve'); ctx.clearRect(0, 0, w, h); return; }
       }
@@ -129,7 +119,7 @@ export function fundo() {
       const a = nos[i], b = nos[j]; const dx = a.x - b.x; const dy = a.y - b.y; const d = Math.hypot(dx, dy);
       if (d < L) { ctx.strokeStyle = `rgba(${a.cor},${(1 - d / L) * .16})`; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke(); }
     }
-    if (!semMovimento()) requestAnimationFrame(quadro);
+    if (animado && !semMovimento()) requestAnimationFrame(quadro);
   };
   quadro();
 }
@@ -185,40 +175,4 @@ function atualizarContagens(raiz, coluna, lista) {
   for (const c of $$(coluna, raiz)) {
     const n = $$('[draggable=true]', $(lista, c)).length; const el = $('.tk-col__count', c); if (el) el.textContent = n;
   }
-}
-
-// ---------------------------------------------------- interatividade geral ---
-
-/**
- * Pequenas respostas ao ponteiro, delegadas no documento (um ouvinte só, sem
- * custo por cartão): holofote nos vidros, inclinação leve nos cartões de
- * projeto e ferramenta, ondulação nos botões e o brilho do fundo seguindo o
- * mouse. Tudo respeita `prefers-reduced-motion`.
- */
-export function interatividade() {
-  if (semMovimento()) return;
-  let quadro = 0; let ultimo = null;
-  const aplicar = () => {
-    quadro = 0; if (!ultimo) return;
-    const { x, y, alvo } = ultimo;
-    const vidro = alvo.closest?.('.glass, .tk-card, .stat');
-    if (vidro) {
-      const r = vidro.getBoundingClientRect();
-      vidro.style.setProperty('--mx', `${x - r.left}px`); vidro.style.setProperty('--my', `${y - r.top}px`);
-      const incl = alvo.closest?.('.pcard, .tool');
-      if (incl) {
-        const rx = ((y - r.top) / r.height - 0.5) * -5; const ry = ((x - r.left) / r.width - 0.5) * 6;
-        incl.style.transform = `perspective(900px) rotateX(${rx.toFixed(2)}deg) rotateY(${ry.toFixed(2)}deg) translateY(-3px)`;
-      }
-    }
-  };
-  document.addEventListener('pointermove', (e) => { ultimo = { x: e.clientX, y: e.clientY, alvo: e.target }; if (!quadro) quadro = requestAnimationFrame(aplicar); }, { passive: true });
-  document.addEventListener('pointerout', (e) => {
-    const c = e.target.closest?.('.pcard, .tool'); if (c && !c.contains(e.relatedTarget)) c.style.transform = '';
-  }, { passive: true });
-  document.addEventListener('pointerdown', (e) => {
-    const b = e.target.closest?.('.btn, .ibtn, .tbtn'); if (!b) return;
-    const r = b.getBoundingClientRect(); const o = document.createElement('span'); o.className = 'onda';
-    o.style.cssText = `left:${e.clientX - r.left}px;top:${e.clientY - r.top}px`; b.append(o); setTimeout(() => o.remove(), 650);
-  }, { passive: true });
 }

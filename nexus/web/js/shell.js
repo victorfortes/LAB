@@ -9,7 +9,7 @@
 import { $, $$, esc, guardado, html, icone, iniciais, matiz, ouvir, raw } from './util.js';
 import { api, aoPerderSessao } from './api.js';
 import { estado, ehCliente, ROTULO_DO_PAPEL } from './estado.js';
-import { animarAneis, animarBarras, brilho, contar, fundo, interatividade, lente } from './fx.js';
+import { animarAneis, animarBarras, contar, fundo, lente } from './fx.js';
 import { menu, paleta, toast, erroDe } from './ui.js';
 
 const NAV_EQUIPE = [
@@ -103,7 +103,7 @@ export function montarCasca() {
     </div>
     <div class="pop-layer" aria-live="polite"></div><div class="toasts" id="toasts"></div>`.toString();
 
-  fundo(); brilho(); interatividade(); ligarPreaquecimento();
+  fundo(); ligarPreaquecimento();
   ouvir(document, 'click', '#btn-me, #btn-me-top', (el) => menuConta(el));
   ouvir(document, 'click', '#btn-busca', () => abrirBusca());
   ouvir(document, 'click', '#btn-mais', (el) => menu(el, nav().slice(4).map((n) => ({ rotulo: n.rotulo, icone: n.icone, acao: () => ir(n.rota) })).concat(['-', { rotulo: 'Buscar', icone: 'search', acao: () => abrirBusca() }])));
