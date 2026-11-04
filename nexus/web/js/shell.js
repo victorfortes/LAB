@@ -103,7 +103,7 @@ export function montarCasca() {
     </div>
     <div class="pop-layer" aria-live="polite"></div><div class="toasts" id="toasts"></div>`.toString();
 
-  fundo(); brilho(); interatividade();
+  fundo(); brilho(); interatividade(); ligarPreaquecimento();
   ouvir(document, 'click', '#btn-me, #btn-me-top', (el) => menuConta(el));
   ouvir(document, 'click', '#btn-busca', () => abrirBusca());
   ouvir(document, 'click', '#btn-mais', (el) => menu(el, nav().slice(4).map((n) => ({ rotulo: n.rotulo, icone: n.icone, acao: () => ir(n.rota) })).concat(['-', { rotulo: 'Buscar', icone: 'search', acao: () => abrirBusca() }])));
@@ -146,18 +146,67 @@ export async function navegar() {
   const minha = ++ficha;
   marcarNav();
   const main = $('#main');
-  main.innerHTML = skeleton();
+  // O conteúdo anterior fica na tela, esmaecido, enquanto a nova tela carrega; o
+  // esqueleto só entra se a espera passar de ~150 ms. Troca rápida não pisca.
+  const primeira = !main.firstElementChild;
+  main.classList.add('carregando');
+  const espera = setTimeout(() => { if (minha === ficha) { main.innerHTML = skeleton(); } }, primeira ? 0 : 150);
   try {
     const mod = await import(`./views/${alvo.modulo}.js`);
     const v = await mod.default(alvo.params);
+    clearTimeout(espera);
     if (minha !== ficha) return;       // o usuário já foi para outro lugar
+    main.classList.remove('carregando');
+    // Sem View Transitions: elas esperam um quadro renderizado e, com a aba em segundo
+    // plano ou a máquina ocupada, seguravam a troca por ~1 s (medido). A entrada suave
+    // abaixo é só CSS e não bloqueia nada.
     renderizar(v, minha);
+    main.classList.remove('entra'); void main.offsetWidth; main.classList.add('entra');
+    preaquecerTudo();
   } catch (e) {
+    clearTimeout(espera);
     if (minha !== ficha) return;
+    main.classList.remove('carregando');
     console.error(e);
     main.innerHTML = html`<div class="empty up"><div class="empty__ico">${icone('alert')}</div><h3>Não foi possível abrir</h3><p>${e.message}</p>
       <button class="btn btn--ghost" onclick="location.reload()">Tentar de novo</button></div>`.toString();
   }
+}
+
+// ---------------------------------------------------------- pré-aquecimento ---
+
+/** Carrega o módulo da tela e as leituras principais ANTES do clique, quando o ponteiro chega no link. */
+function aquecerRota(hash) {
+  const seg = hash.replace(/^#\/?/, '').split('?')[0].split('/').filter(Boolean);
+  const alvo = casar(seg); if (!alvo) return;
+  import(`./views/${alvo.modulo}.js`).catch(() => {});
+  if (ehCliente()) return;
+  if (alvo.modulo === 'projeto') { api.aquecer(`/api/projetos/${alvo.params.id}`); api.aquecer('/api/projetos/fases'); api.aquecer(`/api/tarefas?projeto=${alvo.params.id}`); }
+  else if (alvo.modulo === 'projetos') { api.aquecer('/api/projetos'); api.aquecer('/api/projetos/fases'); }
+  else if (alvo.modulo === 'tarefas') api.aquecer('/api/tarefas');
+  else if (alvo.modulo === 'painel') { api.aquecer('/api/painel'); api.aquecer('/api/projetos'); }
+}
+let aquecido = false;
+/** Depois da primeira tela, baixa os módulos restantes nos tempos ociosos: nenhuma navegação espera download. */
+function preaquecerTudo() {
+  if (aquecido) return; aquecido = true;
+  const tabela = ehCliente() ? ROTAS.cliente : ROTAS.equipe;
+  const modulos = [...new Set(tabela.map((r) => r[1]))];
+  const ocioso = window.requestIdleCallback ?? ((f) => setTimeout(f, 800));
+  ocioso(() => modulos.forEach((m) => import(`./views/${m}.js`).catch(() => {})));
+  ocioso(() => ['projeto_extra', 'projeto_creditos', 'projeto_diagnostico'].forEach((m) => import(`./views/${m}.js`).catch(() => {})));
+}
+let tempoDoAlvo = 0;
+function ligarPreaquecimento() {
+  const dispara = (e) => {
+    const a = e.target.closest?.('a[href^="#/"]'); const c = e.target.closest?.('[data-proj], [data-card]');
+    const hash = a?.getAttribute('href') ?? (c ? `#/projetos/${c.dataset.proj ?? c.dataset.id}` : null);
+    if (!hash || Date.now() - tempoDoAlvo < 60) return;
+    tempoDoAlvo = Date.now(); aquecerRota(hash);
+  };
+  document.addEventListener('pointerover', dispara, { passive: true });
+  document.addEventListener('focusin', dispara);
+  document.addEventListener('touchstart', dispara, { passive: true });
 }
 
 function renderizar(v, minha) {

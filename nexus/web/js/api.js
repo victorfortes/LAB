@@ -24,11 +24,38 @@ const json = (metodo, corpo) => ({
   body: corpo === undefined ? undefined : JSON.stringify(corpo),
 });
 
+// ------------------------------------------------------------------ cache ---
+// Navegar entre telas repete as mesmas leituras (lista de projetos, tarefas,
+// painel). Guardar a resposta por alguns segundos e juntar pedidos idênticos em
+// andamento corta a espera sem mostrar dado velho: QUALQUER escrita limpa tudo,
+// e o que é "ao vivo" (atividade, diagnóstico) nunca passa pelo cache.
+const TTL_MS = 12_000;
+const SEM_CACHE = /\/api\/(atividade|sessao|eu|ferramentas)\b|\/diagnostico\b|\/mensagens\b|\/financeiro\b/;
+const guardadas = new Map(); const emAndamento = new Map();
+const limpar = () => { guardadas.clear(); emAndamento.clear(); };
+
+function lerComCache(caminho) {
+  if (SEM_CACHE.test(caminho)) return pedir(caminho);
+  const g = guardadas.get(caminho);
+  if (g && Date.now() - g.em < TTL_MS) return Promise.resolve(structuredClone(g.valor));
+  let p = emAndamento.get(caminho);
+  if (!p) {
+    p = pedir(caminho).then((v) => { guardadas.set(caminho, { valor: v, em: Date.now() }); return v; }).finally(() => emAndamento.delete(caminho));
+    emAndamento.set(caminho, p);
+  }
+  // Cada chamador recebe a sua cópia: as telas mexem nos objetos (reverse, contadores).
+  return p.then((v) => structuredClone(v));
+}
+const escrever = (fn) => async (...a) => { try { return await fn(...a); } finally { limpar(); } };
+
 export const api = {
-  get: (c) => pedir(c),
-  post: (c, corpo = {}) => pedir(c, json('POST', corpo)),
-  patch: (c, corpo) => pedir(c, json('PATCH', corpo)),
-  del: (c) => pedir(c, { method: 'DELETE' }),
+  get: lerComCache,
+  /** Pré-aquece uma leitura sem esperar nem falhar alto: usado ao passar o mouse num link. */
+  aquecer: (c) => { lerComCache(c).catch(() => {}); },
+  post: escrever((c, corpo = {}) => pedir(c, json('POST', corpo))),
+  patch: escrever((c, corpo) => pedir(c, json('PATCH', corpo))),
+  del: escrever((c) => pedir(c, { method: 'DELETE' })),
   /** multipart: o navegador define a fronteira; declarar `content-type` quebra o parse. */
-  enviar: (c, form) => pedir(c, { method: 'POST', body: form }),
+  enviar: escrever((c, form) => pedir(c, { method: 'POST', body: form })),
+  limparCache: limpar,
 };

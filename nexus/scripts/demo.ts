@@ -13,6 +13,7 @@ import { join } from 'node:path';
 import { migrar } from '../src/db/migrar.ts';
 import { Banco } from '../src/store/conexao.ts';
 import { criarApp } from '../src/server/app.ts';
+import { servirEstatico } from '../src/server/estaticos.ts';
 import { ArmazenamentoLocal } from '../src/store/arquivos.ts';
 import { contarPrazo, prazoUsual } from '../src/domain/processo/prazos.ts';
 import { deposito as montarDeposito } from '../src/server/arquivos.ts';
@@ -399,7 +400,7 @@ const servidor = Bun.serve({
     if (!destino.startsWith(join(RAIZ, 'web'))) return new Response('404', { status: 404 });
     const arquivo = Bun.file(destino);
     if (await arquivo.exists()) {
-      return new Response(arquivo, { headers: { 'content-type': TIPOS[pedido.slice(pedido.lastIndexOf('.'))] ?? 'application/octet-stream' } });
+      return servirEstatico(arquivo, TIPOS[pedido.slice(pedido.lastIndexOf('.'))] ?? 'application/octet-stream', req);
     }
     return new Response(Bun.file(join(RAIZ, 'web/index.html')), { headers: { 'content-type': TIPOS['.html']! } });
   },

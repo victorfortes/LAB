@@ -8,6 +8,7 @@
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Banco } from '../store/conexao.ts';
+import { servirEstatico } from './estaticos.ts';
 import { criarApp } from './app.ts';
 import { ArmazenamentoLocal } from '../store/arquivos.ts';
 import { deposito as montarDeposito } from './arquivos.ts';
@@ -82,12 +83,7 @@ const servidor = Bun.serve({
     const arquivo = Bun.file(destino);
     if (await arquivo.exists()) {
       const ext = pedido.slice(pedido.lastIndexOf('.'));
-      return new Response(arquivo, {
-        headers: {
-          'content-type': TIPOS[ext] ?? 'application/octet-stream',
-          'x-content-type-options': 'nosniff',
-        },
-      });
+      return servirEstatico(arquivo, TIPOS[pedido.slice(pedido.lastIndexOf('.'))] ?? 'application/octet-stream', req);
     }
 
     // SPA: qualquer rota desconhecida devolve a aplicação.

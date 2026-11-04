@@ -489,3 +489,13 @@ body { font-family: var(--font); letter-spacing: .005em; }
 @keyframes pop { from { transform: scale(.6); opacity: 0; } }
 
 @media (max-width: 899px) { .main { padding-bottom: 120px; } }
+
+/* --------------------------------------------- navegação mais fluida ---- */
+.main { transition: opacity .18s ease; }
+.main.carregando { opacity: .55; pointer-events: none; }
+@keyframes entraTela { from { opacity: .0; transform: translateY(6px); } }
+.main.entra { animation: entraTela .2s var(--ease) both; }
+@media (prefers-reduced-motion: reduce) { .main { transition: none; } }
+/* no modo compacto da lateral (só ícones), o logo encolhe para caber */
+.brand { min-width: 0; max-width: 100%; }
+.brand__logo { max-width: 100%; height: auto; max-height: 34px; object-fit: contain; }

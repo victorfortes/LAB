@@ -85,6 +85,10 @@ export default async function projeto({ id, aba }) {
     depois(raiz) {
       ctx.raiz = raiz;
       ouvir(raiz, 'click', '[data-aba]', (b) => abrirAba(ctx, b.dataset.aba));
+      // Ao pousar o mouse numa aba, as leituras dela já vão sendo buscadas.
+      const quente = { tarefas: [`/api/tarefas?projeto=${id}`], creditos: [`/api/projetos/${id}/creditos`, `/api/projetos/${id}/credores`], processos: ['/api/processos'],
+        documentos: [`/api/projetos/${id}/documentos`], portal: [`/api/projetos/${id}/portal`, `/api/projetos/${id}/checklist`], plano: [`/api/projetos/${id}/obrigacoes`], relatorios: ['/api/relatorios/tipos'] };
+      ouvir(raiz, 'pointerover', '[data-aba]', (b) => (quente[b.dataset.aba] ?? []).forEach((u) => api.aquecer(u)));
       ouvir(raiz, 'click', '[data-act=tarefa]', () => novaTarefa(() => (ctx.aba === 'tarefas' ? ctx.recarregar() : atualizarBadges(ctx)), id));
       ouvir(raiz, 'click', '[data-act=mais]', (b) => menuMais(b, ctx));
       ouvir(raiz, 'click', '[data-fase]', (b) => mudarFase(ctx, b.dataset.fase));
@@ -153,9 +157,12 @@ async function abrirAba(ctx, aba, primeira = false) {
 async function desenhar(ctx) {
   const painel = $('#aba'); if (!painel) return;
   const minha = ++ctx.ficha;
-  painel.innerHTML = '<div class="skel" style="height:220px;border-radius:24px"></div>';
+  // A aba anterior fica esmaecida; o esqueleto só aparece se a espera passar de ~150 ms.
+  painel.classList.add('carregando');
+  const espera = setTimeout(() => { if (minha === ctx.ficha) painel.innerHTML = '<div class="skel" style="height:220px;border-radius:24px"></div>'; }, painel.firstElementChild ? 150 : 0);
   try {
     const r = await MODULOS[ctx.aba](ctx);
+    clearTimeout(espera); painel.classList.remove('carregando');
     if (minha !== ctx.ficha) return;
     painel.innerHTML = String(r.html);
     $$('.up', painel).forEach((el, i) => el.style.setProperty('--i', Math.min(i, 10)));
@@ -163,6 +170,7 @@ async function desenhar(ctx) {
     $$('.seg', painel).forEach(posicionarSeg);
     r.depois?.(painel);
   } catch (e) {
+    clearTimeout(espera); painel.classList.remove('carregando');
     if (minha !== ctx.ficha) return;
     console.error(e);
     painel.innerHTML = vazio('alert', 'Não foi possível abrir esta aba', e.message).toString();
