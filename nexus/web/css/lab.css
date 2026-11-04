@@ -564,3 +564,5 @@ a, button, [role=tab], .tk-card, .pcard, .lista li, .check-row, label.btn, .tab 
 .check-row.na { opacity: .55; }
 .check-row.na b { text-decoration: line-through; text-decoration-color: var(--text-3); }
 .sit-dot.nao_aplicavel { background: transparent; border: 2px solid var(--text-3); }
+
+.pub-texto { white-space: pre-wrap; font-size: 14.5px; line-height: 1.55; color: var(--text-2); margin: 0 0 6px; }

@@ -35,12 +35,13 @@ const bloqueado = (o) => ({ html: html`<section class="card glass up">${vazio('l
 // ------------------------------------------------------------------ início ---
 
 async function inicio(p) {
-  const [hub, catalogo, check, ob, procs, msgs] = await Promise.all([
+  const [hub, catalogo, check, ob, procs, msgs, negs] = await Promise.all([
     api.get(`/api/projetos/${p.projeto_id}`).catch(() => null), api.get('/api/projetos/fases').catch(() => []),
     api.get(`/api/projetos/${p.projeto_id}/checklist`).catch(() => null),
     p.mostra_obrigacoes ? api.get(`/api/projetos/${p.projeto_id}/obrigacoes`).catch(() => null) : null,
     api.get('/api/processos').catch(() => []),
     api.get(`/api/projetos/${p.projeto_id}/mensagens`).catch(() => []),
+    api.get(`/api/portal/projetos/${p.projeto_id}/negociacoes`).catch(() => []),
   ]);
   const meus = procs.filter((x) => x.projeto_id === p.projeto_id);
   const fases = hub ? (catalogo.find((c) => c.tipo === hub.tipo)?.fases ?? []) : [];
@@ -54,6 +55,15 @@ async function inicio(p) {
     html: html`${fases.length ? html`<section class="card glass up" style="margin-bottom:var(--gap)"><header class="card__head"><div><h2 class="card__title">Onde está o seu processo</h2>
         <p class="card__sub">${hub.faseAtual?.nome ?? ''}${hub.faseAtual?.marco ? ` — ${hub.faseAtual.marco}` : ''}</p></div>${hub.progresso ? html`<span class="selo ok">${hub.progresso.percentual}% do caminho</span>` : ''}</header>
         <ol class="trilha" style="list-style:none;margin:0">${fases.map((f, i) => html`<li class="passo ${i < atual ? 'feito' : i === atual ? 'atual' : 'futuro'}" title="${f.marco}"><span class="passo__no">${i < atual ? icone('check') : i + 1}</span><div class="passo__txt">${f.nome}</div></li>`)}</ol></section>` : ''}
+    ${negs.length ? html`<section class="card glass up" style="margin-bottom:var(--gap)"><header class="card__head"><div><h2 class="card__title">Negociações em andamento</h2>
+        <p class="card__sub">O que a NGA está tratando com credores em seu nome</p></div></header>
+        <div class="tk-board" style="grid-template-columns:repeat(3,minmax(0,1fr))">${[['em_negociacao', 'Em negociação', 'var(--lab-amber)'], ['stand_by', 'Stand by', 'var(--lab-cy)'], ['concluida', 'Concluídas', 'var(--lab-green)']].map(([id, nome, cor]) => {
+          const itens = negs.filter((n) => n.status === id);
+          return html`<div class="tk-col" style="padding:0"><header class="tk-col__head"><i class="tk-dot" style="background:${raw(cor)}"></i><h3 class="tk-col__name">${nome}</h3><span class="tk-col__count tnum">${itens.length}</span></header>
+            <div class="tk-col__list">${itens.map((n) => html`<article class="tk-card"><h3 class="tk-card__title"><span class="tk-card__text">${n.titulo}</span></h3>${n.contraparte ? html`<small class="muted">${n.contraparte}</small>` : ''}
+              ${n.desfecho ? html`<span class="selo ${n.desfecho === 'acordo' ? 'ok' : 'erro'}">${n.desfecho === 'acordo' ? 'Acordo fechado' : 'Sem acordo'}</span>` : ''}
+              <p class="dica" style="margin:6px 0 0">${n.resumo}</p></article>`)}</div></div>`;
+        })}</div></section>` : ''}
     <div class="grid3">
       <section class="card glass up"><header class="card__head"><div><h2 class="card__title">Sua documentação</h2><p class="card__sub">O que o escritório já conferiu</p></div></header>
         <div class="cliente-hero"><span class="pring" style="--s:104px">${raw(anel(pr?.percentualAprovado ?? 0, { tam: 104, traco: 9, cor: 'var(--lab-amber)' }))}<b class="pring__val" style="font-size:22px">${pr ? `${pr.percentualAprovado}%` : '—'}</b></span>

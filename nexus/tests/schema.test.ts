@@ -66,7 +66,7 @@ describe('migrations', () => {
       '005_sessoes.sql', '006_autenticacao.sql', '007_portal.sql',
       '008_financeiro_recuperanda.sql', '009_rls_portal.sql',
       '010_analise.sql', '011_rls_analise.sql', '012_arquivos.sql',
-      '013_processos.sql', '014_rls_processos.sql', '015_projeto.sql', '016_integracoes.sql', '017_tarefas.sql', '018_convites.sql', '019_analise_automatica.sql', '020_checklists_oficiais.sql']);
+      '013_processos.sql', '014_rls_processos.sql', '015_projeto.sql', '016_integracoes.sql', '017_tarefas.sql', '018_convites.sql', '019_analise_automatica.sql', '020_checklists_oficiais.sql', '021_negociacoes.sql', '022_playbook.sql', '023_controladoria.sql']);
   });
 
   test('rodar de novo é idempotente', async () => {

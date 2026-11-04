@@ -77,7 +77,7 @@ describe('API de tarefas', () => {
   test('cria projeto e tarefa; o responsável padrão é quem cria', async () => {
     const tk = await entrar('socio@nga.adv.br');
     const p = await (await req(tk, '/api/projetos', { method: 'POST', body: JSON.stringify({
-      nome: 'RJ Teste', tipo: 'recuperacao_judicial',
+      nome: 'RJ Teste', tipo: 'recuperacao_judicial', semPlaybook: true,
       cliente: { razaoSocial: 'INDÚSTRIA DEMO LTDA.', cnpj: '33.000.167/0001-01' } }) })).json();
     projeto = p.id;
     const r = await req(tk, `/api/projetos/${projeto}/tarefas`, { method: 'POST',

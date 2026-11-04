@@ -195,12 +195,13 @@ export function novoProjeto() {
       { nome: 'resumo', rotulo: 'Resumo do caso', tipo: 'textarea', placeholder: 'Uma ou duas frases: o que é este projeto.' },
       { nome: 'prioridade', rotulo: 'Prioridade', tipo: 'select', metade: true, valor: '3', opcoes: [{ v: 1, t: '1 · Máxima' }, { v: 2, t: '2 · Alta' }, { v: 3, t: '3 · Normal' }, { v: 4, t: '4 · Baixa' }, { v: 5, t: '5 · Mínima' }] },
       { nome: 'previsaoFim', rotulo: 'Previsão de término', tipo: 'date', metade: true },
+      { nome: 'playbook', rotulo: 'Gerar as tarefas do playbook?', tipo: 'select', valor: 'sim', opcoes: [{ v: 'sim', t: 'Sim — o projeto já nasce com as tarefas da abertura e da primeira fase' }, { v: 'nao', t: 'Não — o caso já está andando' }] },
     ],
     async enviar(v) {
-      const corpo = { nome: v.nome, tipo: v.tipo, prioridade: Number(v.prioridade ?? 3), resumo: v.resumo, previsaoFim: v.previsaoFim };
+      const corpo = { nome: v.nome, tipo: v.tipo, prioridade: Number(v.prioridade ?? 3), resumo: v.resumo, previsaoFim: v.previsaoFim, semPlaybook: v.playbook === 'nao' };
       if (v.razaoSocial) corpo.cliente = { razaoSocial: v.razaoSocial, cnpj: v.cnpj };
       const r = await api.post('/api/projetos', corpo);
-      toast('Projeto criado'); atualizarLateral(); ir(`projetos/${r.id}`);
+      toast(`Projeto criado${r.playbook?.criadas ? ` · ${r.playbook.criadas} tarefas geradas pelo playbook` : ''}`); atualizarLateral(); ir(`projetos/${r.id}`);
     },
   });
 }

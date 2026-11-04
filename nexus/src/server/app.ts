@@ -20,6 +20,9 @@ import * as analise from './analise.ts';
 import * as analiseAuto from './analise_auto.ts';
 import { diagnostico } from './diagnostico.ts';
 import { atividade } from './atividade.ts';
+import * as negociacoes from './negociacoes.ts';
+import * as controladoria from './controladoria.ts';
+import { faseInicial, type TipoDeProjeto } from '../domain/projeto/fases.ts';
 import * as processos from './processos.ts';
 import * as relatorios from './relatorios.ts';
 import * as projetos from './projetos.ts';
@@ -67,6 +70,8 @@ export interface Contexto {
   readonly provedor?: Provedor;
   /** Lê e analisa sozinho o que chega. Desligado por padrão para não deixar trabalho solto nos testes. */
   readonly analiseAutomatica?: boolean;
+  /** Fonte do DJEN. Em testes entra uma fake; em produção, a API pública do CNJ. */
+  readonly buscadorDjen?: controladoria.Buscador;
   /**
    * Depósito de arquivos. Omitido, usa o armazenamento local em `acervo/` —
    * que fica FORA de `web/`, senão a URL assinada seria enfeite: bastaria
@@ -308,6 +313,77 @@ export function criarApp(ctx: Contexto) {
           tarefas.criar(db, mTarefasDoProjeto[1]!, corpo.data, identidade)), 201);
       }
 
+      // ------------------------------------------------------ negociações ---
+      const mNegDoProjeto = /^\/api\/projetos\/([0-9a-f-]{36})\/negociacoes$/.exec(rota);
+      if (mNegDoProjeto && metodo === 'GET') {
+        exigir(identidade.papeis, 'negociacao.ler');
+        return json(await banco.comoUsuario(identidade.usuarioId, (db) => negociacoes.listar(db, mNegDoProjeto[1]!)));
+      }
+      if (mNegDoProjeto && metodo === 'POST') {
+        exigir(identidade.papeis, 'negociacao.escrever');
+        const corpo = negociacoes.EsquemaNegociacao.safeParse(await req.json().catch(() => null));
+        if (!corpo.success) return erro('dados inválidos', 400, corpo.error.issues);
+        // Mostrar ao cliente é publicar: mesma permissão do resto do que sai para o portal.
+        if (corpo.data.visivelAoCliente) exigir(identidade.papeis, 'portal.publicar');
+        return json(await banco.comoUsuario(identidade.usuarioId, (db) =>
+          negociacoes.criar(db, mNegDoProjeto[1]!, corpo.data, identidade)), 201);
+      }
+      const mNeg = /^\/api\/negociacoes\/([0-9a-f-]{36})$/.exec(rota);
+      if (mNeg && metodo === 'PATCH') {
+        exigir(identidade.papeis, 'negociacao.escrever');
+        const corpo = negociacoes.EsquemaAtualizacaoNegociacao.safeParse(await req.json().catch(() => null));
+        if (!corpo.success) return erro('dados inválidos', 400, corpo.error.issues);
+        if (corpo.data.visivelAoCliente !== undefined || corpo.data.resumoCliente !== undefined) exigir(identidade.papeis, 'portal.publicar');
+        return json(await banco.comoUsuario(identidade.usuarioId, (db) => negociacoes.atualizar(db, mNeg[1]!, corpo.data, identidade)));
+      }
+      if (mNeg && metodo === 'DELETE') {
+        exigir(identidade.papeis, 'negociacao.escrever');
+        return json(await banco.comoUsuario(identidade.usuarioId, (db) => negociacoes.excluir(db, mNeg[1]!, identidade)));
+      }
+      const mNegCliente = /^\/api\/portal\/projetos\/([0-9a-f-]{36})\/negociacoes$/.exec(rota);
+      if (mNegCliente && metodo === 'GET') {
+        exigir(identidade.papeis, 'projeto.ler');
+        return json(await banco.comoUsuario(identidade.usuarioId, (db) => negociacoes.doCliente(db, mNegCliente[1]!)));
+      }
+
+      // ------------------------------------------------------ controladoria ---
+      // Só sócio administrador e controladoria (permissões controladoria.*). Nenhum outro papel chega aqui.
+      if (rota === '/api/controladoria/oabs' && metodo === 'GET') {
+        exigir(identidade.papeis, 'controladoria.ler');
+        return json(await banco.comoUsuario(identidade.usuarioId, controladoria.listarOabs));
+      }
+      if (rota === '/api/controladoria/oabs' && metodo === 'POST') {
+        exigir(identidade.papeis, 'controladoria.gerir');
+        const corpo = controladoria.EsquemaOab.safeParse(await req.json().catch(() => null));
+        if (!corpo.success) return erro('dados inválidos', 400, corpo.error.issues);
+        return json(await banco.comoUsuario(identidade.usuarioId, (db) => controladoria.cadastrarOab(db, corpo.data, identidade)), 201);
+      }
+      const mOab = /^\/api\/controladoria\/oabs\/([0-9a-f-]{36})$/.exec(rota);
+      if (mOab && metodo === 'PATCH') {
+        exigir(identidade.papeis, 'controladoria.gerir');
+        const corpo = z.object({ ativo: z.boolean() }).safeParse(await req.json().catch(() => null));
+        if (!corpo.success) return erro('dados inválidos', 400, corpo.error.issues);
+        return json(await banco.comoUsuario(identidade.usuarioId, (db) => controladoria.alternarOab(db, mOab[1]!, corpo.data.ativo, identidade)));
+      }
+      if (rota === '/api/controladoria/sincronizacao' && metodo === 'POST') {
+        exigir(identidade.papeis, 'controladoria.gerir');
+        return json(await banco.comoUsuario(identidade.usuarioId, (db) => controladoria.sincronizar(db, identidade, ctx.buscadorDjen ?? controladoria.buscarNoDjen, ctx.buscadorDjen ? 0 : 700)));
+      }
+      if (rota === '/api/controladoria/publicacoes' && metodo === 'GET') {
+        exigir(identidade.papeis, 'controladoria.ler');
+        const p = url.searchParams;
+        return json(await banco.comoUsuario(identidade.usuarioId, (db) => controladoria.listarPublicacoes(db, {
+          ...(p.get('situacao') ? { situacao: p.get('situacao')! } : {}), ...(p.get('oab') ? { oab: p.get('oab')! } : {}),
+          ...(p.get('q') ? { q: p.get('q')! } : {}), pagina: Number(p.get('pagina') ?? 1) || 1 })));
+      }
+      const mPub = /^\/api\/controladoria\/publicacoes\/([0-9a-f-]{36})$/.exec(rota);
+      if (mPub && metodo === 'PATCH') {
+        exigir(identidade.papeis, 'controladoria.gerir');
+        const corpo = controladoria.EsquemaPublicacaoAtualizacao.safeParse(await req.json().catch(() => null));
+        if (!corpo.success) return erro('dados inválidos', 400, corpo.error.issues);
+        return json(await banco.comoUsuario(identidade.usuarioId, (db) => controladoria.atualizarPublicacao(db, mPub[1]!, corpo.data, identidade)));
+      }
+
       const mTarefa = /^\/api\/tarefas\/([0-9a-f-]{36})$/.exec(rota);
       if (mTarefa && (metodo === 'PATCH' || metodo === 'DELETE')) {
         exigir(identidade.papeis, 'tarefa.escrever');
@@ -434,6 +510,19 @@ export function criarApp(ctx: Contexto) {
         if (!corpo.success) return erro('dados inválidos', 400, corpo.error.issues);
         return json(await banco.comoUsuario(identidade.usuarioId, (db) =>
           projetos.mudarFase(db, mFase[1]!, corpo.data, identidade)));
+      }
+
+      const mPlaybook = /^\/api\/projetos\/([0-9a-f-]{36})\/playbook$/.exec(rota);
+      if (mPlaybook && metodo === 'POST') {
+        // Aplica o playbook da fase atual (e o de abertura) num projeto que já existe. Idempotente.
+        exigir(identidade.papeis, 'projeto.escrever');
+        exigir(identidade.papeis, 'tarefa.escrever');
+        return json(await banco.comoUsuario(identidade.usuarioId, async (db) => {
+          const { rows } = await db.query<{ organizacao_id: string; tipo: TipoDeProjeto; fase: string | null }>(
+            'SELECT organizacao_id, tipo, fase FROM projetos WHERE id = $1', [mPlaybook[1]!]);
+          const p = rows[0]; if (!p) throw new NaoEncontrado('projeto não encontrado');
+          return projetos.aplicarPlaybook(db, mPlaybook[1]!, p.organizacao_id, p.tipo, p.fase ?? faseInicial(p.tipo).id, identidade, true);
+        }));
       }
 
       const mEncerrar = /^\/api\/projetos\/([0-9a-f-]{36})\/encerramento$/.exec(rota);

@@ -18,6 +18,7 @@ import { equipe as equipeDoEscritorio } from './tarefas.js';
 import * as extra from './projeto_extra.js';
 import { abaCreditos } from './projeto_creditos.js';
 import { abaDiagnostico } from './projeto_diagnostico.js';
+import { abaNegociacoes } from './projeto_negociacoes.js';
 
 export { novoProcessoSolto } from './projeto_extra.js';
 
@@ -25,6 +26,7 @@ const ABAS = [
   { id: 'visao', rotulo: 'Visão geral', icone: 'home' },
   { id: 'diagnostico', rotulo: 'Diagnóstico', icone: 'sparkle', perm: 'analise.executar', alerta: (c) => c.achados_criticos },
   { id: 'tarefas', rotulo: 'Tarefas', icone: 'check', perm: 'tarefa.ler', n: (c) => c.tarefas_abertas },
+  { id: 'negociacoes', rotulo: 'Negociações', icone: 'target', perm: 'negociacao.ler' },
   { id: 'creditos', rotulo: 'Créditos', icone: 'scale', perm: 'credito.ler', n: (c) => c.creditos, alerta: (c) => c.creditos_a_validar },
   { id: 'processos', rotulo: 'Processos e prazos', icone: 'file', perm: 'processo.ler', n: (c) => c.processos, alerta: (c) => c.prazos_abertos },
   { id: 'documentos', rotulo: 'Documentos', icone: 'doc', perm: 'documento.ler', n: (c) => c.documentos, alerta: (c) => c.requisitos_a_analisar },
@@ -35,7 +37,7 @@ const ABAS = [
 ];
 
 const MODULOS = {
-  visao: abaVisao, diagnostico: abaDiagnostico, tarefas: abaTarefas, creditos: abaCreditos, processos: extra.abaProcessos,
+  visao: abaVisao, diagnostico: abaDiagnostico, negociacoes: abaNegociacoes, tarefas: abaTarefas, creditos: abaCreditos, processos: extra.abaProcessos,
   documentos: extra.abaDocumentos, portal: extra.abaPortal, plano: extra.abaPlano,
   relatorios: extra.abaRelatorios, equipe: abaEquipe,
 };
@@ -131,6 +133,7 @@ function menuMais(ancora, ctx) {
   const { h } = ctx;
   menu(ancora, [
     h.situacao !== 'encerrado' && { rotulo: 'Encerrar projeto', icone: 'inbox', perigo: true, acao: () => encerrar(ctx) },
+    pode('tarefa.escrever') && h.situacao !== 'encerrado' && { rotulo: 'Aplicar playbook (tarefas desta fase)', icone: 'list', acao: async () => { try { const r = await api.post(`/api/projetos/${ctx.id}/playbook`, {}); toast(r.criadas ? `${r.criadas} tarefa(s) criada(s)` : 'Nada novo: as tarefas do playbook já existem'); atualizarLateral(); ctx.recarregar(); } catch (e) { erroDe(e); } } },
     { rotulo: 'Copiar link desta aba', icone: 'link', acao: () => navigator.clipboard?.writeText(location.href).then(() => toast('Link copiado')) },
   ].filter(Boolean));
 }
@@ -194,7 +197,8 @@ export async function atualizarBadges(ctx) {
 // ----------------------------------------------------------- visão geral ---
 
 async function abaVisao(ctx) {
-  const { h } = ctx; const c = h.contagens; const pr = h.progresso;
+  const { h } = ctx;
+  const neg = pode('negociacao.ler') ? await api.get(`/api/projetos/${ctx.id}/negociacoes`).catch(() => null) : null; const c = h.contagens; const pr = h.progresso;
   const pend = [];
   if (Number(c.achados_criticos)) pend.push(['shield', `${c.achados_criticos} achado(s) crítico(s) em aberto`, 'Análise documental', 'erro', 'documentos']);
   if (Number(c.creditos_a_validar)) pend.push(['scale', `${c.creditos_a_validar} crédito(s) sem classe validada`, 'Validação humana exigida', 'aviso', 'creditos']);
@@ -217,6 +221,11 @@ async function abaVisao(ctx) {
             ${mini('Créditos', c.creditos, 'creditos')}${mini('Processos', c.processos, 'processos')}${mini('Documentos', c.documentos, 'documentos')}
           </div>
         </section>
+        ${neg ? html`<section class="card glass up"><header class="card__head"><div><h2 class="card__title">Negociações</h2><p class="card__sub">${neg.resumo.acordos ? `${neg.resumo.acordos} acordo(s) fechado(s)` : 'Frentes com credores'}</p></div><button class="link" data-aba-ir="negociacoes">Abrir quadro →</button></header>
+          <div class="grid3" style="grid-template-columns:repeat(3,minmax(0,1fr))">
+            <div class="stat"><span class="stat__label">Em negociação</span><span class="stat__value"><b data-n="${neg.resumo.emNegociacao}">0</b></span></div>
+            <div class="stat"><span class="stat__label">Stand by</span><span class="stat__value"><b data-n="${neg.resumo.standBy}">0</b></span></div>
+            <div class="stat"><span class="stat__label">Concluídas</span><span class="stat__value"><b data-n="${neg.resumo.concluidas}">0</b></span></div></div></section>` : ''}
         <section class="card glass up">
           <header class="card__head"><div><h2 class="card__title">Documentação do cliente</h2><p class="card__sub">${c.requisitos ? `${c.requisitos_aprovados} de ${c.requisitos_obrigatorios} obrigatórios aprovados` : 'O checklist ainda não foi gerado para este projeto.'}</p></div>
             <button class="link" data-aba-ir="portal">Abrir portal →</button></header>

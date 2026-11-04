@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { Banco } from '../store/conexao.ts';
 import { servidorDoGerador, servirEstatico } from './estaticos.ts';
 import { criarApp } from './app.ts';
+import { sincronizarAgendado } from './controladoria.ts';
 import { ArmazenamentoLocal } from '../store/arquivos.ts';
 import { deposito as montarDeposito } from './arquivos.ts';
 
@@ -55,6 +56,13 @@ const TIPOS: Record<string, string> = {
 
 // Gerador de Relatórios (monorepo: ../relatorios), servido sob /gerador/ para abrir dentro do NGA LAB.
 const gerador = servidorDoGerador(join(RAIZ, '../relatorios'));
+
+// Controladoria: busca as publicações do DJEN das OABs cadastradas a cada hora (primeira rodada 3 min depois de
+// subir). NGA_DJEN_AUTO=0 desliga. Sem OAB cadastrada, a rodada não faz nada. Nunca derruba o servidor.
+if (process.env.NGA_DJEN_AUTO !== '0') {
+  const rodar = () => sincronizarAgendado(banco).then((r) => { if (r.length) console.log(`controladoria: ${r.length} OAB(s) consultada(s), ${r.reduce((t, x) => t + x.novas, 0)} publicação(ões) nova(s)`); });
+  setTimeout(rodar, 3 * 60_000); setInterval(rodar, 60 * 60_000);
+}
 
 const servidor = Bun.serve({
   port: porta,

@@ -172,14 +172,14 @@ const fecharPrazo = (prazoId) => formulario({
   async enviar(v) { await api.post(`/api/prazos/${prazoId}/fechamento`, v); toast('Prazo fechado'); },
 });
 
-async function novoPrazo(id) {
+export async function novoPrazo(id, padroes = {}) {
   const catalogo = await api.get('/api/prazos/catalogo');
   return formulario({
     titulo: 'Calcular prazo', subtitulo: 'O sistema conta os dias úteis, mostra o fundamento e o que não correu. Confira feriados locais antes de confiar na data.', rotulo: 'Calcular e salvar', largo: true,
     campos: [
       { nome: 'tipo', rotulo: 'Tipo de prazo', tipo: 'select', obrigatorio: true, opcoes: [...catalogo.map((c) => ({ v: c.id, t: `${c.nome} — ${c.dias} d ${c.regime === 'uteis' ? 'úteis' : 'corridos'}` })), { v: 'manual', t: 'Outro (informar dias)' }] },
-      { nome: 'evento', rotulo: 'Data do evento (publicação, intimação…)', tipo: 'date', obrigatorio: true, metade: true, valor: hojeISO() },
-      { nome: 'origem', rotulo: 'Origem', tipo: 'select', metade: true, valor: 'publicacao', opcoes: [{ v: 'disponibilizacao_dje', t: 'Disponibilização no DJe' }, { v: 'publicacao', t: 'Publicação' }, { v: 'intimacao_pessoal', t: 'Intimação pessoal' }, { v: 'juntada_ar', t: 'Juntada do AR' }, { v: 'citacao', t: 'Citação' }, { v: 'audiencia', t: 'Audiência' }, { v: 'manual', t: 'Contagem direta' }] },
+      { nome: 'evento', rotulo: 'Data do evento (publicação, intimação…)', tipo: 'date', obrigatorio: true, metade: true, valor: padroes.evento ?? hojeISO() },
+      { nome: 'origem', rotulo: 'Origem', tipo: 'select', metade: true, valor: padroes.origem ?? 'publicacao', opcoes: [{ v: 'disponibilizacao_dje', t: 'Disponibilização no DJe' }, { v: 'publicacao', t: 'Publicação' }, { v: 'intimacao_pessoal', t: 'Intimação pessoal' }, { v: 'juntada_ar', t: 'Juntada do AR' }, { v: 'citacao', t: 'Citação' }, { v: 'audiencia', t: 'Audiência' }, { v: 'manual', t: 'Contagem direta' }] },
       { nome: 'titulo', rotulo: 'Título (só para “Outro”)', metade: true }, { nome: 'dias', rotulo: 'Dias (só para “Outro”)', tipo: 'number', metade: true, min: 1 },
       { nome: 'emDobro', rotulo: 'Prazo em dobro?', tipo: 'select', valor: 'nao', opcoes: [{ v: 'nao', t: 'Não' }, { v: 'sim', t: 'Sim (art. 229 CPC, litisconsortes etc.)' }] },
     ],
@@ -346,8 +346,8 @@ export async function abaPortal(ctx) {
           ${portal.existe ? html`<div style="display:grid;gap:8px;margin-bottom:14px"><p class="dica" style="margin:0">O que o cliente enxerga:</p>
             ${toggle('documentos', 'Documentos publicados')}${toggle('obrigacoes', 'Plano de pagamento')}${toggle('financeiro', 'Fluxo de caixa')}${toggle('processos', 'Andamento processual (só o publicado)')}
             ${publica ? html`<label class="toggle"><input type="checkbox" data-ativo ${portal.ativo ? raw('checked') : ''}><span></span>Portal ativo</label>` : ''}</div>
-            <ul class="lista">${portal.usuarios.map((u) => html`<li>${avatar(u.nome, 'md')}<div><b>${u.nome}</b><small>${u.email} · ${u.ultimoAcesso ? `último acesso ${relativo(u.ultimoAcesso)}` : 'nunca entrou'}</small></div></li>`)}</ul>` : ''}
-          ${publica ? html`<button type="button" class="btn ${portal.existe ? 'btn--ghost' : 'btn--accent'} mt" data-convite>${icone('plus')}${portal.existe ? 'Convidar outra pessoa' : 'Criar portal e convidar o cliente'}</button>` : ''}
+            <p class="mini-h" style="margin-top:0">Pessoas de ${portal.organizacao} · todas veem o mesmo conteúdo</p><ul class="lista">${portal.usuarios.map((u) => html`<li>${avatar(u.nome, 'md')}<div><b>${u.nome}</b><small>${u.email} · ${u.ultimoAcesso ? `último acesso ${relativo(u.ultimoAcesso)}` : 'nunca entrou'}</small></div></li>`)}</ul>` : ''}
+          ${publica ? html`<button type="button" class="btn ${portal.existe ? 'btn--ghost' : 'btn--accent'} mt" data-convite>${icone('plus')}${portal.existe ? 'Adicionar pessoa da mesma empresa' : 'Criar portal e convidar o cliente'}</button>` : ''}
         </section>
       </div></div>`,
 
@@ -388,8 +388,10 @@ export async function abaPortal(ctx) {
 async function convidar(ctx, portal) {
   let resultado = null;
   await formulario({
-    titulo: portal.existe ? 'Convidar para o portal' : 'Criar o portal do cliente', rotulo: 'Criar acesso',
-    subtitulo: 'A pessoa recebe e-mail e senha temporária, e só enxerga este projeto, e só o que você publicar.',
+    titulo: portal.existe ? `Adicionar pessoa a ${portal.organizacao}` : 'Criar o portal do cliente', rotulo: 'Criar acesso',
+    subtitulo: portal.existe
+      ? `Atenção: esta pessoa entra na MESMA empresa (${portal.organizacao}) e vai ver tudo o que as outras já veem neste projeto — documentos publicados, mensagens, plano e caixa. Para atender OUTRO cliente, crie o projeto dele e o portal dele.`
+      : 'Cria a empresa-cliente deste projeto. A pessoa recebe e-mail e senha temporária e só enxerga ESTE projeto, e só o que você publicar. Cada cliente tem o seu portal: nada passa de um para outro.',
     campos: [{ nome: 'nome', rotulo: 'Nome', obrigatorio: true }, { nome: 'email', rotulo: 'E-mail', tipo: 'email', obrigatorio: true },
       ...(portal.existe ? [] : [{ nome: 'organizacao', rotulo: 'Nome da empresa cliente', obrigatorio: true, valor: ctx.h.empresas[0]?.razao_social ?? '' }])],
     async enviar(v) { resultado = await api.post(`/api/projetos/${ctx.id}/portal/convites`, { nome: v.nome, email: v.email, organizacao: v.organizacao }); },

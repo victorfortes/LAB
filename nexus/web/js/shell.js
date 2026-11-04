@@ -8,7 +8,7 @@
  */
 import { $, $$, esc, guardado, html, icone, iniciais, matiz, ouvir, raw } from './util.js';
 import { api, aoPerderSessao } from './api.js';
-import { estado, ehCliente, ROTULO_DO_PAPEL } from './estado.js';
+import { estado, ehCliente, pode, ROTULO_DO_PAPEL } from './estado.js';
 import { animarAneis, animarBarras, contar, fundo, lente } from './fx.js';
 import { menu, paleta, toast, erroDe } from './ui.js';
 
@@ -18,6 +18,7 @@ const NAV_EQUIPE = [
   { rota: 'calendario', rotulo: 'Calendário', icone: 'calendar' },
   { rota: 'projetos', rotulo: 'Projetos', icone: 'folder' },
   { rota: 'ferramentas', rotulo: 'Ferramentas', icone: 'bolt' },
+  { rota: 'controladoria', rotulo: 'Controladoria', icone: 'inbox', permissao: 'controladoria.ler', contagem: 'pubs' },
   { rota: 'relatorios', rotulo: 'Relatórios', icone: 'chart' },
   { rota: 'equipe', rotulo: 'Equipe', icone: 'users' },
   { rota: 'ajustes', rotulo: 'Ajustes', icone: 'settings' },
@@ -31,14 +32,14 @@ const NAV_CLIENTE = [
   { rota: 'relatorios', rotulo: 'Relatórios', icone: 'chart' },
   { rota: 'mensagens', rotulo: 'Mensagens', icone: 'comment', contagem: 'msgs' },
 ];
-const nav = () => (ehCliente() ? NAV_CLIENTE : NAV_EQUIPE);
+const nav = () => (ehCliente() ? NAV_CLIENTE : NAV_EQUIPE.filter((n) => !n.permissao || pode(n.permissao)));
 
 /** Tabela de rotas: [padrão, módulo da view, parâmetros extras]. */
 const ROTAS = {
   equipe: [
     ['painel', 'painel'], ['tarefas', 'tarefas'], ['calendario', 'calendario'],
     ['projetos', 'projetos'], ['projetos/:id', 'projeto'], ['projetos/:id/:aba', 'projeto'],
-    ['ferramentas', 'ferramentas'], ['ferramentas/:id', 'ferramentas'],
+    ['ferramentas', 'ferramentas'], ['ferramentas/:id', 'ferramentas'], ['controladoria', 'controladoria'],
     ['relatorios', 'relatorios'], ['equipe', 'equipe'], ['ajustes', 'ajustes'],
   ],
   cliente: [
@@ -140,7 +141,7 @@ export async function navegar() {
   const alvo = casar(seg);
   if (!alvo) {
     // Rota de equipe para cliente (ou o contrário): leva ao começo certo.
-    if (['painel', 'tarefas', 'projetos', 'calendario', 'ferramentas', 'relatorios', 'equipe', 'ajustes', 'inicio', 'andamento', 'documentos', 'plano', 'caixa', 'mensagens'].includes(seg[0])) return ir(padrao);
+    if (['painel', 'tarefas', 'projetos', 'calendario', 'ferramentas', 'controladoria', 'relatorios', 'equipe', 'ajustes', 'inicio', 'andamento', 'documentos', 'plano', 'caixa', 'mensagens'].includes(seg[0])) return ir(padrao);
     return renderizar(await naoEncontrada(), ++ficha);
   }
   const minha = ++ficha;
@@ -273,6 +274,7 @@ export async function atualizarLateral() {
     const [projetos, tar, painel] = await Promise.all([api.get('/api/projetos'), api.get('/api/tarefas'), api.get('/api/painel')]);
     estado.projetos = projetos; estado.tarefas = tar.tarefas; estado.painel = painel;
     const abertas = tar.resumo.abertas;
+    if (pode('controladoria.ler')) { const pub = await api.get('/api/controladoria/publicacoes?situacao=nova').catch(() => null); const c2 = $('#cnt-pubs'); if (c2 && pub) { c2.textContent = pub.resumo.novas; c2.hidden = pub.resumo.novas === 0; } }
     const c = $('#cnt-tarefas'); if (c) { c.textContent = abertas; c.hidden = abertas === 0; }
     const pins = guardado.ler('fixados', null);
     const lista = (pins ? projetos.filter((p) => pins.includes(p.id)) : projetos.filter((p) => p.situacao === 'ativo').slice(0, 3));

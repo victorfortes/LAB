@@ -39,6 +39,9 @@ export type Permissao =
   | 'prazo.ler' | 'prazo.escrever'
   /** Tarefa é trabalho interno: o cliente não alcança nenhuma. */
   | 'tarefa.ler' | 'tarefa.escrever'
+  | 'negociacao.ler' | 'negociacao.escrever'
+  /** Controladoria (publicações do DJEN): só sócio administrador e controladoria. */
+  | 'controladoria.ler' | 'controladoria.gerir'
   | 'documento.ler' | 'documento.escrever'
   /**
    * Rodar a análise documental. É separada de `documento.escrever` por dois
@@ -66,7 +69,7 @@ export type Permissao =
 
 const INTERNO_LEITURA: Permissao[] = [
   'cliente.ler', 'projeto.ler', 'credito.ler', 'plano.ler', 'agc.ler', 'documento.ler',
-  'processo.ler', 'prazo.ler', 'tarefa.ler',
+  'processo.ler', 'prazo.ler', 'tarefa.ler', 'negociacao.ler',
   // O caixa da recuperanda é insumo do trabalho jurídico, quando o cliente
   // autoriza pelo portal. A autorização é checada pelo RLS, não aqui.
   'financeiro_cliente.ler',
@@ -77,19 +80,19 @@ const ADVOGADO: Permissao[] = [
   'cliente.escrever', 'projeto.escrever', 'credito.escrever', 'credito.validar',
   'plano.escrever', 'agc.registrar_voto', 'agc.apurar', 'documento.escrever',
   'portal.publicar', 'analise.executar', 'analise.validar',
-  'processo.escrever', 'prazo.escrever', 'relatorio.gerar', 'tarefa.escrever',
+  'processo.escrever', 'prazo.escrever', 'relatorio.gerar', 'tarefa.escrever', 'negociacao.escrever',
 ];
 
 export const PERMISSOES: Readonly<Record<Papel, readonly Permissao[]>> = Object.freeze({
   socio_administrador: [
     ...ADVOGADO, 'financeiro.ler', 'financeiro.escrever', 'auditoria.ler',
-    'integracao.gerir', 'admin.gerir',
+    'integracao.gerir', 'admin.gerir', 'controladoria.ler', 'controladoria.gerir',
   ],
   socio: [...ADVOGADO, 'financeiro.ler', 'auditoria.ler'],
   advogado: ADVOGADO,
   controladoria: [...INTERNO_LEITURA, 'projeto.escrever', 'documento.escrever',
     'analise.executar', 'processo.escrever', 'prazo.escrever', 'relatorio.gerar',
-    'tarefa.escrever', 'auditoria.ler'],
+    'tarefa.escrever', 'auditoria.ler', 'controladoria.ler', 'controladoria.gerir'],
   financeiro: [...INTERNO_LEITURA, 'financeiro.ler', 'financeiro.escrever'],
   administrativo: [...INTERNO_LEITURA, 'documento.escrever', 'processo.escrever', 'tarefa.escrever'],
   // Estagiário lê e redige, mas não valida enquadramento nem publica para fora.

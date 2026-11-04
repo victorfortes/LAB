@@ -21,7 +21,8 @@ import {
   type TipoDeProjeto, ROTULO_DO_TIPO, fase as faseDe, faseInicial, fasesDe,
   progresso, transicionarFase,
 } from '../domain/projeto/fases.ts';
-import { diasUteisAte } from '../domain/processo/prazos.ts';
+import { contarPrazo, diasUteisAte } from '../domain/processo/prazos.ts';
+import { passosDa } from '../domain/projeto/playbooks.ts';
 import { limparCnpj, validarCnpj } from '../domain/analise/identificadores.ts';
 
 const TIPOS = [
@@ -34,6 +35,8 @@ export const EsquemaProjeto = z.object({
   tipo: z.enum(TIPOS),
   resumo: z.string().max(1000).optional(),
   prioridade: z.number().int().min(1).max(5).default(3),
+  /** Pular a geração automática de tarefas (útil ao cadastrar um caso que já está andando). */
+  semPlaybook: z.boolean().optional(),
   empresaId: z.string().uuid().optional(),
   /** Cria o cliente no cadastro do escritório junto com o projeto. */
   cliente: z.object({
@@ -70,6 +73,31 @@ export function catalogoDeFases() {
     rotulo: ROTULO_DO_TIPO[tipo],
     fases: fasesDe(tipo),
   }));
+}
+
+/**
+ * Gera as tarefas do playbook para uma fase (e, na abertura, as de abertura). Idempotente: o índice único de
+ * `chave_playbook` faz o que já existe ser pulado. Devolve o que foi criado e o que já estava lá.
+ */
+export async function aplicarPlaybook(
+  db: PoolClient, projetoId: string, organizacaoId: string, tipo: TipoDeProjeto, fase: string,
+  identidade: Identidade, naAbertura = false,
+) {
+  const hoje = hojeISO();
+  let criadas = 0; let jaExistiam = 0;
+  for (const passo of passosDa(tipo, fase, naAbertura)) {
+    const prazo = contarPrazo({ evento: hoje, origem: 'manual', dias: passo.diasUteis, regime: 'uteis' }).vencimento;
+    const r = await db.query(
+      `INSERT INTO tarefas (organizacao_id, projeto_id, titulo, descricao, prioridade, responsavel_id, prazo, origem, chave_playbook, criado_por)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,'playbook',$8,$6)
+       ON CONFLICT (projeto_id, chave_playbook) WHERE chave_playbook IS NOT NULL DO NOTHING`,
+      [organizacaoId, projetoId, passo.titulo, passo.descricao ?? null, passo.prioridade, identidade.usuarioId, prazo, passo.id]);
+    if (r.rowCount) criadas++; else jaExistiam++;
+  }
+  if (criadas) {
+    await auditar(db, { organizacaoId, usuarioId: identidade.usuarioId, acao: 'playbook.aplicado', entidade: 'projeto', entidadeId: projetoId, depois: { fase, criadas } });
+  }
+  return { criadas, jaExistiam };
 }
 
 export async function criar(
@@ -122,7 +150,10 @@ export async function criar(
     entidade: 'projeto', entidadeId: id, depois: { ...dados, fase: inicial.id },
   });
 
-  return { id, fase: inicial, progresso: progresso(dados.tipo, inicial.id) };
+  // Playbook: o projeto já nasce com as tarefas da abertura e da primeira fase.
+  const playbook = dados.semPlaybook ? { criadas: 0, jaExistiam: 0 } : await aplicarPlaybook(db, id, organizacaoId, dados.tipo, inicial.id, identidade, true);
+
+  return { id, fase: inicial, progresso: progresso(dados.tipo, inicial.id), playbook };
 }
 
 export async function listar(db: PoolClient) {
@@ -280,7 +311,9 @@ export async function mudarFase(
     depois: { fase: destino.id, nome: destino.nome, desde, projeto: projeto.nome },
   });
 
-  return { id: projetoId, fase: destino, progresso: progresso(projeto.tipo, destino.id) };
+  // Entrar numa fase traz as tarefas dela (nada duplica se a fase já tinha sido visitada).
+  const playbook = await aplicarPlaybook(db, projetoId, projeto.organizacao_id, projeto.tipo, destino.id, identidade);
+  return { id: projetoId, fase: destino, progresso: progresso(projeto.tipo, destino.id), playbook };
 }
 
 export async function encerrar(

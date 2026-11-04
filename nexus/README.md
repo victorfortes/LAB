@@ -275,3 +275,15 @@ Supabase, conexão TLS **verificada** com o certificado raiz da Supabase (`NGA_P
 copiados por `scripts/copiar-banco.ts` (o banco local continua intacto, como cópia de segurança). Os **arquivos** do
 acervo ainda ficam em disco (`~/Library/Application Support/NGA-Nexus/acervo`): para o sistema rodar fora deste Mac
 eles precisam ir para o Supabase Storage. Voltar ao banco local: restaurar `br.adv.nga.nexus.plist.local-bak`.
+
+### Controladoria (DJEN)
+
+`/controladoria` — só sócio administrador e controladoria. Busca na API pública de comunicações do CNJ as
+publicações das OABs cadastradas, a cada hora (`NGA_DJEN_AUTO=0` desliga) ou sob demanda. Dedupe por id da
+comunicação; vincula ao processo cadastrado pelo número CNJ. **Não calcula prazo sozinha**: "Calcular prazo" abre o
+cálculo com a data da publicação preenchida, para conferência.
+
+### Playbook, negociações
+
+`src/domain/projeto/playbooks.ts`: tarefas geradas na abertura do projeto e ao entrar em cada fase (idempotente).
+É um modelo-base a revisar. Negociações: quadro por projeto; o cliente só vê o que for marcado e tiver resumo escrito.
