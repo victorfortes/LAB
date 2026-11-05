@@ -48,11 +48,15 @@ async function marcar(
   db: PoolClient, documentoId: string, org: string, projeto: string | null,
   estado: EstadoDoProcessamento, detalhe: string | null,
 ) {
-  await db.query(
+  const r = await db.query(
     `INSERT INTO documento_processamento (documento_id, organizacao_id, projeto_id, estado, detalhe)
      VALUES ($1,$2,$3,$4,$5)
-     ON CONFLICT (documento_id) DO UPDATE SET estado = EXCLUDED.estado, detalhe = EXCLUDED.detalhe, atualizado_em = now()`,
+     ON CONFLICT (documento_id) DO UPDATE SET estado = EXCLUDED.estado, detalhe = EXCLUDED.detalhe, atualizado_em = now()
+     WHERE EXCLUDED.estado <> 'lendo' OR documento_processamento.estado <> 'lendo'
+        OR documento_processamento.atualizado_em < now() - interval '30 minutes'
+     RETURNING documento_id`,
     [documentoId, org, projeto, estado, detalhe]);
+  return (r.rowCount ?? 0) > 0;
 }
 
 /** Processa um documento. Nunca lança: o resultado é o estado gravado. */
@@ -71,10 +75,12 @@ export async function processar(
         organizacao_id: string; projeto_id: string | null; tipo_mime: string | null; hash_sha256: string | null; tem_arquivo: boolean;
       }>('SELECT organizacao_id, projeto_id, tipo_mime, hash_sha256, tem_arquivo FROM documentos WHERE id = $1', [documentoId]);
       const d = rows[0];
-      if (d) await marcar(db, documentoId, d.organizacao_id, d.projeto_id, 'lendo', null);
-      return d;
+      if (!d) return undefined;
+      const iniciou = await marcar(db, documentoId, d.organizacao_id, d.projeto_id, 'lendo', null);
+      return {...d, ocupado: !iniciou};
     });
     if (!doc) return 'erro';
+    if (doc.ocupado) return 'lendo';
     servico = {
       usuarioId, nome: 'Análise automática', email: 'analise-automatica@nga.local', papeis: ['integracao'],
       organizacoes: [{ id: doc.organizacao_id, nome: '', tipo: 'escritorio', papel: 'integracao' }],

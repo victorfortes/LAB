@@ -77,6 +77,7 @@ export interface Contexto {
   readonly provedor?: Provedor;
   /** Lê e analisa sozinho o que chega. Desligado por padrão para não deixar trabalho solto nos testes. */
   readonly analiseAutomatica?: boolean;
+  readonly analiseEmWorker?: boolean;
   /** Fonte do DJEN. Em testes entra uma fake; em produção, a API pública do CNJ. */
   readonly buscadorDjen?: controladoria.Buscador;
   /**
@@ -1150,7 +1151,7 @@ export function criarApp(ctx: Contexto) {
         exigir(identidade.papeis, 'analise.executar');
         // A interface precisa saber o que NÃO vai rodar, para dizer ao usuário
         // em vez de deixá-lo supor (§18, §22).
-        return json(analise.estadoDaIa(provedor));
+        return json({...analise.estadoDaIa(provedor),...(ctx.analiseEmWorker?{trabalhadorExterno:true,impedimento:'Leitura automática pelo worker local do escritório. Depende de o Mac e o Ollama estarem ligados.'}:{})});
       }
 
       const mTexto = /^\/api\/documentos\/([0-9a-f-]{36})\/texto$/.exec(rota);

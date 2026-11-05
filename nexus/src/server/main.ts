@@ -12,6 +12,8 @@ import { Banco } from '../store/conexao.ts';
 import { servidorDoGerador, servirEstatico } from './estaticos.ts';
 import { criarApp } from './app.ts';
 import { sincronizarAgendado } from './controladoria.ts';
+import {processarFilaAnalise} from './analise_fila.ts';
+import {provedorDoAmbiente} from '../ai/provedor.ts';
 import { processarGoogleAgendado } from './google.ts';
 import { ArmazenamentoLocal } from '../store/arquivos.ts';
 import { deposito as montarDeposito } from './arquivos.ts';
@@ -44,7 +46,11 @@ const armazenamento = new ArmazenamentoLocal(
   process.env.NGA_ACERVO ?? join(RAIZ, 'acervo'));
 await armazenamento.iniciar();
 
-const api = criarApp({ banco, deposito: montarDeposito(armazenamento), analiseAutomatica: true });
+const deposito=montarDeposito(armazenamento);
+const api = criarApp({ banco, deposito, analiseAutomatica: true });
+let analiseRodando=false;
+const lerFila=async()=>{if(analiseRodando)return;analiseRodando=true;try{await processarFilaAnalise(banco,deposito,provedorDoAmbiente());}catch{console.error('Análise: fila pendente; verifique o worker local.');}finally{analiseRodando=false;}};
+setTimeout(lerFila,15_000);setInterval(lerFila,60_000);
 const porta = Number(process.env.NGA_PORTA ?? 8790);
 
 const TIPOS: Record<string, string> = {

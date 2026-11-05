@@ -38,7 +38,7 @@ export default async function ajustes() {
             <label class="field"><span>Modo</span><select class="select" id="efeitos">${[['equilibrado', 'Equilibrado — vidro sem desfoque nos cartões (recomendado, rápido)'], ['completo', 'Completo — desfoque em tudo (bonito, pesa em máquina fraca)'], ['animado', 'Animado — equilibrado + fundo em movimento'], ['leve', 'Leve — sem desfoque nem animação (o mais rápido)']].map(([v, t]) => html`<option value="${v}" ${guardado.ler('efeitos', (matchMedia('(pointer: coarse)').matches || innerWidth < 900) ? 'leve' : 'equilibrado') === v ? raw('selected') : ''}>${t}</option>`)}</select></label></section>
           <section class="card glass up"><header class="card__head"><div><h2 class="card__title">Sistema</h2></div></header>
             <ul class="lista">
-              <li><div><b>Leitura por IA</b><small>${ia ? (ia.disponivel ? 'Configurada' : ia.impedimento) : '—'}</small></div><div class="fim"><span class="selo ${ia?.disponivel ? 'ok' : 'aviso'}">${ia?.disponivel ? 'ativa' : 'desligada'}</span></div></li>
+              <li><div><b>Leitura por IA</b><small>${ia ? (ia.disponivel ? 'Configurada' : ia.impedimento) : '—'}</small></div><div class="fim"><span class="selo ${ia?.disponivel ? 'ok' : 'aviso'}">${ia?.trabalhadorExterno ? 'worker local' : ia?.disponivel ? 'ativa' : 'desligada'}</span></div></li>
               <li><div><b>Armazenamento de arquivos</b><small>${arq ? (arq.descricao ?? arq.modo ?? JSON.stringify(arq).slice(0, 120)) : '—'}</small></div></li></ul></section>
         </div></div>`,
     depois(el) {

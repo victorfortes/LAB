@@ -3,6 +3,8 @@ import { PDFDocument, StandardFonts } from 'pdf-lib';
 import { bancoDeTeste, type BancoDeTeste } from './apoio/postgres.ts';
 import { Banco } from '../src/store/conexao.ts';
 import { criarApp } from '../src/server/app.ts';
+import {processarFilaAnalise} from '../src/server/analise_fila.ts';
+import {processar} from '../src/server/analise_auto.ts';
 import { ProvedorAusente } from '../src/ai/provedor.ts';
 import { hashDaSenha } from '../src/security/sessao.ts';
 import { ArmazenamentoLocal } from '../src/store/arquivos.ts';
@@ -13,6 +15,7 @@ import { join } from 'node:path';
 
 let pg: BancoDeTeste; let banco: Banco;
 let app: ReturnType<typeof criarApp>;
+let dep:ReturnType<typeof montarDeposito>;
 const NGA = '11111111-1111-1111-1111-111111111111';
 const SOCIO = 'aaaaaaaa-0000-4000-8000-000000000001';
 const SENHA = 'uma-senha-bem-longa';
@@ -35,8 +38,9 @@ beforeAll(async () => {
   await pg.dono.query(`ALTER ROLE nga_app PASSWORD 'nga_app'`);
   banco = new Banco({ host: 'localhost', port: pg.porta, user: 'nga_app', password: 'nga_app', database: 'nga_teste' });
   const dir = await mkdtemp(join(tmpdir(), 'acervo-'));
+  dep=montarDeposito(new ArmazenamentoLocal(dir), { NGA_SEGREDO_ARQUIVOS: 'x'.repeat(40) });
   // Esta integração testa extração/triagem/isolamento; não usa as credenciais nem o modelo do ambiente local.
-  app = criarApp({ banco, provedor: new ProvedorAusente('teste de extração e triagem determinística, sem chamada de modelo'), deposito: montarDeposito(new ArmazenamentoLocal(dir), { NGA_SEGREDO_ARQUIVOS: 'x'.repeat(40) }), analiseAutomatica: true });
+  app = criarApp({ banco, provedor: new ProvedorAusente('teste de extração e triagem determinística, sem chamada de modelo'), deposito: dep, analiseAutomatica: true });
   await pg.dono.query(`INSERT INTO organizacoes (id,tipo,nome) VALUES ($1,'escritorio','NGA')`, [NGA]);
   await pg.dono.query(`INSERT INTO usuarios (id,email,nome,senha_hash) VALUES ($1,'socio@nga.adv.br','Sócio',$2)`, [SOCIO, await hashDaSenha(SENHA)]);
   await pg.dono.query(`INSERT INTO vinculos (usuario_id,organizacao_id,papel) VALUES ($1,$2,'socio_administrador')`, [SOCIO, NGA]);
@@ -82,4 +86,22 @@ describe('cliente envia → análise automática → diagnóstico para o advogad
     expect(d.documentos.find((x: { titulo: string }) => x.titulo === 'Escaneado').estado).toBe('sem_texto');
     expect(d.pontos.some((p: { titulo: string }) => p.titulo.includes('sem texto legível'))).toBe(true);
   });
+});
+
+test('worker retoma upload da API hospedada, separa documento interno e recupera lease abandonado',async()=>{
+ const provider=new ProvedorAusente('teste sem modelo');
+ const cloud=criarApp({banco,deposito:dep,provedor:provider,analiseAutomatica:false});
+ const upload=async(token:string,titulo:string)=>{const fd=new FormData();fd.append('arquivo',new File(['Documento de teste fictício para o trabalhador da fila.'],titulo+'.txt',{type:'text/plain'}));fd.append('titulo',titulo);const r=await cloud(new Request('https://lab.test/api/projetos/'+projeto+'/documentos',{method:'POST',headers:{cookie:'nga_sessao='+token},body:fd}));expect(r.status).toBe(201);return(await r.json()).documentoId as string;};
+ const cliente=await upload(tCliente,'Cliente pela nuvem');const interno=await upload(tSocio,'Escritório pela nuvem');
+ const pending=await banco.semContexto(async db=>(await db.query('SELECT * FROM documentos_de_analise_pendentes(5)')).rows.map(r=>r.documento_id));
+ expect(pending).toContain(cliente);expect(pending).not.toContain(interno);
+ expect(await processarFilaAnalise(banco,dep,provider)).toBe(1);
+ expect(await processarFilaAnalise(banco,dep,provider)).toBe(0);
+ let state=(await pg.dono.query('SELECT estado FROM documento_processamento WHERE documento_id=$1',[cliente])).rows[0].estado;expect(state).toBe('analisado');
+ await pg.dono.query("UPDATE documento_processamento SET estado='lendo',atualizado_em=now() WHERE documento_id=$1",[cliente]);
+ expect(await processar(banco,dep,provider,cliente)).toBe('lendo');
+ expect(await processarFilaAnalise(banco,dep,provider)).toBe(0);
+ await pg.dono.query("UPDATE documento_processamento SET atualizado_em=now()-interval '31 minutes' WHERE documento_id=$1",[cliente]);
+ expect(await processarFilaAnalise(banco,dep,provider)).toBe(1);
+ state=(await pg.dono.query('SELECT estado FROM documento_processamento WHERE documento_id=$1',[cliente])).rows[0].estado;expect(state).toBe('analisado');
 });

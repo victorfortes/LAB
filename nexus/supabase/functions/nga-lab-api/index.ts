@@ -12,7 +12,7 @@ const dbUrl=new URL(database); dbUrl.searchParams.delete('sslmode'); dbUrl.searc
 const banco=new Banco({host:'',port:5432,user:'nga_app',password:'',database:'postgres',connectionString:dbUrl.href,ssl:{ca:supabaseCa,rejectUnauthorized:true},papelAplicacao:'nga_app',esquema:'nga_lab',max:2});
 const segredo=e.NGA_SEGREDO_ARQUIVOS??createHash('sha256').update(e.SUPABASE_SERVICE_ROLE_KEY??JSON.stringify(e.SUPABASE_SECRET_KEYS)).digest('hex');
 const dep=deposito(new AcervoNaNuvem(),{NGA_SEGREDO_ARQUIVOS:segredo,NGA_LIMITE_ARQUIVO:String(10*1024*1024)});
-const app=criarApp({banco,deposito:dep,analiseAutomatica:false});
+const app=criarApp({banco,deposito:dep,analiseAutomatica:false,analiseEmWorker:true});
 const prefix='/nga-lab-api';
 let googleConfig:Promise<void>|undefined;
 async function prepararGoogle(){
