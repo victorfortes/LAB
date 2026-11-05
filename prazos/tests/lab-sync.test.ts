@@ -26,3 +26,10 @@ test('simulador nunca envia dados para LAB e operação não confirmada não ger
  const op=(await repo.listAllWriteOps()).find(o=>!o.expected.kind)!;expect(labPayload({...op,status:'divergent'},r)).toBeNull();expect(labPayload({...op,readBack:null},r)).toBeNull();
  expect(()=>labUrl('http://external.example')).toThrow();expect(()=>labUrl('https://user:pass@external.example')).toThrow();
 });
+
+test('endpoint LAB preserva o prefixo Supabase e não duplica a rota salva no cofre',()=>{
+ const base='https://ndwgzqkbxnjkkkbguytm.supabase.co/functions/v1/nga-lab-api';
+ const endpoint=base+'/api/integracao/prazos';
+ expect(labUrl(base)).toBe(endpoint);expect(labUrl(base+'/')).toBe(endpoint);
+ expect(labUrl(endpoint)).toBe(endpoint);expect(labUrl('http://127.0.0.1:8790')).toBe('http://127.0.0.1:8790/api/integracao/prazos');
+});

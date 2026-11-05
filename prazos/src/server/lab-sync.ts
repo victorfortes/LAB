@@ -8,7 +8,8 @@ import {followUpPlan} from '../writer/tasks.ts';
 export function labUrl(value:string){
  const u=new URL(value);const local=['localhost','127.0.0.1','[::1]'].includes(u.hostname);
  if(u.username||u.password||!(u.protocol==='https:'||(u.protocol==='http:'&&local)))throw new Error('Use HTTPS para o LAB, ou HTTP apenas no endereço local.');
- return new URL('/api/integracao/prazos',u).href;
+ const prefix=u.pathname.replace(/\/api\/integracao\/prazos\/?$/,'').replace(/\/+$/,'');
+ u.pathname=prefix+'/api/integracao/prazos';u.search='';u.hash='';return u.href;
 }
 export function labPayload(op:WriteOp,record:Rec,options:{holidays?:ReadonlySet<string>;protocolResponsible?:string}={}){
  if(op.status!=='confirmed'||!op.astreaId||op.expected.kind)return null;
