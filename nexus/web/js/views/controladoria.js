@@ -136,6 +136,8 @@ export async function abrirPublicacao(id) {
         }catch(error){if(el.isConnected)el.erro(error.message);}finally{if(el.isConnected){button.disabled=false;button.textContent='Analisar novamente';}}
       };
       el.querySelector('[data-analisar]').addEventListener('click',analisar);
+      // Open with the available suggestion; manual scheduling stays usable while AI responds.
+      if(gere&&!p.prazo_id)void analisar();
     }});
 }
 
