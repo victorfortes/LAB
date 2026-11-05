@@ -81,6 +81,7 @@ export function montarCasca() {
       <aside class="side glass glass--chrome" aria-label="Navegação">
         <a class="brand" href="#/${ehCliente() ? 'inicio' : 'painel'}" aria-label="NGA LAB">
           <img class="brand__logo" src="/img/nga.png" alt="NGA" width="91" height="35"><span class="brand__name"><em>LAB</em></span></a>
+        ${ehCliente() ? html`<div class="faixa-cliente" role="note"><i></i>Portal do cliente<small>${eu.organizacoes?.[0]?.nome ?? ''}</small></div>` : ''}
         <nav class="nav" aria-label="Principal"><div class="nav__track"><span class="nav__lens" aria-hidden="true"></span>
           ${nav().map((n) => html`<a class="nav__item" href="#/${n.rota}" data-route="${n.rota}">${icone(n.icone)}<span>${n.rotulo}</span>${n.contagem ? html`<b class="nav__count" id="cnt-${n.contagem}" hidden></b>` : ''}</a>`)}
         </div></nav>
@@ -90,7 +91,7 @@ export function montarCasca() {
           <span><b>${eu.usuario.nome}</b><small>${papel}</small></span>${icone('chevronDown')}</button>
       </aside>
       <header class="toolbar">
-        <div class="toolbar__title glass glass--chrome"><span id="titulo-compacto">NGA LAB</span></div>
+        <div class="toolbar__title glass glass--chrome"><span id="titulo-compacto">NGA LAB</span>${ehCliente() ? html`<em class="selo-cliente">Portal do cliente</em>` : ''}</div>
         <div class="toolbar__tools glass glass--chrome">
           <button type="button" class="search-pill" id="btn-busca" aria-label="Buscar (⌘K)">${icone('search')}<span>Buscar</span><kbd>⌘K</kbd></button>
           ${ehCliente() ? '' : html`<button type="button" class="tbtn" id="btn-novo" aria-label="Criar" title="Criar">${icone('plus')}</button>`}
