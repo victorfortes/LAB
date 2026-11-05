@@ -21,6 +21,7 @@ const NAV_EQUIPE = [
   { rota: 'controladoria', rotulo: 'Controladoria', icone: 'inbox', permissao: 'controladoria.ler', contagem: 'pubs' },
   { rota: 'relatorios', rotulo: 'Relatórios', icone: 'chart' },
   { rota: 'equipe', rotulo: 'Equipe', icone: 'users' },
+  { rota:'admin-playbooks',rotulo:'Modelos de playbook',icone:'list',permissao:'admin.gerir' },
   { rota: 'ajustes', rotulo: 'Ajustes', icone: 'settings' },
 ];
 const NAV_CLIENTE = [
@@ -40,7 +41,7 @@ const ROTAS = {
     ['painel', 'painel'], ['tarefas', 'tarefas'], ['calendario', 'calendario'],
     ['projetos', 'projetos'], ['projetos/:id', 'projeto'], ['projetos/:id/:aba', 'projeto'],
     ['ferramentas', 'ferramentas'], ['ferramentas/:id', 'ferramentas'], ['controladoria', 'controladoria'],
-    ['relatorios', 'relatorios'], ['equipe', 'equipe'], ['ajustes', 'ajustes'],
+    ['admin-playbooks','admin_playbooks'], ['relatorios', 'relatorios'], ['equipe', 'equipe'], ['ajustes', 'ajustes'],
   ],
   cliente: [
     ['inicio', 'portal', { aba: 'inicio' }], ['andamento', 'portal', { aba: 'andamento' }],

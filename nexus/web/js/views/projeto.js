@@ -21,6 +21,7 @@ import { abaDiagnostico } from './projeto_diagnostico.js';
 import { abaNegociacoes } from './projeto_negociacoes.js';
 import { abaPlaybook } from './projeto_playbook.js';
 import { abaPesquisa } from './projeto_pesquisa.js';
+import { cardsVisao, ligarVisao } from './projeto_visao_cards.js';
 
 export { novoProcessoSolto } from './projeto_extra.js';
 
@@ -80,7 +81,7 @@ export default async function projeto({ id, aba }) {
       })}
       <section class="card glass up mt" aria-label="Fase do processo">
         <header class="card__head"><div><h2 class="card__title">Fase do procedimento</h2>
-          <p class="card__sub">${encerrado ? 'Projeto encerrado.' : pode('projeto.escrever') ? 'Clique numa fase para movimentar o projeto. O sistema só permite o passo seguinte — voltar é livre.' : 'Marcos legais do procedimento.'}</p></div>
+          <p class="card__sub">${encerrado ? 'Projeto encerrado.' : pode('projeto.escrever') ? (h.playbook_modelo_id ? 'Fases personalizadas do projeto. Abra o Playbook para configurar etapas e tarefas.' : 'Clique numa fase para movimentar o projeto. O sistema só permite o passo seguinte — voltar é livre.') : 'Marcos legais do procedimento.'}</p></div>
           ${pr ? html`<span class="selo ok">${pr.indice} de ${pr.total}</span>` : ''}</header>
         ${trilha(ctx)}
       </section>
@@ -113,9 +114,9 @@ const badge = (a, h) => {
 
 function trilha(ctx) {
   const { h, catalogo } = ctx;
-  const fases = catalogo.find((c) => c.tipo === h.tipo)?.fases ?? [];
+  const fases = h.fasesDisponiveis ?? catalogo.find((c) => c.tipo === h.tipo)?.fases ?? [];
   if (!fases.length) return html`<p class="dica">Este tipo de projeto não tem fases fixas.</p>`;
-  const atual = fases.findIndex((f) => f.id === h.fase);
+  const atual = fases.findIndex((f) => f.id === (h.fase_no_id ?? h.fase));
   const editavel = pode('projeto.escrever') && h.situacao !== 'encerrado';
   return html`<ol class="trilha" style="list-style:none;margin:0">${fases.map((f, i) => {
     const estado = i < atual ? 'feito' : i === atual ? 'atual' : 'futuro';
@@ -206,7 +207,7 @@ export async function atualizarBadges(ctx) {
 
 async function abaVisao(ctx) {
   const { h } = ctx;
-  const [neg, mensagens] = await Promise.all([pode('negociacao.ler') ? api.get(`/api/projetos/${ctx.id}/negociacoes`).catch(() => null) : null, api.get(`/api/projetos/${ctx.id}/mensagens`)]); const c = h.contagens; const pr = h.progresso;
+  const [neg, mensagens, visao] = await Promise.all([pode('negociacao.ler') ? api.get(`/api/projetos/${ctx.id}/negociacoes`).catch(() => null) : null, api.get(`/api/projetos/${ctx.id}/mensagens`), api.get(`/api/projetos/${ctx.id}/visao`)]); const c = h.contagens; const pr = h.progresso;
   const pend = [];
   if (Number(c.achados_criticos)) pend.push(['shield', `${c.achados_criticos} achado(s) crítico(s) em aberto`, 'Análise documental', 'erro', 'documentos']);
   if (Number(c.creditos_a_validar)) pend.push(['scale', `${c.creditos_a_validar} crédito(s) sem classe validada`, 'Validação humana exigida', 'aviso', 'creditos']);
@@ -214,7 +215,7 @@ async function abaVisao(ctx) {
   if (Number(c.prazos_abertos)) pend.push(['calendar', `${c.prazos_abertos} prazo(s) aberto(s)`, 'Processos e prazos', 'aviso', 'processos']);
   const doc = c.requisitos_obrigatorios ? Math.round((c.requisitos_aprovados / c.requisitos_obrigatorios) * 100) : null;
   return {
-    html: html`<div class="grid-hub">
+    html: html`${cardsVisao(h,visao)}<div class="grid-hub mt">
       <div style="display:grid;gap:var(--gap)">
         <section class="card glass up">
           <header class="card__head"><div><h2 class="card__title">Andamento</h2><p class="card__sub">${h.resumo ?? h.rotuloDoTipo}</p></div></header>
@@ -267,6 +268,7 @@ async function abaVisao(ctx) {
         </section>
       </div></div>`,
     depois(el) {
+      ligarVisao(el,ctx,visao);
       ouvir(el, 'click', '[data-aba-ir]', (b) => ctx.irParaAba(b.dataset.abaIr));
       const chat = $('[data-chat-projeto]', el); chat.scrollTop = chat.scrollHeight;
       ouvir(el, 'click', '[data-atualizar-chat]', () => ctx.recarregar());

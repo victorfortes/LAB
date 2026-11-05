@@ -1,0 +1,3 @@
+[functions.nga-lab-api]
+# The existing API checks its own HttpOnly sessions, integration tokens and signed download grants.
+verify_jwt = false

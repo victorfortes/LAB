@@ -78,7 +78,7 @@ const servidor = Bun.serve({
 
     // O download vive fora de /api/ porque o link é usado como URL comum, em
     // nova aba e sem cookie; quem autentica ali é o token assinado.
-    if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/arquivos/')) {
+    if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/arquivos/') || url.pathname === '/definir-senha') {
       const resposta = await api(req);
       // Cabeçalhos de segurança em toda resposta da API.
       resposta.headers.set('x-content-type-options', 'nosniff');

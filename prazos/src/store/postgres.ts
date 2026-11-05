@@ -1,7 +1,7 @@
 import pg from 'pg';
 import { GENESIS, nextEntry, verifyChain, type AuditEntry } from '../audit/chain.ts';
 import type { AuthorizedProcess } from '../domain/types.ts';
-import type { Comment, Correction, Rec, Run, User, WriteAuthorization, WriteOp } from './models.ts';
+import type { Comment, Correction, Rec, Run, User, WriteAuthorization, WriteOp, LabDelivery } from './models.ts';
 import { RunInProgress, VersionConflict, type AuditInput, type Repo } from './repo.ts';
 
 /** Falhas transitórias de conexão (rede/pooler derrubou a conexão): tenta de novo até 2 vezes com conexão nova. */
@@ -20,6 +20,10 @@ export class PgRepo implements Repo {
   private async q<T = any>(sql: string, p: unknown[] = []): Promise<T[]> {
     return (await withRetry(() => this.pool.query(sql, p))).rows as T[];
   }
+
+  async enqueueLabDelivery(d:LabDelivery){await this.q('INSERT INTO lab_sync_outbox(key,record_id,status,data) VALUES($1,$2,$3,$4) ON CONFLICT(key) DO NOTHING',[d.key,d.recordId,d.status,d]);}
+  async listLabDeliveries(){return (await this.q('SELECT data FROM lab_sync_outbox ORDER BY updated_at')).map(r=>r.data as LabDelivery);}
+  async updateLabDelivery(key:string,patch:Partial<LabDelivery>){await this.q("UPDATE lab_sync_outbox SET data=data||$2::jsonb,status=coalesce($2::jsonb->>'status',status),updated_at=now() WHERE key=$1",[key,JSON.stringify(patch)]);}
 
   async getUserByName(username: string) {
     const [r] = await this.q('SELECT * FROM users WHERE username=$1', [username]);

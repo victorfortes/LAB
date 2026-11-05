@@ -140,8 +140,8 @@ describe('credencial de integração', () => {
     expect(c.suaCredencial.escopos).toEqual(['processos']);
     // O contrato diz, por aplicação, quem já está ligado e quem não está.
     expect(c.estado.sentinela).toContain('Ligado');
-    expect(c.estado.prazos).toContain('Não ligado');
-    expect(c.naoExercitado).toContain('ainda não chamam estas rotas');
+    expect(c.estado.prazos).toContain('fila durável');
+    expect(c.naoExercitado).toContain('Íntegra');
   });
 });
 

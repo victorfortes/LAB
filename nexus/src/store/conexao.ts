@@ -7,6 +7,8 @@
  * transforma pool + RLS em vazamento entre clientes.
  */
 import { Pool, type PoolClient } from 'pg';
+import { AsyncLocalStorage } from 'node:async_hooks';
+export const contextoBanco = new AsyncLocalStorage<PoolClient>();
 
 export interface OpcoesConexao {
   readonly host: string;
@@ -15,12 +17,18 @@ export interface OpcoesConexao {
   readonly password: string;
   readonly database: string;
   readonly max?: number;
+  /** Credencial de infraestrutura: TODA transação assume nga_app antes de consultar dados. */
+  readonly connectionString?: string;
+  readonly papelAplicacao?: 'nga_app';
+  readonly esquema?: string;
   /** Bancos gerenciados (Supabase) exigem TLS; com `ca`, a cadeia do servidor é VERIFICADA. */
   readonly ssl?: { ca: string; rejectUnauthorized: true };
 }
 
 export class Banco {
   readonly #pool: Pool;
+  readonly #papel: 'nga_app' | undefined;
+  readonly #esquema: string | undefined;
 
   constructor(opcoes: OpcoesConexao) {
     if (opcoes.user === 'postgres' || opcoes.user.endsWith('_owner')) {
@@ -31,7 +39,11 @@ export class Banco {
           'sob pena de o RLS ser ignorado e um cliente enxergar dados de outro',
       );
     }
-    this.#pool = new Pool({ ...opcoes, max: opcoes.max ?? 10 });
+    if (opcoes.connectionString && opcoes.papelAplicacao !== 'nga_app') throw new Error('Conexão delegada exige papel nga_app obrigatório');
+    if (opcoes.esquema && !/^[a-z_][a-z0-9_]*$/.test(opcoes.esquema)) throw new Error('schema inválido');
+    this.#papel = opcoes.papelAplicacao; this.#esquema = opcoes.esquema;
+    const { papelAplicacao, esquema, ...pool } = opcoes;
+    this.#pool = new Pool({ ...pool, max: opcoes.max ?? 10 });
   }
 
   /**
@@ -42,9 +54,11 @@ export class Banco {
     const db = await this.#pool.connect();
     try {
       await db.query('BEGIN');
+      if (this.#papel) await db.query('SET LOCAL ROLE nga_app');
+      if (this.#esquema) await db.query(`SET LOCAL search_path = ${this.#esquema}, public`);
       // SET LOCAL via set_config(..., true): morre no fim da transação.
       await db.query('SELECT set_config($1, $2, true)', ['app.usuario_id', usuarioId]);
-      const resultado = await fn(db);
+      const resultado = await contextoBanco.run(db, () => fn(db));
       await db.query('COMMIT');
       return resultado;
     } catch (erro) {
@@ -63,7 +77,9 @@ export class Banco {
     const db = await this.#pool.connect();
     try {
       await db.query('BEGIN');
-      const resultado = await fn(db);
+      if (this.#papel) await db.query('SET LOCAL ROLE nga_app');
+      if (this.#esquema) await db.query(`SET LOCAL search_path = ${this.#esquema}, public`);
+      const resultado = await contextoBanco.run(db, () => fn(db));
       await db.query('COMMIT');
       return resultado;
     } catch (erro) {

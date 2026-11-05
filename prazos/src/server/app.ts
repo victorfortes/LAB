@@ -315,6 +315,11 @@ export function createApp(s: Services, webDir = join(import.meta.dir, '..', '..'
     res.json({ ...r, title, notes: scheduleNotes(rec, a), expectedDueDate: a.deadline!.endTerm });
   });
 
+  // LAB credentials stay encrypted in the same local vault as other integration secrets.
+  api.get('/integrations/lab',async(req:Req,res)=>{requirePerm(A(req).role,'audit:read');res.json(await s.labSync.status());});
+  api.post('/integrations/lab',async(req:Req,res)=>{requirePerm(A(req).role,'write:authorize');const b=z.object({url:z.string().url(),token:z.string().min(32).max(500)}).parse(req.body);await s.labSync.configure(b.url,b.token);res.json({ok:true});});
+  api.post('/integrations/lab/retry',async(req:Req,res)=>{requirePerm(A(req).role,'write:authorize');res.json(await s.labSync.drain({force:true}));});
+
   // ---- correções
   api.post('/records/:id/corrections', async (req: Req, res) => {
     const b = z.object({

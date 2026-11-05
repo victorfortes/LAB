@@ -175,12 +175,11 @@ export function contrato() {
       sentinela:
         'Ligado. O comando `sentinela nexus-enviar` entrega o que foi confirmado por ' +
         'pessoa, e a entrega foi exercitada de ponta a ponta contra este servidor.',
-      prazos: 'Não ligado: o nga-prazos ainda não chama a rota de prazos.',
+      prazos: 'Ligação por fila durável: o NGA Prazos entrega apenas agendamentos confirmados por releitura, após configurar a credencial LAB no cofre.',
       integra: 'Não ligado: o Íntegra ainda não chama a rota de documentos.',
     },
     naoExercitado:
-      'Duas das três aplicações ainda não chamam estas rotas. O Sentinela já chama; ' +
-      'ligar o NGA Prazos e o Íntegra é trabalho dentro do repositório de cada um.',
+      'O Íntegra ainda depende de configurar o envio. Prazos usa outbox idempotente e requer credencial; consulte seu painel de sincronização para confirmar a entrega.',
   };
 }
 
@@ -300,7 +299,12 @@ export const EsquemaPrazosRecebidos = z.object({
       'juntada_ar', 'citacao', 'audiencia', 'manual']).default('disponibilizacao_dje'),
     dias: z.number().int().positive().max(3650).optional(),
     regime: z.enum(['uteis', 'corridos']).optional(),
-    externoId: z.string().max(200).optional(),
+    externoId: z.string().min(1).max(200).optional(),
+    astreaId:z.string().min(1).max(180).optional(),
+    vencimentoConfirmado:z.iso.date().optional(),
+    confirmadoPorLeitura:z.boolean().optional(),
+    responsavelNome:z.string().max(200).optional(),
+    tarefasAcompanhamento:z.array(z.object({tipo:z.enum(['analise','protocolo']),titulo:z.string().min(1).max(300),data:z.iso.date(),responsavelNome:z.string().max(200).nullable().optional()})).max(10).default([]),
   })).min(1).max(200),
 });
 
@@ -318,8 +322,8 @@ export async function receberPrazos(
     }
     const numero = formatarProcesso(z.numeroProcesso);
 
-    const { rows: processos } = await db.query<{ id: string }>(
-      'SELECT id FROM processos WHERE organizacao_id = $1 AND numero = $2',
+    const { rows: processos } = await db.query<{ id: string;projeto_id:string|null }>(
+      'SELECT id,projeto_id FROM processos WHERE organizacao_id = $1 AND numero = $2',
       [integracao.organizacaoId, numero]);
     const processoId = processos[0]?.id;
     if (!processoId) {
@@ -329,6 +333,15 @@ export async function receberPrazos(
       continue;
     }
 
+    if(z.vencimentoConfirmado && (integracao.aplicacao!=='prazos'||!z.confirmadoPorLeitura||!z.astreaId||!z.externoId)){
+      recusados.push({item:numero,motivo:'vencimento Astrea exige credencial Prazos e confirmação por releitura identificada'});continue;
+    }
+    if(z.vencimentoConfirmado && !processos[0]?.projeto_id){recusados.push({item:numero,motivo:'processo cadastrado sem projeto; vincule-o no LAB para individualizar prazo e tarefas'});continue;}
+    if(z.externoId){
+      await db.query('SELECT pg_advisory_xact_lock(hashtext($1))',[integracao.organizacaoId+':'+integracao.aplicacao+':'+z.externoId]);
+      const same=await db.query('SELECT id FROM prazos WHERE organizacao_id=$1 AND calculo->>\'externoId\'=$2 AND calculo->>\'aplicacaoOrigem\'=$3',[integracao.organizacaoId,z.externoId,integracao.aplicacao]);
+      if(same.rows[0]){repetidos++;continue;}
+    }
     const usual = z.tipo ? prazoUsual(z.tipo) : undefined;
     const dias = z.dias ?? usual?.dias;
     if (!dias) {
@@ -336,8 +349,8 @@ export async function receberPrazos(
       continue;
     }
 
-    // O vencimento é recalculado AQUI, pelas regras do CPC, e não aceito como
-    // veio: a fonte não conhece o recesso nem a prorrogação do art. 224, § 1º.
+    // A contagem CPC é sempre recalculada para conferência. Para Prazos com releitura
+    // identificada, também preservamos o vencimento efetivo do Astrea e sinalizamos diferenças.
     const calculo = contarPrazo({
       evento: z.evento, origem: z.origem, dias,
       regime: z.regime ?? usual?.regime ?? 'uteis',
@@ -349,19 +362,39 @@ export async function receberPrazos(
       [processoId, z.titulo, z.evento]);
     if (jaExiste[0]) { repetidos++; continue; }
 
-    await db.query(
+    const {rows:inseridos}=await db.query<{id:string}>(
       `INSERT INTO prazos (processo_id, organizacao_id, titulo, tipo, evento, origem,
          dias, regime, vencimento, calculo, criado_por)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,
       [processoId, integracao.organizacaoId, z.titulo, z.tipo ?? null, z.evento, z.origem,
-       calculo.dias, calculo.regime, calculo.vencimento,
+       calculo.dias, calculo.regime, z.vencimentoConfirmado??calculo.vencimento,
        JSON.stringify({
          ...calculo,
+         aplicacaoOrigem:integracao.aplicacao,
+         astreaId:z.astreaId??null,
+         confirmadoPorLeitura:z.confirmadoPorLeitura??false,
+         vencimentoAstrea:z.vencimentoConfirmado??null,
+         vencimentoCalculado:calculo.vencimento,
+         divergenciaDeContagem:!!z.vencimentoConfirmado&&z.vencimentoConfirmado!==calculo.vencimento,
+         avisoOrigem:z.vencimentoConfirmado?'Espelho do vencimento efetivamente confirmado no Astrea. Contagem CPC paralela preservada para conferência.':null,
          fundamentoLegal: usual?.fundamento ?? null,
          recebidoDe: integracao.nome,
          externoId: z.externoId ?? null,
        }),
        integracao.usuarioId]);
+    const prazoId=inseridos[0]!.id;const projetoId=processos[0]?.projeto_id;
+    if(projetoId){
+      const createTask=async(title:string,date:string,key:string,responsavel?:string|null,origem='manual')=>{
+        const match=responsavel?await db.query<{id:string}>(`SELECT DISTINCT u.id FROM usuarios u JOIN vinculos v ON v.usuario_id=u.id WHERE v.organizacao_id=$1 AND v.revogado_em IS NULL AND u.ativo AND lower(btrim(u.nome))=lower(btrim($2)) AND v.papel NOT IN('integracao','cliente_usuario','cliente_administrador','parceiro_externo')`,[integracao.organizacaoId,responsavel]):{rows:[]};
+        const owner=match.rows.length===1?match.rows[0]!.id:null;
+        await db.query(`INSERT INTO tarefas(organizacao_id,projeto_id,titulo,descricao,responsavel_id,prazo,origem,origem_id,chave_playbook,criado_por)
+          VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT(projeto_id,chave_playbook) WHERE chave_playbook IS NOT NULL DO NOTHING`,
+          [integracao.organizacaoId,projetoId,title,'Sincronizado do NGA Prazos. Fonte Astrea: '+(z.astreaId??z.externoId??'registro importado'),owner,date,origem,prazoId,key,integracao.usuarioId]);
+      };
+      const source=z.externoId??prazoId;
+      await createTask(z.titulo,z.vencimentoConfirmado??calculo.vencimento,'astrea-cumprimento:'+source,z.responsavelNome,'prazo');
+      for(const task of z.tarefasAcompanhamento)await createTask(task.titulo,task.data,'astrea-'+task.tipo+':'+source,task.responsavelNome);
+    }
     criados++;
   }
 

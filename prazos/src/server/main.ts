@@ -121,6 +121,10 @@ if (demo || liveLocal) {
   }
 }
 
-const app = createApp(buildServices(cfg, repo, astrea, vault));
+const services=buildServices(cfg,repo,astrea,vault);
+// Recovery scans the persisted, read-back-confirmed writes; never schedules anything in Astrea.
+const deliver=()=>services.labSync.drain().catch(()=>log.error('LAB: fila de sincronização pendente'));
+setTimeout(deliver,5000);const labTimer=setInterval(deliver,60000);labTimer.unref();
+const app = createApp(services);
 const server = app.listen(cfg.port, '127.0.0.1', () => log.info('NGA Prazos no ar', { url: `http://127.0.0.1:${cfg.port}`, mode: cfg.mode, writeEnabled: cfg.writeEnabled }));
 process.on('SIGINT', () => server.close(() => process.exit(0)));

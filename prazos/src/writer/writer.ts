@@ -62,7 +62,7 @@ export class Writer {
   constructor(
     private repo: Repo,
     private astrea: AstreaPort,
-    private cfg: { writeEnabled: boolean; writeOnlyPublications?: string[]; allowThirdPartyPublications?: string[]; productionWrite?: boolean; concludePublication?: boolean; followUpTasks?: boolean; followUpMode?: 'workflow' | 'tasks' | 'no'; protocolResponsible?: string; holidays?: ReadonlySet<string>; maxRealWrites?: number | null; titlePrefix?: string; kanbanBoard?: string | null; kanbanColumn?: string | null; alertDays?: number | null },
+    private cfg: { onConfirmed?:(recordId:string)=>Promise<{enviados:number;pendentes:number}>; writeEnabled: boolean; writeOnlyPublications?: string[]; allowThirdPartyPublications?: string[]; productionWrite?: boolean; concludePublication?: boolean; followUpTasks?: boolean; followUpMode?: 'workflow' | 'tasks' | 'no'; protocolResponsible?: string; holidays?: ReadonlySet<string>; maxRealWrites?: number | null; titlePrefix?: string; kanbanBoard?: string | null; kanbanColumn?: string | null; alertDays?: number | null },
   ) {}
 
   /** Criações reais tentadas nesta execução do app (conservador: conta antes de chamar createSchedule). */
@@ -141,6 +141,7 @@ export class Writer {
         await this.repo.appendAudit({ actor: actor.username, action: 'write.publication_not_treated', entityType: 'record', entityId: recordId, data: { publicationId: rec.externalId, error: (e as Error).message.slice(0, 300) } });
       }
     }
+    if(to==='confirmed'&&this.cfg.onConfirmed){try{const sync=await this.cfg.onConfirmed(recordId);tasks=[...(tasks??[]),`LAB: ${sync.enviados} prazo(s) sincronizado(s), ${sync.pendentes} pendente(s) na fila.`];}catch{tasks=[...(tasks??[]),'LAB: entrega pendente; a fila será retomada automaticamente.'];}}
     return { recordId, state: to, confirmedInAstrea: to === 'confirmed', items, treated: tasksOk ? treated : false, treatedNote, tasks };
   }
 

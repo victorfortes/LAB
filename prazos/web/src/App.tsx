@@ -151,6 +151,7 @@ function Dashboard({ me, cfg, onLogout }: { me: Me; cfg: Cfg; onLogout: () => vo
   const [q, setQ] = useState(''); const [sort, setSort] = useState<Sort>('prazo');
   const [open, setOpen] = useState<string | null>(null);
   const [vaultOpen, setVaultOpen] = useState(false);
+  const [labOpen,setLabOpen]=useState(false);
   const [view, setView] = useState<'pub' | 'lanc'>('pub');
   const [scope, setScope] = useState('copel');
   const [day, setDay] = useState('');
@@ -220,6 +221,7 @@ function Dashboard({ me, cfg, onLogout }: { me: Me; cfg: Cfg; onLogout: () => vo
             {!cfg.holidaysVerified && <span className="pill gold" title="A lista de feriados forenses ainda não foi conferida pela Controladoria: confira as datas antes de aprovar"><I n="alert" s={13} />Conferir feriados</span>}
           </div>
           {can('audit:read') && <><a className="btn ghost hide-sm" href="/api/export/records.csv" download><I n="download" s={15} />Planilha</a><a className="btn ghost hide-sm" href="/api/export/audit.csv" download><I n="download" s={15} />Auditoria</a></>}
+          {can('write:authorize') && cfg.mode==='live' && <button className="btn ghost" onClick={()=>setLabOpen(true)}>Sincronização LAB</button>}
           {can('users:manage') && cfg.mode === 'live' && <button className="btn ghost" onClick={() => setVaultOpen(true)}><I n="key" s={15} />Acesso Astrea</button>}
           <div className="userchip"><div className="who"><b>{me.username}</b><span>{me.role}</span></div><span className="avatar lg">{initials(me.username)}</span></div>
           <button className="btn ghost" onClick={onLogout} aria-label="Sair"><I n="logout" s={15} /></button>
@@ -329,6 +331,7 @@ function Dashboard({ me, cfg, onLogout }: { me: Me; cfg: Cfg; onLogout: () => vo
       })()}
 
       <div className="toasts">{toasts.map((t) => <div key={t.id} className={`toast ${t.kind}`} onClick={() => setToasts((x) => x.filter((y) => y.id !== t.id))}>{t.text}</div>)}</div>
+      {labOpen && <LabSyncModal onClose={()=>setLabOpen(false)} notify={notify}/>}
       {vaultOpen && <VaultModal onClose={() => setVaultOpen(false)} notify={notify} />}
       {open && <Detail row={rows.find((r) => r.id === open)!} me={me} cfg={cfg} onClose={() => setOpen(null)} onChange={refresh} notify={notify} />}
     </>
@@ -651,4 +654,12 @@ function Detail({ row, me, cfg, onClose, onChange, notify }: { row: Row; me: Me;
       </aside>
     </>
   );
+}
+
+function LabSyncModal({onClose,notify}:{onClose:()=>void;notify:Notify}){
+ const[status,setStatus]=useState<{configurado:boolean;pendentes:number;enviados:number;falhas:Array<{key:string;erro:string;tentativas:number}>}|null>(null);
+ const[url,setUrl]=useState('http://127.0.0.1:8790');const[token,setToken]=useState('');const[busy,setBusy]=useState(false);const[error,setError]=useState('');
+ const refresh=()=>api('/integrations/lab').then(setStatus).catch(e=>setError(e.message));useEffect(()=>{void refresh();},[]);
+ const save=async()=>{setBusy(true);setError('');try{await api('/integrations/lab','POST',{url,token});setToken('');await refresh();notify({kind:'ok',text:'Conexão LAB guardada no cofre. A fila será retomada automaticamente.'});}catch(e){setError((e as Error).message);}finally{setBusy(false);}};
+ return <div className="lab-sync-overlay" onClick={onClose}><section className="lab-sync-dialog" role="dialog" aria-modal="true" aria-labelledby="lab-title" onClick={e=>e.stopPropagation()}><header className="modal-head"><h2 id="lab-title">Sincronização com NGA LAB</h2><button className="btn ghost" onClick={onClose}>Fechar</button></header><div className="modal-body"><p>Após o agendamento ser conferido por releitura no Astrea, o prazo e as tarefas vão automaticamente ao projeto correspondente no LAB. Falhas ficam em fila persistente, sem repetir o lançamento no Astrea.</p><p><b>{status?.configurado?'Credencial configurada':'Credencial ainda não configurada'}</b> · {status?.pendentes??0} pendentes · {status?.enviados??0} enviados</p><p className="muted">O processo precisa estar cadastrado e vinculado ao projeto correto no LAB. A integração nunca escolhe outro cliente por aproximação.</p><label>Endereço do LAB<input value={url} onChange={e=>setUrl(e.target.value)} placeholder="https://seu-lab"/></label><label>Token de integração Prazos<input type="password" autoComplete="new-password" value={token} onChange={e=>setToken(e.target.value)}/></label><p className="muted">Crie a credencial com escopo Prazos na área Integrações do LAB. O token fica cifrado no cofre deste serviço e nunca é exibido novamente.</p>{error&&<p role="alert">{error}</p>}{status?.falhas.map(f=><p key={f.key} className="muted">{f.erro} · tentativa {f.tentativas}</p>)}</div><footer className="modal-foot"><button className="btn ghost" disabled={busy||!status?.configurado} onClick={async()=>{setBusy(true);try{await api('/integrations/lab/retry','POST',{});await refresh();}catch(e){setError((e as Error).message);}finally{setBusy(false);}}}>Retentar fila agora</button><button className="btn primary" disabled={busy||token.trim().length<32} onClick={save}>Guardar conexão</button></footer></section></div>;
 }

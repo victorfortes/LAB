@@ -1,12 +1,16 @@
 import { nextEntry, verifyChain, type AuditEntry } from '../audit/chain.ts';
 import type { AuthorizedProcess } from '../domain/types.ts';
-import type { Comment, Correction, Rec, Run, User, WriteAuthorization, WriteOp } from './models.ts';
+import type { Comment, Correction, Rec, Run, User, WriteAuthorization, WriteOp, LabDelivery } from './models.ts';
 import { RunInProgress, VersionConflict, type AuditInput, type Repo } from './repo.ts';
 
 const ACTIVE = new Set(['running', 'awaiting_login']);
 const clone = <T>(x: T): T => structuredClone(x);
 
 export class MemoryRepo implements Repo {
+  labDeliveries=new Map<string,LabDelivery>();
+  async enqueueLabDelivery(d:LabDelivery){if(!this.labDeliveries.has(d.key))this.labDeliveries.set(d.key,clone(d));}
+  async listLabDeliveries(){return clone([...this.labDeliveries.values()]);}
+  async updateLabDelivery(key:string,patch:Partial<LabDelivery>){const d=this.labDeliveries.get(key);if(d)Object.assign(d,clone(patch));}
   users = new Map<string, User>();
   runs = new Map<string, Run>();
   procs: AuthorizedProcess[] = [];

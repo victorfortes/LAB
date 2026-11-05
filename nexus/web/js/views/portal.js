@@ -8,7 +8,7 @@
 import { api } from '../api.js';
 import { estado, pode } from '../estado.js';
 import { anel } from '../fx.js';
-import { $, dataBR, guardado, hojeISO, html, icone, ouvir, paraCentavos, raw, relativo, tamanho } from '../util.js';
+import { $, dataBR, guardado, hojeISO, html, icone, avatar, ouvir, paraCentavos, raw, relativo, tamanho } from '../util.js';
 import { cabecalho, erroDe, formulario, toast, vazio } from '../ui.js';
 import { atualizarLateral, navegar } from '../shell.js';
 
@@ -25,7 +25,7 @@ export default async function portal({ aba }) {
   const corpo = await ABAS[aba](proj);
   return {
     titulo: TITULOS[aba],
-    html: html`${cabecalho({ titulo: TITULOS[aba], sub: proj.nome, resumo: corpo.resumo ?? [] })}<div class="mt">${corpo.html}</div>`,
+    html: html`<div class="portal-workspace" data-projeto-portal="${proj.projeto_id}"><section class="portal-project-identity glass">${avatar(proj.nome,'lg')}<div class="grow"><small>NGA LAB · Portal do cliente</small><h2>${proj.nome}</h2><p class="dica">Seu espaço de documentos, andamento e conversa com a equipe.</p></div><span class="selo ok">Acesso pessoal</span></section>${cabecalho({ titulo: TITULOS[aba], sub: proj.nome, resumo: corpo.resumo ?? [] })}<div class="mt">${corpo.html}</div></div>`,
     depois: (el) => corpo.depois?.(el, proj),
   };
 }
@@ -35,13 +35,14 @@ const bloqueado = (o) => ({ html: html`<section class="card glass up">${vazio('l
 // ------------------------------------------------------------------ início ---
 
 async function inicio(p) {
-  const [hub, catalogo, check, ob, procs, msgs, negs] = await Promise.all([
+  const [hub, catalogo, check, ob, procs, msgs, negs, visao] = await Promise.all([
     api.get(`/api/projetos/${p.projeto_id}`).catch(() => null), api.get('/api/projetos/fases').catch(() => []),
     api.get(`/api/projetos/${p.projeto_id}/checklist`).catch(() => null),
     p.mostra_obrigacoes ? api.get(`/api/projetos/${p.projeto_id}/obrigacoes`).catch(() => null) : null,
     api.get('/api/processos').catch(() => []),
     api.get(`/api/projetos/${p.projeto_id}/mensagens`).catch(() => []),
     api.get(`/api/portal/projetos/${p.projeto_id}/negociacoes`).catch(() => []),
+    api.get(`/api/projetos/${p.projeto_id}/visao`).catch(() => ({marcos:[]})),
   ]);
   const meus = procs.filter((x) => x.projeto_id === p.projeto_id);
   const fases = hub ? (catalogo.find((c) => c.tipo === hub.tipo)?.fases ?? []) : [];
@@ -52,7 +53,7 @@ async function inicio(p) {
   return {
     resumo: [{ rotulo: 'Documentos aprovados', valor: pr ? pr.percentualAprovado : '—', sufixo: pr ? '%' : '' }, { rotulo: 'Aguardando você', valor: falta.length, tom: falta.length ? 'warn' : '' },
       { rotulo: 'Processos', valor: meus.length }],
-    html: html`${fases.length ? html`<section class="card glass up" style="margin-bottom:var(--gap)"><header class="card__head"><div><h2 class="card__title">Onde está o seu processo</h2>
+    html: html`${visao.marcos?.length ? html`<section class="card glass up" style="margin-bottom:var(--gap)"><header class="card__head"><div><h2 class="card__title">Marcos do seu projeto</h2><p class="card__sub">Entregas compartilhadas pela equipe responsável</p></div></header><ul class="lista">${visao.marcos.map(m=>html`<li><span class="selo ${m.concluidoEm?'ok':'info'}">${m.concluidoEm?'Concluído':'Previsto'}</span><div><b>${m.titulo}</b>${m.descricao?html`<small>${m.descricao}</small>`:''}</div><span class="mono-sm">${m.dataPrevista?dataBR(m.dataPrevista):'Sem data'}</span></li>`)}</ul></section>`:''}${fases.length ? html`<section class="card glass up" style="margin-bottom:var(--gap)"><header class="card__head"><div><h2 class="card__title">Onde está o seu processo</h2>
         <p class="card__sub">${hub.faseAtual?.nome ?? ''}${hub.faseAtual?.marco ? ` — ${hub.faseAtual.marco}` : ''}</p></div>${hub.progresso ? html`<span class="selo ok">${hub.progresso.percentual}% do caminho</span>` : ''}</header>
         <ol class="trilha" style="list-style:none;margin:0">${fases.map((f, i) => html`<li class="passo ${i < atual ? 'feito' : i === atual ? 'atual' : 'futuro'}" title="${f.marco}"><span class="passo__no">${i < atual ? icone('check') : i + 1}</span><div class="passo__txt">${f.nome}</div></li>`)}</ol></section>` : ''}
     ${negs.length ? html`<section class="card glass up" style="margin-bottom:var(--gap)"><header class="card__head"><div><h2 class="card__title">Negociações em andamento</h2>

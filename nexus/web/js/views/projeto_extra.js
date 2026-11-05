@@ -11,7 +11,7 @@
 import { api } from '../api.js';
 import { estado, pode } from '../estado.js';
 import { anel } from '../fx.js';
-import { $, $$, avatar, dataBR, dataCurta, dataHoraBR, hojeISO, html, icone, ouvir, paraCentavos, raw, reais, relativo, tamanho } from '../util.js';
+import { $, $$, avatar, dataBR, dataCurta, dataHoraBR, guardado, hojeISO, html, icone, ouvir, paraCentavos, raw, reais, relativo, tamanho } from '../util.js';
 import { confirmar, erroDe, formulario, modal, toast, vazio } from '../ui.js';
 import { ir, navegar } from '../shell.js';
 
@@ -455,27 +455,57 @@ export async function abaPlano(ctx) {
 
 const ROTULO_RELATORIO = { acompanhamento: ['Acompanhamento mensal', 'Andamento, prazos, documentos e caixa do período. Feito para o cliente ler.'], credores: ['Quadro de credores', 'Créditos por classe, com o que ainda não foi validado em destaque.'] };
 
+const norm = (t) => String(t ?? '').normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+const SEM_VALOR = new Set(['ltda', 'eireli', 'comercio', 'servicos', 'industria', 'grupo', 'empresa', 'holding', 'participacoes', 'sociedade', 'anonima']);
+const palavras = (t) => norm(t).split(/[^a-z0-9]+/).filter((w) => w.length >= 4 && !SEM_VALOR.has(w));
+/** Sugere as emissões do gerador cujo cliente se parece com a empresa do projeto (ou com o nome dele). */
+const parecidas = (ctx, e) => {
+  const alvo = new Set([...ctx.h.empresas.flatMap((x) => palavras(x.razao_social)), ...palavras(ctx.h.nome)]);
+  return palavras(e.cliente).some((w) => alvo.has(w));
+};
+
 export async function abaRelatorios(ctx) {
-  const docs = await api.get(`/api/projetos/${ctx.id}/documentos`);
+  const [docs, ger] = await Promise.all([api.get(`/api/projetos/${ctx.id}/documentos`), api.get(`/api/projetos/${ctx.id}/gerador/emissoes`).catch(() => ({ emissoes: [] }))]);
   const relatorios = docs.filter((d) => d.categoria === 'relatorio_gerador');
   const escreve = pode('documento.escrever') && ctx.h.situacao !== 'encerrado';
   const publica = pode('portal.publicar');
+  const todos = ger.emissoes;
+  const sugeridas = todos.filter((e) => parecidas(ctx, e));
+  const mostrarTodos = guardado.ler('geradorTodos', false) || !sugeridas.length;
+  const lista = (mostrarTodos ? todos : sugeridas).slice(0, 80);
   return {
-    html: html`<section class="card glass up"><header class="card__head"><div><h2 class="card__title">Relatórios do gerador NGA</h2><p class="card__sub">Somente PDFs vinculados a este projeto. A publicação libera o arquivo no portal deste cliente.</p></div><a class="btn btn--ghost" href="/gerador/" target="_blank" rel="noopener">Abrir gerador ↗</a></header>
-      ${escreve ? html`<label class="drop"><input type="file" accept="application/pdf,.pdf" data-relatorio-arquivo hidden>${icone('upload')}<b>Vincular PDF do gerador</b><small>Selecione o PDF gerado. Ele fica interno até você publicar.</small></label>` : ''}
-      ${relatorios.length ? html`<ul class="lista mt">${relatorios.map((d) => html`<li><div><b>${d.titulo}</b><small>${d.nome_original ?? ''} · ${relativo(d.criado_em)}</small></div><span class="selo ${d.visibilidade === 'publicado' ? 'ok' : ''}">${d.visibilidade === 'publicado' ? 'No portal' : 'Interno'}</span><button class="btn btn--ghost" data-baixar="${d.id}">Baixar</button>${publica ? html`<button class="btn btn--ghost" data-relatorio-publicar="${d.id}" data-titulo="${d.titulo}" data-publicado="${d.visibilidade === 'publicado'}">${d.visibilidade === 'publicado' ? 'Retirar do portal' : 'Publicar ao cliente'}</button>` : ''}</li>`)}</ul>` : vazio('chart','Nenhum relatório do gerador vinculado','Abra o gerador NGA, exporte o PDF e vincule o arquivo a este projeto.')}</section>`,
+    html: html`<section class="card glass up"><header class="card__head"><div><h2 class="card__title">Relatórios do Gerador NGA</h2>
+      <p class="card__sub">Os relatórios nascem no Gerador. Aqui você escolhe o que já foi emitido, ele entra no acervo deste projeto como interno e só vai ao cliente quando você publicar.</p></div><a class="btn btn--ghost" href="/gerador/" target="_blank" rel="noopener">Abrir o gerador ↗</a></header>
+      ${todos.length ? html`<div class="flex" style="margin-bottom:10px"><span class="dica">${mostrarTodos ? `Todas as emissões do gerador (${todos.length})` : `${sugeridas.length} emissão(ões) com cliente parecido com este projeto`}</span><span class="grow"></span>
+        ${sugeridas.length ? html`<button type="button" class="link" data-alternar>${mostrarTodos ? 'Mostrar só os sugeridos' : `Mostrar todas (${todos.length})`}</button>` : ''}</div>
+        <ul class="lista">${lista.map((e) => html`<li><div><b>${e.cliente ?? e.nome}</b><small>${[e.periodo, e.modelo, e.paginas ? `${e.paginas} pág.` : null, e.geradoEm ? `emitido ${relativo(e.geradoEm)}` : null].filter(Boolean).join(' · ')}</small></div>
+          <div class="fim flex" style="justify-content:flex-end">${e.documentoId ? html`<span class="selo ok">neste projeto</span>`
+            : escreve ? html`<button type="button" class="btn btn--ghost" data-importar="${e.id}">Importar</button>${publica ? html`<button type="button" class="btn btn--accent" data-importar="${e.id}" data-publicar="1">Importar e publicar</button>` : ''}` : ''}</div></li>`)}</ul>`
+        : vazio('chart', 'Nenhuma emissão no gerador', 'Quando alguém emitir um relatório no Gerador, ele aparece aqui para ser importado.')}</section>
+      <section class="card glass up mt"><header class="card__head"><div><h2 class="card__title">Neste projeto</h2><p class="card__sub">PDFs do gerador já vinculados. A publicação libera o arquivo no portal deste cliente.</p></div></header>
+      ${relatorios.length ? html`<ul class="lista">${relatorios.map((d) => html`<li><div><b>${d.titulo}</b><small>${d.nome_original ?? ''} · ${relativo(d.criado_em)}</small></div><span class="selo ${d.visibilidade === 'publicado' ? 'ok' : ''}">${d.visibilidade === 'publicado' ? 'No portal' : 'Interno'}</span><button class="btn btn--ghost" data-baixar="${d.id}">Baixar</button>${publica ? html`<button class="btn btn--ghost" data-relatorio-publicar="${d.id}" data-titulo="${d.titulo}" data-publicado="${d.visibilidade === 'publicado'}">${d.visibilidade === 'publicado' ? 'Retirar do portal' : 'Publicar ao cliente'}</button>` : ''}</li>`)}</ul>`
+        : html`<p class="dica">Nenhum relatório do gerador neste projeto ainda.</p>`}
+      ${escreve ? html`<label class="drop mt"><input type="file" accept="application/pdf,.pdf" data-relatorio-arquivo hidden>${icone('upload')}<b>Ou vincule um PDF exportado à mão</b><small>Para o que foi emitido fora do gerador. Fica interno até você publicar.</small></label>` : ''}</section>`,
     depois(el) {
       ouvir(el, 'click', '[data-baixar]', (b) => baixar(b.dataset.baixar));
+      ouvir(el, 'click', '[data-alternar]', () => { guardado.gravar('geradorTodos', !mostrarTodos); ctx.recarregar(); });
+      ouvir(el, 'click', '[data-importar]', async (b) => {
+        const publicar = !!b.dataset.publicar; const e = todos.find((x) => x.id === b.dataset.importar);
+        if (publicar && !(await confirmar('Importar e publicar ao cliente?', `“${e.cliente ?? e.nome}” (${e.periodo ?? 'sem período'}) ficará disponível no portal de ${ctx.h.nome}. Confira que é o cliente certo.`, { rotulo: 'Importar e publicar' }))) return;
+        b.disabled = true; b.textContent = 'Importando…';
+        try { await api.post(`/api/projetos/${ctx.id}/gerador/importacoes`, { emissaoId: e.id, publicar: publicar || undefined }); toast(publicar ? 'Importado e publicado no portal' : 'Importado como interno'); ctx.recarregar(); }
+        catch (er) { b.disabled = false; erroDe(er); }
+      });
       el.querySelector('[data-relatorio-arquivo]')?.addEventListener('change', async (e) => {
         const f = e.target.files?.[0]; if (!f) return;
-        if (!f.name.toLowerCase().endsWith('.pdf')) return toast('Selecione um PDF exportado pelo gerador.', 'erro');
-        const ok = await formulario({ titulo:'Vincular relatório do gerador',subtitulo:ctx.h.nome,rotulo:'Vincular PDF',campos:[{nome:'titulo',rotulo:'Título do relatório',obrigatorio:true,valor:f.name.replace(/\.pdf$/i,'')}],
-          enviar:async (v) => { const fd = new FormData(); fd.append('arquivo',f); fd.append('titulo',v.titulo); fd.append('categoria','relatorio_gerador'); await api.enviar(`/api/projetos/${ctx.id}/documentos`,fd); toast('Relatório vinculado a este projeto'); },
-        }); if (ok) ctx.recarregar(); else e.target.value = '';
+        if (!f.name.toLowerCase().endsWith('.pdf')) return toast('Selecione um PDF.', 'erro');
+        const ok = await formulario({ titulo: 'Vincular relatório', subtitulo: ctx.h.nome, rotulo: 'Vincular PDF', campos: [{ nome: 'titulo', rotulo: 'Título do relatório', obrigatorio: true, valor: f.name.replace(/\.pdf$/i, '') }],
+          enviar: async (v) => { const fd = new FormData(); fd.append('arquivo', f); fd.append('titulo', v.titulo); fd.append('categoria', 'relatorio_gerador'); await api.enviar(`/api/projetos/${ctx.id}/documentos`, fd); toast('Relatório vinculado a este projeto'); } });
+        if (ok) ctx.recarregar(); else e.target.value = '';
       });
-      ouvir(el,'click','[data-relatorio-publicar]',async (b) => {
+      ouvir(el, 'click', '[data-relatorio-publicar]', async (b) => {
         const publicado = b.dataset.publicado === 'true';
-        if (!publicado && !await confirmar('Publicar relatório ao cliente?', `“${b.dataset.titulo}” ficará disponível no portal de ${ctx.h.nome}.`, {rotulo:'Publicar'})) return;
+        if (!publicado && !(await confirmar('Publicar relatório ao cliente?', `“${b.dataset.titulo}” ficará disponível no portal de ${ctx.h.nome}.`, { rotulo: 'Publicar' }))) return;
         try { if (publicado) await api.del(`/api/documentos/${b.dataset.relatorioPublicar}/publicacao`); else await api.post(`/api/documentos/${b.dataset.relatorioPublicar}/publicacao`); toast(publicado ? 'Relatório retirado do portal' : 'Relatório publicado'); ctx.recarregar(); } catch (er) { erroDe(er); }
       });
     },

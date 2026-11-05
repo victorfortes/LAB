@@ -259,3 +259,22 @@ export async function agendarPublicacao(db:PoolClient,id:string,d:z.infer<typeof
   await db.query("UPDATE tarefas SET status='concluida',concluida_em=now(),concluida_por=$2,atualizado_em=now() WHERE projeto_id=$3 AND chave_playbook=$1 AND status<>'concluida'",['djen-analise:'+id,i.usuarioId,p.projeto_id]);
   return {prazoId:prazo.id,...prazo,repetido:false};
 }
+
+export const EsquemaVinculoPublicacao=z.object({projetoId:z.string().uuid()});
+/** An explicit project selection fixes orphan publications; no client-name guessing. */
+export async function vincularProjetoDaPublicacao(db:PoolClient,id:string,projetoId:string,identidade:Identidade){
+ const pub=(await db.query('SELECT * FROM publicacoes WHERE id=$1 FOR UPDATE',[id])).rows[0];if(!pub)throw new NaoEncontrado('Publicação não encontrada.');
+ const project=(await db.query('SELECT id,organizacao_id FROM projetos WHERE id=$1 AND organizacao_id=$2',[projetoId,pub.organizacao_id])).rows[0];if(!project)throw new NaoEncontrado('Projeto não encontrado no escritório desta publicação.');
+ const number=soDigitos(pub.numero_processo);if(!number)throw new PedidoInvalido('A publicação não contém número do processo. Cadastre e confira o processo antes de vincular.');
+ await db.query('SELECT pg_advisory_xact_lock(hashtext($1))',[pub.organizacao_id+':processo:'+number]);
+ const existing=(await db.query('SELECT id,projeto_id FROM processos WHERE organizacao_id=$1 AND regexp_replace(numero,\'\\D\',\'\',\'g\')=$2',[pub.organizacao_id,number])).rows[0];
+ let processoId:string;
+ if(existing){
+  if(existing.projeto_id&&existing.projeto_id!==projetoId)throw new PedidoInvalido('Este processo já está vinculado a outro projeto. Confira o cadastro para evitar misturar clientes.');
+  processoId=existing.id;await db.query('UPDATE processos SET projeto_id=$2 WHERE id=$1',[processoId,projetoId]);
+ }else{
+  const {criar}=await import('./processos.ts');const r=await criar(db,{numero:number,projetoId,tribunal:pub.tribunal??undefined,classe:pub.classe??undefined,segredoJustica:false},identidade);processoId=r.id;
+ }
+ await atualizarPublicacao(db,id,{processoId},identidade);
+ return detalharPublicacao(db,id);
+}

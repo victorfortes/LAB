@@ -22,14 +22,18 @@ import { diagnostico } from './diagnostico.ts';
 import { atividade } from './atividade.ts';
 import * as negociacoes from './negociacoes.ts';
 import * as controladoria from './controladoria.ts';
+import * as gerador from './gerador.ts';
 import { sugerirPrazo } from './publicacao_analise.ts';
 import { faseInicial, type TipoDeProjeto } from '../domain/projeto/fases.ts';
 import * as processos from './processos.ts';
 import * as relatorios from './relatorios.ts';
 import * as projetos from './projetos.ts';
+import * as playbookConfig from './playbook_config.ts';
 import * as tarefas from './tarefas.ts';
+import * as equipeAdmin from './equipe.ts';
 import * as projetoConfig from './projeto_config.ts';
 import * as ferramentas from './ferramentas.ts';
+import * as ferramentaSso from './ferramenta_sso.ts';
 import * as convites from './convites.ts';
 import * as integracoes from './integracoes.ts';
 import * as google from './google.ts';
@@ -86,7 +90,7 @@ export interface Contexto {
 /** JSON com BigInt: centavos viram string, nunca Number (perderia precisão). */
 function json(dados: unknown, status = 200): Response {
   const corpo = JSON.stringify(dados, (_k, v) => (typeof v === 'bigint' ? v.toString() : v));
-  return new Response(corpo, { status, headers: { 'content-type': 'application/json; charset=utf-8' } });
+  return new Response(corpo, { status, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'private, no-store', 'vary': 'Cookie, Authorization' } });
 }
 
 function erro(mensagem: string, status: number, detalhe?: unknown): Response {
@@ -211,6 +215,14 @@ export function criarApp(ctx: Contexto) {
         return entregue;
       }
 
+      if (rota === '/definir-senha' && metodo === 'GET') return equipeAdmin.paginaSenha();
+      if (rota === '/api/equipe/definir-senha' && metodo === 'POST') {
+        const d=equipeAdmin.EsquemaSenha.safeParse(await req.json().catch(()=>null));
+        if(!d.success) return erro('dados inválidos',400);
+        try { return json(await banco.semContexto(db=>equipeAdmin.definirSenha(db,d.data))); }
+        catch { return erro('link inválido ou expirado',400); }
+      }
+
       // ------------------------------------------------------------ sessão ---
       if (rota === '/api/sessao' && metodo === 'POST') {
         const corpo = EsquemaLogin.safeParse(await req.json().catch(() => null));
@@ -249,6 +261,22 @@ export function criarApp(ctx: Contexto) {
         const nonce=crypto.randomUUID();
         const script='location.replace('+JSON.stringify(next).replaceAll('<','\\u003c')+')';
         return new Response('<!doctype html><meta charset="utf-8"><title>Conectando Google</title><p>Concluindo conexão Google…</p><script nonce="'+nonce+'">'+script+'</script>',{headers:{'content-type':'text/html;charset=utf-8','cache-control':'no-store','referrer-policy':'no-referrer','content-security-policy':"default-src 'none'; script-src 'nonce-"+nonce+"'; base-uri 'none'; frame-ancestors 'none'"}});
+      }
+
+      if(rota==='/api/sso/consumir'&&metodo==='POST'){
+        const d=z.object({ferramenta:z.enum(ferramentaSso.FERRAMENTAS_SSO),ticket:z.string().max(128),state:z.string().max(128)}).safeParse(await req.json().catch(()=>null));
+        if(!d.success)return erro('Acesso inválido.',400);
+        const bearer=(req.headers.get('authorization')??'').replace(/^Bearer /,'');
+        if(!ferramentaSso.conferirServicoSso(d.data.ferramenta,bearer))return erro('Acesso negado.',403);
+        const response=json(await banco.semContexto(db=>ferramentaSso.consumirAcessoSso(db,d.data.ferramenta,d.data.ticket,d.data.state)));response.headers.set('cache-control','no-store');return response;
+      }
+      // A same-origin document restores Strict LAB cookies after returning from the tool.
+      const relaySso=/^\/api\/ferramentas\/(prazos|sentinela)\/autorizar$/.exec(rota);
+      if(relaySso&&metodo==='GET'){
+        const ticket=url.searchParams.get('ticket')??'';const state=url.searchParams.get('state')??'';
+        if(!/^[A-Za-z0-9_-]{32,128}$/.test(ticket)||!/^[A-Za-z0-9_-]{32,128}$/.test(state))return erro('Acesso inválido.',400);
+        const next=rota.replace(/autorizar$/,'confirmar')+'?'+new URLSearchParams({ticket,state});const nonce=crypto.randomUUID();
+        return new Response('<!doctype html><meta charset="utf-8"><title>Acesso NGA LAB</title><p>Confirmando seu acesso…</p><script nonce="'+nonce+'">location.replace('+JSON.stringify(next).replaceAll('<','\\u003c')+')</script>',{headers:{'content-type':'text/html;charset=utf-8','cache-control':'no-store','referrer-policy':'no-referrer','content-security-policy':"default-src 'none'; script-src 'nonce-"+nonce+"'; base-uri 'none'; frame-ancestors 'none'"}});
       }
 
       // --------------------------------------------------------- autenticado ---
@@ -314,6 +342,39 @@ export function criarApp(ctx: Contexto) {
         }
       }
 
+      // ------------------------------------------------ administração da equipe / visão do projeto ---
+      if(rota==='/api/escritorio/gestao-equipe' && ['GET','POST'].includes(metodo)) {
+        exigir(identidade.papeis,'admin.gerir');
+        if(metodo==='GET') return json(await banco.comoUsuario(identidade.usuarioId,db=>equipeAdmin.listar(db,identidade)));
+        const d=equipeAdmin.EsquemaPessoa.safeParse(await req.json().catch(()=>null));
+        if(!d.success)return erro('dados inválidos',400,d.error.issues);
+        return json(await banco.comoUsuario(identidade.usuarioId,db=>equipeAdmin.convidar(db,d.data,identidade)),201);
+      }
+      const mPessoa=/^\/api\/escritorio\/gestao-equipe\/([0-9a-f-]{36})(?:\/(redefinir-senha))?$/.exec(rota);
+      if(mPessoa && ['POST','PATCH'].includes(metodo)) {
+        exigir(identidade.papeis,'admin.gerir');
+        if(mPessoa[2] && metodo==='POST') return json(await banco.comoUsuario(identidade.usuarioId,db=>equipeAdmin.gerarLink(db,mPessoa[1]!,identidade)));
+        if(!mPessoa[2] && metodo==='PATCH') {
+          const d=equipeAdmin.EsquemaAcesso.safeParse(await req.json().catch(()=>null));if(!d.success)return erro('dados inválidos',400,d.error.issues);
+          return json(await banco.comoUsuario(identidade.usuarioId,db=>equipeAdmin.acesso(db,mPessoa[1]!,d.data,identidade)));
+        }
+      }
+      const mVisao=/^\/api\/projetos\/([0-9a-f-]{36})\/(visao|marcos)$/.exec(rota);
+      if(mVisao && metodo==='GET' && mVisao[2]==='visao') {
+        exigir(identidade.papeis,'projeto.ler');return json(await banco.comoUsuario(identidade.usuarioId,db=>equipeAdmin.visao(db,mVisao[1]!)));
+      }
+      if(mVisao && metodo==='POST' && mVisao[2]==='marcos') {
+        exigir(identidade.papeis,'projeto.escrever');const d=equipeAdmin.EsquemaMarco.safeParse(await req.json().catch(()=>null));if(!d.success)return erro('dados inválidos',400,d.error.issues);
+        if(d.data.visivelCliente) exigir(identidade.papeis,'portal.publicar');
+        return json(await banco.comoUsuario(identidade.usuarioId,db=>equipeAdmin.criarMarco(db,mVisao[1]!,d.data,identidade)),201);
+      }
+      const mMarco=/^\/api\/projeto-marcos\/([0-9a-f-]{36})$/.exec(rota);
+      if(mMarco && metodo==='PATCH') {
+        exigir(identidade.papeis,'projeto.escrever');const d=equipeAdmin.EsquemaAtualizarMarco.safeParse(await req.json().catch(()=>null));if(!d.success)return erro('dados inválidos',400,d.error.issues);
+        if(d.data.visivelCliente) exigir(identidade.papeis,'portal.publicar');
+        return json(await banco.comoUsuario(identidade.usuarioId,db=>equipeAdmin.atualizarMarco(db,mMarco[1]!,d.data,identidade)));
+      }
+
       // --------------------------------------------------- integrações ---
 
       if (rota === '/api/integracoes' && metodo === 'GET') {
@@ -336,6 +397,42 @@ export function criarApp(ctx: Contexto) {
         exigir(identidade.papeis, 'integracao.gerir');
         return json(await banco.comoUsuario(identidade.usuarioId, (db) =>
           integracoes.revogar(db, mIntegracao[1]!, identidade)));
+      }
+
+      // ------------------------------------------ customizable office/project playbooks ---
+      if ((rota === '/api/playbooks' || rota === '/api/admin/playbooks') && metodo === 'GET') {
+        exigir(identidade.papeis, rota.includes('/admin/') ? 'admin.gerir' : 'tarefa.ler');
+        return json(await banco.comoUsuario(identidade.usuarioId, playbookConfig.listarModelos));
+      }
+      if (rota === '/api/admin/playbooks/importar-padroes' && metodo === 'POST') {
+        exigir(identidade.papeis, 'admin.gerir');
+        return json(await banco.comoUsuario(identidade.usuarioId,db=>playbookConfig.importarPadroes(db,identidade)),201);
+      }
+      if (rota === '/api/admin/playbooks' && metodo === 'POST') {
+        exigir(identidade.papeis,'admin.gerir');
+        const v=playbookConfig.EsquemaModelo.safeParse(await req.json().catch(()=>null));if(!v.success)return erro('dados inválidos',400,v.error.issues);
+        return json(await banco.comoUsuario(identidade.usuarioId,db=>playbookConfig.criarModelo(db,v.data,identidade)),201);
+      }
+      const mModeloConfig=/^\/api\/admin\/playbooks\/([0-9a-f-]{36})(\/nos)?$/.exec(rota);
+      if(mModeloConfig){
+        exigir(identidade.papeis,'admin.gerir');const id=mModeloConfig[1]!;
+        if(metodo==='GET'&&!mModeloConfig[2])return json(await banco.comoUsuario(identidade.usuarioId,db=>playbookConfig.lerModelo(db,id)));
+        if(metodo==='PATCH'&&!mModeloConfig[2]){const v=playbookConfig.EsquemaModeloPatch.safeParse(await req.json().catch(()=>null));if(!v.success)return erro('dados inválidos',400,v.error.issues);return json(await banco.comoUsuario(identidade.usuarioId,db=>playbookConfig.editarModelo(db,id,v.data,identidade)));}
+        if(metodo==='POST'&&mModeloConfig[2]){const v=playbookConfig.EsquemaNo.safeParse(await req.json().catch(()=>null));if(!v.success)return erro('dados inválidos',400,v.error.issues);return json(await banco.comoUsuario(identidade.usuarioId,db=>playbookConfig.criarNo(db,'modelo',id,v.data,identidade)),201);}
+      }
+      const mNoConfig=/^\/api\/playbook-nos\/([0-9a-f-]{36})$/.exec(rota);
+      if(mNoConfig&&['PATCH','DELETE'].includes(metodo)){
+        exigir(identidade.papeis,'projeto.escrever');const id=mNoConfig[1]!;
+        return json(await banco.comoUsuario(identidade.usuarioId,async db=>{const r=await db.query('SELECT modelo_id FROM playbook_nos WHERE id=$1',[id]);if(!r.rows[0])throw new NaoEncontrado('nó não encontrado');if(r.rows[0].modelo_id)exigir(identidade.papeis,'admin.gerir');if(metodo==='DELETE')return playbookConfig.arquivarNo(db,id,identidade);const v=playbookConfig.EsquemaNoPatch.safeParse(await req.json().catch(()=>null));if(!v.success)throw new PedidoInvalido('dados do nó inválidos');return playbookConfig.editarNo(db,id,v.data,identidade);}));
+      }
+      const mFluxoConfig=/^\/api\/projetos\/([0-9a-f-]{36})\/fluxo(?:\/(aplicar|nos|fase|gerar))?$/.exec(rota);
+      if(mFluxoConfig){
+        exigir(identidade.papeis,metodo==='GET'?'tarefa.ler':'projeto.escrever');const id=mFluxoConfig[1]!,acao=mFluxoConfig[2];
+        if(metodo==='GET'&&!acao)return json(await banco.comoUsuario(identidade.usuarioId,db=>playbookConfig.lerFluxo(db,id)));
+        if(metodo==='POST'&&acao==='aplicar'){const v=playbookConfig.EsquemaAplicar.safeParse(await req.json().catch(()=>null));if(!v.success)return erro('dados inválidos',400,v.error.issues);return json(await banco.comoUsuario(identidade.usuarioId,db=>playbookConfig.aplicarModelo(db,id,v.data.modeloId,identidade,v.data.gerarTarefas)));}
+        if(metodo==='POST'&&acao==='nos'){const v=playbookConfig.EsquemaNo.safeParse(await req.json().catch(()=>null));if(!v.success)return erro('dados inválidos',400,v.error.issues);return json(await banco.comoUsuario(identidade.usuarioId,db=>playbookConfig.criarNo(db,'projeto',id,v.data,identidade)),201);}
+        if(metodo==='POST'&&acao==='fase'){const v=playbookConfig.EsquemaMoverFase.safeParse(await req.json().catch(()=>null));if(!v.success)return erro('dados inválidos',400,v.error.issues);return json(await banco.comoUsuario(identidade.usuarioId,db=>playbookConfig.moverFase(db,id,v.data.noId,identidade)));}
+        if(metodo==='POST'&&acao==='gerar')return json(await banco.comoUsuario(identidade.usuarioId,async db=>({criadas:await playbookConfig.gerarTarefas(db,id,'manual',id,identidade)})));
       }
 
       // --------------------------------------------------------- tarefas ---
@@ -451,6 +548,12 @@ export function criarApp(ctx: Contexto) {
           ...(p.get('situacao') ? { situacao: p.get('situacao')! } : {}), ...(p.get('oab') ? { oab: p.get('oab')! } : {}),
           ...(p.get('q') ? { q: p.get('q')! } : {}), pagina: Number(p.get('pagina') ?? 1) || 1 })));
       }
+      const mPubVinculo=/^\/api\/controladoria\/publicacoes\/([0-9a-f-]{36})\/vinculo$/.exec(rota);
+      if(mPubVinculo&&metodo==='POST'){
+        exigir(identidade.papeis,'controladoria.gerir');exigir(identidade.papeis,'processo.escrever');
+        const d=controladoria.EsquemaVinculoPublicacao.safeParse(await req.json().catch(()=>null));if(!d.success)return erro('Escolha um projeto válido.',400,d.error.issues);
+        return json(await banco.comoUsuario(identidade.usuarioId,db=>controladoria.vincularProjetoDaPublicacao(db,mPubVinculo[1]!,d.data.projetoId,identidade)));
+      }
       const mPubAnalise=/^\/api\/controladoria\/publicacoes\/([0-9a-f-]{36})\/(detalhe|analise)$/.exec(rota);
       if(mPubAnalise && ((mPubAnalise[2]==='detalhe'&&metodo==='GET')||(mPubAnalise[2]==='analise'&&metodo==='POST'))) {
         exigir(identidade.papeis,'controladoria.ler');
@@ -498,6 +601,17 @@ export function criarApp(ctx: Contexto) {
         if (ehCliente) return erro('acesso negado', 403);
         exigir(identidade.papeis, 'projeto.ler');
         return json(await banco.comoUsuario(identidade.usuarioId, ferramentas.estado));
+      }
+
+      const toolAccess=/^\/api\/ferramentas\/(prazos|sentinela)\/(acesso|confirmar)$/.exec(rota);
+      if(toolAccess){
+        if(ehCliente)return erro('Acesso negado.',403);exigir(identidade.papeis,'projeto.ler');
+        const tool=toolAccess[1] as ferramentaSso.FerramentaSso;
+        if(toolAccess[2]==='acesso'&&metodo==='POST')return json(await banco.comoUsuario(identidade.usuarioId,db=>ferramentaSso.emitirAcessoSso(db,identidade,tool)));
+        if(toolAccess[2]==='confirmar'&&metodo==='GET'){
+          const target=await banco.comoUsuario(identidade.usuarioId,db=>ferramentaSso.autorizarAcessoSso(db,identidade,tool,url.searchParams.get('ticket')??'',url.searchParams.get('state')??''));
+          return new Response(null,{status:303,headers:{location:target,'cache-control':'no-store','referrer-policy':'no-referrer'}});
+        }
       }
 
       // --------------------------------------------------------- credores ---
@@ -600,6 +714,26 @@ export function criarApp(ctx: Contexto) {
         if (!corpo.success) return erro('dados inválidos', 400, corpo.error.issues);
         return json(await banco.comoUsuario(identidade.usuarioId, (db) =>
           projetos.mudarFase(db, mFase[1]!, corpo.data, identidade)));
+      }
+
+      // ------------------------------------------- relatórios do gerador ---
+      const mGerador = /^\/api\/projetos\/([0-9a-f-]{36})\/gerador\/emissoes$/.exec(rota);
+      if (mGerador && metodo === 'GET') {
+        exigir(identidade.papeis, 'relatorio.gerar');
+        if (ehCliente) return erro('acesso negado', 403);
+        return json(await banco.comoUsuario(identidade.usuarioId, (db) => gerador.emissoes(db, mGerador[1]!)));
+      }
+      const mImportar = /^\/api\/projetos\/([0-9a-f-]{36})\/gerador\/importacoes$/.exec(rota);
+      if (mImportar && metodo === 'POST') {
+        exigir(identidade.papeis, 'relatorio.gerar');
+        const corpo = z.object({ emissaoId: z.string().regex(/^[A-Za-z0-9_-]{1,80}$/), publicar: z.boolean().optional() }).safeParse(await req.json().catch(() => null));
+        if (!corpo.success) return erro('dados inválidos', 400, corpo.error.issues);
+        if (corpo.data.publicar) exigir(identidade.papeis, 'portal.publicar');
+        return json(await banco.comoUsuario(identidade.usuarioId, async (db) => {
+          const r = await gerador.importar(db, mImportar[1]!, corpo.data.emissaoId, identidade, deposito);
+          if (corpo.data.publicar) await portal.publicarDocumento(db, r.documentoId, identidade);
+          return { ...r, publicado: !!corpo.data.publicar };
+        }), 201);
       }
 
       const mPlaybook = /^\/api\/projetos\/([0-9a-f-]{36})\/playbook$/.exec(rota);

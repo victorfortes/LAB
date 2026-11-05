@@ -23,6 +23,7 @@ import {
 } from '../domain/projeto/fases.ts';
 import { contarPrazo, diasUteisAte } from '../domain/processo/prazos.ts';
 import { passosDa } from '../domain/projeto/playbooks.ts';
+import * as playbookConfig from './playbook_config.ts';
 import { limparCnpj, validarCnpj } from '../domain/analise/identificadores.ts';
 
 const TIPOS = [
@@ -37,6 +38,7 @@ export const EsquemaProjeto = z.object({
   prioridade: z.number().int().min(1).max(5).default(3),
   /** Pular a geração automática de tarefas (útil ao cadastrar um caso que já está andando). */
   semPlaybook: z.boolean().optional(),
+  playbookModeloId: z.string().uuid().optional(),
   empresaId: z.string().uuid().optional(),
   /** Cria o cliente no cadastro do escritório junto com o projeto. */
   cliente: z.object({
@@ -83,6 +85,8 @@ export async function aplicarPlaybook(
   db: PoolClient, projetoId: string, organizacaoId: string, tipo: TipoDeProjeto, fase: string,
   identidade: Identidade, naAbertura = false,
 ) {
+  const personalizado = await db.query('SELECT fase_no_id,playbook_modelo_id FROM projetos WHERE id=$1',[projetoId]);
+  if(personalizado.rows[0]?.playbook_modelo_id){const faseNoId=personalizado.rows[0].fase_no_id;let criadas=await playbookConfig.gerarTarefas(db,projetoId,'manual',projetoId,identidade);if(naAbertura)criadas+=await playbookConfig.gerarTarefas(db,projetoId,'projeto_criado',projetoId,identidade);if(faseNoId)criadas+=await playbookConfig.gerarTarefas(db,projetoId,'fase_iniciada',faseNoId,identidade);return{criadas,jaExistiam:0};}
   const hoje = hojeISO();
   let criadas = 0; let jaExistiam = 0;
   for (const passo of passosDa(tipo, fase, naAbertura)) {
@@ -153,6 +157,8 @@ export async function criar(
   });
 
   // Playbook: o projeto já nasce com as tarefas da abertura e da primeira fase.
+  const modeloId=dados.playbookModeloId??await playbookConfig.modeloPadrao(db,organizacaoId,dados.tipo);
+  if(modeloId){const configurado=await playbookConfig.aplicarModelo(db,id,modeloId,identidade,!dados.semPlaybook);return{id,fase:inicial,progresso:progresso(dados.tipo,inicial.id),playbook:{criadas:configurado.criadas,jaExistiam:0},modeloId};}
   const playbook = dados.semPlaybook ? { criadas: 0, jaExistiam: 0 } : await aplicarPlaybook(db, id, organizacaoId, dados.tipo, inicial.id, identidade, true);
 
   return { id, fase: inicial, progresso: progresso(dados.tipo, inicial.id), playbook };
@@ -160,16 +166,17 @@ export async function criar(
 
 export async function listar(db: PoolClient) {
   const { rows } = await db.query(
-    `SELECT p.id, p.nome, p.tipo, p.situacao, p.prioridade, p.fase, p.fase_desde,
+    `SELECT p.id, p.nome, p.tipo, p.situacao, p.prioridade, p.fase, p.fase_desde,p.fase_no_id,p.playbook_modelo_id,
+            (SELECT n.nome FROM playbook_nos n WHERE n.id=p.fase_no_id) AS fase_custom_nome,
             p.resumo, p.iniciado_em, p.previsao_fim, p.encerrado_em,
             u.nome AS responsavel,
             (SELECT e.nome FROM projeto_equipe pe
                JOIN usuarios e ON e.id = pe.usuario_id
               WHERE pe.projeto_id = p.id AND pe.papel = 'lider' AND pe.ate IS NULL
               LIMIT 1) AS lider,
-            (SELECT coalesce(json_agg(json_build_object('nome', x.nome, 'papel', x.papel)
+            (SELECT coalesce(json_agg(json_build_object('nome', x.nome, 'papel', x.papel, 'usuarioId', x.usuario_id)
                       ORDER BY CASE x.papel WHEN 'lider' THEN 0 ELSE 1 END, x.nome), '[]'::json)
-               FROM (SELECT e.nome, pe.papel FROM projeto_equipe pe
+               FROM (SELECT e.id AS usuario_id, e.nome, pe.papel FROM projeto_equipe pe
                        JOIN usuarios e ON e.id = pe.usuario_id
                       WHERE pe.projeto_id = p.id AND pe.ate IS NULL) x) AS equipe,
             (SELECT coalesce(em.nome_fantasia, em.razao_social) FROM projetos_empresas pem
@@ -196,8 +203,8 @@ export async function listar(db: PoolClient) {
     return {
       ...r,
       rotuloDoTipo: ROTULO_DO_TIPO[l.tipo] ?? l.tipo,
-      faseAtual: l.fase ? faseDe(l.tipo, l.fase) ?? null : null,
-      progresso: l.fase ? progresso(l.tipo, l.fase) : null,
+      faseAtual: r.fase_no_id ? {id:r.fase_no_id,nome:r.fase_custom_nome,marco:'Fase personalizada do projeto'} : l.fase ? faseDe(l.tipo, l.fase) ?? null : null,
+      progresso: r.fase_no_id ? null : l.fase ? progresso(l.tipo, l.fase) : null,
     };
   });
 }
@@ -271,13 +278,17 @@ export async function hub(db: PoolClient, projetoId: string) {
       WHERE pr.projeto_id = $1 AND z.situacao = 'aberto'
       ORDER BY z.vencimento LIMIT 5`, [projetoId]);
 
+  let personalizados=(await db.query('SELECT id,nome,descricao AS marco,ordem FROM playbook_nos WHERE projeto_id=$1 AND tipo=\'fase\' AND arquivado_em IS NULL ORDER BY ordem,criado_em,id',[projetoId])).rows;
+  if(projeto.fase_no_id&&!personalizados.length)personalizados=(await db.query('SELECT id,nome,ordem,\'\'::text AS marco FROM app_fases_publicas_projeto($1)',[projetoId])).rows;
+  const customAtual=personalizados.find(n=>n.id===projeto.fase_no_id);
+  const customIndice=customAtual?personalizados.indexOf(customAtual)+1:0;
   const hoje = hojeISO();
   return {
     ...projeto,
     rotuloDoTipo: ROTULO_DO_TIPO[tipo] ?? tipo,
-    faseAtual: faseAtual ? faseDe(tipo, faseAtual) ?? null : null,
-    progresso: faseAtual ? progresso(tipo, faseAtual) : null,
-    fasesDisponiveis: fasesDe(tipo),
+    faseAtual: customAtual ?? (faseAtual ? faseDe(tipo, faseAtual) ?? null : null),
+    progresso: customAtual ? {indice:customIndice,total:personalizados.length,percentual:Math.round(customIndice/personalizados.length*100),proxima:personalizados[customIndice]??null,terminal:customIndice===personalizados.length} : faseAtual ? progresso(tipo, faseAtual) : null,
+    fasesDisponiveis: personalizados.length ? personalizados : fasesDe(tipo),
     equipe,
     empresas,
     contagens: Object.fromEntries(Object.entries(c).map(([k, v]) => [k, Number(v)])),
@@ -299,6 +310,8 @@ export async function mudarFase(
   const projeto = rows[0];
   if (!projeto) throw new NaoEncontrado('projeto não encontrado');
 
+  const custom=await db.query('SELECT fase_no_id FROM projetos WHERE id=$1',[projetoId]);
+  if(custom.rows[0]?.fase_no_id){const r=await playbookConfig.moverFase(db,projetoId,dados.fase,identidade);return{id:projetoId,fase:{id:r.noId,nome:r.nome},progresso:null,playbook:{criadas:r.criadas,jaExistiam:0}};}
   const de = projeto.fase ?? faseInicial(projeto.tipo).id;
   const destino = transicionarFase(projeto.tipo, de, dados.fase);
   const desde = dados.desde ?? hojeISO();

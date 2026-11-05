@@ -1,6 +1,6 @@
 import type { AuditEntry } from '../audit/chain.ts';
 import type { AuthorizedProcess } from '../domain/types.ts';
-import type { Comment, Correction, Rec, Run, User, WriteAuthorization, WriteOp } from './models.ts';
+import type { Comment, Correction, Rec, Run, User, WriteAuthorization, WriteOp, LabDelivery } from './models.ts';
 
 export class RunInProgress extends Error {
   constructor(public runId: string) {
@@ -16,6 +16,10 @@ export class VersionConflict extends Error {
 export interface AuditInput { actor: string; action: string; entityType: string; entityId: string; data?: unknown }
 
 export interface Repo {
+  enqueueLabDelivery(delivery:LabDelivery):Promise<void>;
+  listLabDeliveries():Promise<LabDelivery[]>;
+  updateLabDelivery(key:string,patch:Partial<LabDelivery>):Promise<void>;
+
   getUserByName(username: string): Promise<User | null>;
   createUser(u: User): Promise<void>;
 

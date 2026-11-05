@@ -39,6 +39,7 @@ const dia = (d: Date | string | null): string | null =>
   (d === null ? null : new Date(d).toISOString().slice(0, 10));
 
 interface Linha {
+  playbook_no_id:string|null; tarefa_pai_id:string|null;
   id: string; projeto_id: string; titulo: string; descricao: string | null;
   status: StatusDaTarefa; prioridade: Prioridade; prazo: Date | null;
   responsavel_id: string | null; responsavel: string | null; projeto: string;
@@ -51,7 +52,7 @@ function enriquecer(l: Linha, hoje: string) {
     id: l.id, projetoId: l.projeto_id, projeto: l.projeto, titulo: l.titulo,
     descricao: l.descricao, status: l.status, prioridade: l.prioridade, prazo,
     responsavelId: l.responsavel_id, responsavel: l.responsavel,
-    origem: l.origem, origemId:l.origem_id, publicacaoId:l.publicacao_id, processo:l.processo_numero, vencimentoProcessual:dia(l.vencimento_processual), tipoAtividade:l.chave_playbook?.startsWith('djen-analise:')?'analise_intimacao':l.origem==='prazo'?'prazo_processual':'tarefa', chavePlaybook: l.chave_playbook, concluidaEm: l.concluida_em, criadoEm: l.criado_em,
+    origem: l.origem, origemId:l.origem_id, publicacaoId:l.publicacao_id, processo:l.processo_numero, vencimentoProcessual:dia(l.vencimento_processual), tipoAtividade:(l.chave_playbook?.startsWith('djen-analise:')||l.chave_playbook?.startsWith('astrea-analise:'))?'analise_intimacao':l.origem==='prazo'?'prazo_processual':'tarefa', chavePlaybook: l.chave_playbook, playbookNoId:l.playbook_no_id,tarefaPaiId:l.tarefa_pai_id, concluidaEm: l.concluida_em, criadoEm: l.criado_em,
     situacaoDoPrazo: situacaoDoPrazo({ status: l.status, prazo, prioridade: l.prioridade }, hoje),
   };
 }
@@ -77,7 +78,7 @@ export async function listar(db: PoolClient, filtros: Filtros = {}) {
   const { rows } = await db.query<Linha>(
     `SELECT t.id, t.projeto_id, t.titulo, t.descricao, t.status, t.prioridade, t.prazo,
             t.responsavel_id, u.nome AS responsavel, p.nome AS projeto,
-            t.origem, t.origem_id, pub.id AS publicacao_id, pr.numero AS processo_numero, prazo.vencimento AS vencimento_processual, t.chave_playbook, t.concluida_em, t.criado_em
+            t.origem, t.origem_id, pub.id AS publicacao_id, pr.numero AS processo_numero, prazo.vencimento AS vencimento_processual, t.chave_playbook,t.playbook_no_id,t.tarefa_pai_id, t.concluida_em, t.criado_em
        FROM tarefas t
        JOIN projetos p ON p.id = t.projeto_id
        LEFT JOIN usuarios u ON u.id = t.responsavel_id

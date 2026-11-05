@@ -50,3 +50,6 @@ export interface Correction {
   justification: string; requestedBy: string; authorizedBy: string | null;
   status: 'requested' | 'authorized' | 'applied' | 'failed'; result: unknown; createdAt: string;
 }
+
+/** Durable delivery to LAB. Credentials never belong to the payload. */
+export interface LabDelivery { key:string; recordId:string; payload:Record<string,unknown>; status:'pending'|'sent'; attempts:number; error:string|null; nextAttemptAt:string; updatedAt:string; }

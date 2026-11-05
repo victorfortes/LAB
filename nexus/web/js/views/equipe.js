@@ -1,20 +1,26 @@
-/** Equipe do escritório e em quais projetos cada pessoa atua. */
+/** Equipe, capacidade e gestão de acessos do escritório. */
 import { api } from '../api.js';
-import { estado, ROTULO_DO_PAPEL } from '../estado.js';
-import { avatar, html, matiz } from '../util.js';
-import { cabecalho, vazio } from '../ui.js';
-
-export default async function equipe() {
-  const [pessoas, projetos, tarefas] = await Promise.all([api.get('/api/escritorio/equipe'), api.get('/api/projetos'), api.get('/api/tarefas')]);
-  estado.projetos = projetos;
-  const doUsuario = (u) => projetos.filter((p) => p.situacao !== 'encerrado' && p.equipe?.some((e) => e.nome === u.nome));
-  const abertas = (u) => tarefas.tarefas.filter((t) => t.responsavelId === u.id && t.status !== 'concluida').length;
-  return {
-    titulo: 'Equipe',
-    html: html`${cabecalho({ titulo: 'Equipe', sub: `${pessoas.length} pessoa(s) no escritório`, resumo: [{ rotulo: 'Pessoas', valor: pessoas.length }, { rotulo: 'Tarefas abertas', valor: tarefas.resumo.abertas }] })}
-      <div class="grid3 mt">${pessoas.length ? pessoas.map((u) => html`<section class="card glass up tool"><div class="tool__top">${avatar(u.nome, 'lg')}<div><h3 style="font-size:19px">${u.nome}</h3><span class="dica">${ROTULO_DO_PAPEL[u.papel] ?? u.papel}</span></div></div>
-        <p class="mono-sm">${u.email}</p><p class="dica">${abertas(u)} tarefa(s) aberta(s)</p>
-        <div class="flex">${doUsuario(u).length ? doUsuario(u).map((p) => html`<a class="pchip hue--${matiz(p.id)}" href="#/projetos/${p.id}"><i></i><span class="tk-ellip">${p.nome}</span></a>`) : html`<span class="dica">Sem projetos ativos</span>`}</div></section>`)
-        : html`<section class="card glass up" style="grid-column:1/-1">${vazio('users', 'Sem pessoas', 'Nenhum usuário do escritório encontrado.')}</section>`}</div>`,
-  };
+import { estado,pode,ROTULO_DO_PAPEL } from '../estado.js';
+import { avatar,html,matiz,ouvir,dataBR } from '../util.js';
+import { cabecalho,vazio,formulario,confirmar,modal,erroDe,toast } from '../ui.js';
+import { navegar } from '../shell.js';
+const PAPEIS=['socio_administrador','socio','advogado','controladoria','financeiro','administrativo','estagiario'];
+const opcoes=PAPEIS.map(v=>({v,t:ROTULO_DO_PAPEL[v]}));
+async function mostrarLink(r){const url=new URL(r.caminho,location.origin).href;await modal({titulo:'Link pessoal de acesso',subtitulo:'Uso único · validade de 30 minutos',corpo:html`<p>${r.aviso}</p><label class="field"><span>Copie e entregue diretamente à pessoa</span><input class="input" data-link value="${url}" readonly></label><p class="dica">O link permite escolher uma nova senha e encerra as sessões anteriores depois de usado.</p>`,acoes:[{id:'copiar',rotulo:'Copiar link',tipo:'primario'},{id:'fechar',rotulo:'Fechar'}],aoAbrir(el){el.addEventListener('acao',async e=>{if(e.detail.id==='copiar'){try{await navigator.clipboard.writeText(url);toast('Link copiado');}catch{el.querySelector('[data-link]').select();toast('Selecione e copie o link.','aviso');}}else el.fechar();});}});}
+export default async function equipe(){
+ const admin=pode('admin.gerir');const [raw,projetos,tarefas]=await Promise.all([api.get(admin?'/api/escritorio/gestao-equipe':'/api/escritorio/equipe'),api.get('/api/projetos'),api.get('/api/tarefas')]);
+ const pessoas=[...new Map(raw.map(u=>[u.id,u])).values()];estado.projetos=projetos;
+ const casos=u=>u.projetos??projetos.filter(p=>p.situacao!=='encerrado'&&p.equipe?.some(e=>e.usuarioId===u.id));
+ const carga=u=>u.carga??{abertas:tarefas.tarefas.filter(t=>t.responsavelId===u.id&&t.status!=='concluida').length,atrasadas:tarefas.tarefas.filter(t=>t.responsavelId===u.id&&t.situacaoDoPrazo==='atrasada').length};
+ return {titulo:'Equipe',html:html`${cabecalho({titulo:'Equipe',sub:'Pessoas, acessos e distribuição de trabalho',resumo:[{rotulo:'Pessoas ativas',valor:pessoas.filter(u=>u.ativo!==false).length},{rotulo:'Tarefas abertas',valor:tarefas.resumo.abertas}]})}
+ <div class="flex mt"><p class="dica grow">A carga considera tarefas reais atribuídas a cada pessoa.</p>${admin?html`<button class="btn btn--accent" data-convidar>Conceder acesso</button>`:''}</div>
+ <div class="grid3 mt">${pessoas.length?pessoas.map(u=>html`<section class="card glass up tool"><div class="tool__top">${avatar(u.nome,'lg')}<div><h2 style="font-size:19px;margin:0">${u.nome}</h2><span class="dica">${ROTULO_DO_PAPEL[u.papel]??u.papel}</span></div><span class="selo ${u.ativo===false?'':'ok'}">${u.ativo===false?'Revogado':'Ativo'}</span></div>
+ <p class="mono-sm">${u.email}</p><div class="row2"><p><b>${carga(u).abertas}</b> tarefa(s) aberta(s)</p><p><b>${carga(u).atrasadas}</b> atrasada(s)</p></div>
+ <div class="flex">${casos(u).length?casos(u).map(p=>html`<a class="pchip hue--${matiz(p.id)}" href="#/projetos/${p.id}"><i></i><span class="tk-ellip">${p.nome}</span></a>`):html`<span class="dica">Sem projetos ativos</span>`}</div>
+ ${admin?html`<div class="project-tools mt"><button class="btn btn--ghost btn--sm" data-acesso="${u.id}">${u.ativo===false?'Restaurar acesso':'Alterar papel'}</button>${u.ativo!==false?html`<button class="btn btn--ghost btn--sm" data-senha="${u.id}">Redefinir senha</button>${u.id!==estado.eu?.usuario?.id?html`<button class="btn btn--ghost btn--sm perigo-btn" data-revogar="${u.id}">Revogar acesso</button>`:''}`:''}</div><p class="dica">Último acesso: ${u.ultimo_acesso?dataBR(u.ultimo_acesso):'ainda não acessou'}</p>`:''}</section>`):html`<section class="card glass">${vazio('users','Sem pessoas','Nenhum usuário do escritório encontrado.')}</section>`}</div>`,depois(el){
+ ouvir(el,'click','[data-convidar]',async()=>{let link;await formulario({titulo:'Conceder acesso ao escritório',rotulo:'Criar acesso',campos:[{nome:'nome',rotulo:'Nome',obrigatorio:true},{nome:'email',rotulo:'E-mail profissional',tipo:'email',obrigatorio:true},{nome:'papel',rotulo:'Papel e permissões',tipo:'select',valor:'advogado',opcoes}],async enviar(v){link=await api.post('/api/escritorio/gestao-equipe',v);}});if(link){await mostrarLink(link);navegar();}});
+ ouvir(el,'click','[data-acesso]',async b=>{const u=pessoas.find(u=>u.id===b.dataset.acesso);const ok=await formulario({titulo:`Acesso de ${u.nome}`,campos:[{nome:'papel',rotulo:'Papel',tipo:'select',valor:u.papel,opcoes}],async enviar(v){await api.patch(`/api/escritorio/gestao-equipe/${u.id}`,v);toast('Acesso atualizado; sessões anteriores encerradas.');}});if(ok)navegar();});
+ ouvir(el,'click','[data-revogar]',async b=>{const u=pessoas.find(u=>u.id===b.dataset.revogar);if(!await confirmar('Revogar acesso?',`${u.nome} perderá o acesso ao escritório e será retirado das equipes de projetos. O histórico será preservado.`,{rotulo:'Revogar acesso',perigo:true}))return;try{await api.patch(`/api/escritorio/gestao-equipe/${u.id}`,{revogar:true});toast('Acesso revogado');navegar();}catch(e){erroDe(e);}});
+ ouvir(el,'click','[data-senha]',async b=>{try{b.disabled=true;await mostrarLink(await api.post(`/api/escritorio/gestao-equipe/${b.dataset.senha}/redefinir-senha`,{}));}catch(e){erroDe(e);}finally{b.disabled=false;}});
+ }};
 }
