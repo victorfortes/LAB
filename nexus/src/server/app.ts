@@ -237,7 +237,7 @@ export function criarApp(ctx: Contexto) {
           headers: {
             'content-type': 'application/json; charset=utf-8',
             'set-cookie':
-              `${COOKIE}=${encodeURIComponent(token)}; HttpOnly; SameSite=Strict; Path=/; ` +
+              `${COOKIE}=${encodeURIComponent(token)}; HttpOnly; SameSite=Strict; Path=/; ${url.protocol === 'https:' ? 'Secure; ' : ''}` +
               `Max-Age=${Math.floor((expiraEm.getTime() - Date.now()) / 1000)}`,
           },
         });
@@ -248,7 +248,7 @@ export function criarApp(ctx: Contexto) {
         if (token) await banco.semContexto((db) => revogar(db, token));
         return new Response(null, {
           status: 204,
-          headers: { 'set-cookie': `${COOKIE}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0` },
+          headers: { 'set-cookie': `${COOKIE}=; HttpOnly; SameSite=Strict; Path=/; ${url.protocol === 'https:' ? 'Secure; ' : '' }Max-Age=0` },
         });
       }
 

@@ -80,6 +80,12 @@ describe('autenticação', () => {
     const cookie = r.headers.get('set-cookie')!;
     expect(cookie).toContain('HttpOnly');
     expect(cookie).toContain('SameSite=Strict');
+    expect(cookie).not.toContain('Secure');
+    const seguro = await tratar(new Request('https://lab.nga.adv.br/api/sessao', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'socio@nga.adv.br', senha: SENHA }) }));
+    expect(seguro.status).toBe(200);
+    expect(seguro.headers.get('set-cookie')).toContain('Secure;');
+    const saiu = await tratar(new Request('https://lab.nga.adv.br/api/sessao', { method: 'DELETE' }));
+    expect(saiu.headers.get('set-cookie')).toContain('Secure;');
   });
 
   test('logout invalida a sessão', async () => {
