@@ -206,7 +206,7 @@ export async function abaDocumentos(ctx) {
         <b>Solte arquivos aqui ou clique para enviar</b><small>Ficam no acervo interno. Nada vai ao cliente sem você publicar.</small></label>` : ''}
       <section class="card glass up mt">${docs.length ? html`<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Documento</th><th>Categoria</th><th>Tamanho</th><th>Visibilidade</th><th></th></tr></thead>
         <tbody>${docs.map((d) => html`<tr><td><b>${d.titulo}</b><small>${d.nome_original ?? 'referência sem arquivo'} · v${d.versao} · ${relativo(d.criado_em)}</small></td>
-          <td>${d.categoria ?? '—'}</td><td class="mono-sm">${tamanho(d.tamanho_bytes)}</td>
+          <td>${d.categoria ?? '—'}<small>${d.origem === 'portal_cliente' ? 'Enviado pelo cliente' : 'Acervo do escritório'}</small></td><td class="mono-sm">${tamanho(d.tamanho_bytes)}</td>
           <td>${d.visibilidade === 'publicado' ? html`<span class="selo ok"><i></i>No portal</span>` : html`<span class="selo"><i></i>Interno</span>`}</td>
           <td class="num"><div class="flex" style="justify-content:flex-end">
             ${d.tem_arquivo ? html`<button type="button" class="ibtn ibtn--sm" data-baixar="${d.id}" title="Baixar (link de 5 min)" aria-label="Baixar">${icone('download')}</button>` : ''}
@@ -456,21 +456,27 @@ export async function abaPlano(ctx) {
 const ROTULO_RELATORIO = { acompanhamento: ['Acompanhamento mensal', 'Andamento, prazos, documentos e caixa do período. Feito para o cliente ler.'], credores: ['Quadro de credores', 'Créditos por classe, com o que ainda não foi validado em destaque.'] };
 
 export async function abaRelatorios(ctx) {
-  const { tipos, periodoPadrao } = await api.get('/api/relatorios/tipos');
+  const docs = await api.get(`/api/projetos/${ctx.id}/documentos`);
+  const relatorios = docs.filter((d) => d.categoria === 'relatorio_gerador');
+  const escreve = pode('documento.escrever') && ctx.h.situacao !== 'encerrado';
+  const publica = pode('portal.publicar');
   return {
-    html: html`<div class="grid2">${tipos.map((t) => html`<section class="card glass up tool"><div class="tool__top"><span class="tool__ico">${icone('chart')}</span><div><h3>${ROTULO_RELATORIO[t]?.[0] ?? t}</h3></div></div>
-      <p>${ROTULO_RELATORIO[t]?.[1] ?? ''}</p>
-      <div class="row2"><label class="field"><span>De</span><input class="input" type="date" data-de value="${periodoPadrao.de}"></label><label class="field"><span>Até</span><input class="input" type="date" data-ate value="${periodoPadrao.ate}"></label></div>
-      <div class="tool__acts"><button type="button" class="btn btn--accent" data-gerar="${t}">Gerar PDF</button></div></section>`)}</div>
-      <p class="dica mt">O PDF usa só números do banco e termina listando o que <b>não</b> afirma. Ele entra em <b>Documentos</b> como interno; você decide se publica.</p>`,
+    html: html`<section class="card glass up"><header class="card__head"><div><h2 class="card__title">Relatórios do gerador NGA</h2><p class="card__sub">Somente PDFs vinculados a este projeto. A publicação libera o arquivo no portal deste cliente.</p></div><a class="btn btn--ghost" href="/gerador/" target="_blank" rel="noopener">Abrir gerador ↗</a></header>
+      ${escreve ? html`<label class="drop"><input type="file" accept="application/pdf,.pdf" data-relatorio-arquivo hidden>${icone('upload')}<b>Vincular PDF do gerador</b><small>Selecione o PDF gerado. Ele fica interno até você publicar.</small></label>` : ''}
+      ${relatorios.length ? html`<ul class="lista mt">${relatorios.map((d) => html`<li><div><b>${d.titulo}</b><small>${d.nome_original ?? ''} · ${relativo(d.criado_em)}</small></div><span class="selo ${d.visibilidade === 'publicado' ? 'ok' : ''}">${d.visibilidade === 'publicado' ? 'No portal' : 'Interno'}</span><button class="btn btn--ghost" data-baixar="${d.id}">Baixar</button>${publica ? html`<button class="btn btn--ghost" data-relatorio-publicar="${d.id}" data-titulo="${d.titulo}" data-publicado="${d.visibilidade === 'publicado'}">${d.visibilidade === 'publicado' ? 'Retirar do portal' : 'Publicar ao cliente'}</button>` : ''}</li>`)}</ul>` : vazio('chart','Nenhum relatório do gerador vinculado','Abra o gerador NGA, exporte o PDF e vincule o arquivo a este projeto.')}</section>`,
     depois(el) {
-      ouvir(el, 'click', '[data-gerar]', async (b) => {
-        const card = b.closest('section'); b.disabled = true; b.textContent = 'Gerando…';
-        try {
-          const r = await api.post(`/api/projetos/${ctx.id}/relatorios`, { tipo: b.dataset.gerar, de: $('[data-de]', card).value, ate: $('[data-ate]', card).value });
-          b.disabled = false; b.textContent = 'Gerar PDF';
-          await resultado(r, ctx);
-        } catch (e) { b.disabled = false; b.textContent = 'Gerar PDF'; erroDe(e); }
+      ouvir(el, 'click', '[data-baixar]', (b) => baixar(b.dataset.baixar));
+      el.querySelector('[data-relatorio-arquivo]')?.addEventListener('change', async (e) => {
+        const f = e.target.files?.[0]; if (!f) return;
+        if (!f.name.toLowerCase().endsWith('.pdf')) return toast('Selecione um PDF exportado pelo gerador.', 'erro');
+        const ok = await formulario({ titulo:'Vincular relatório do gerador',subtitulo:ctx.h.nome,rotulo:'Vincular PDF',campos:[{nome:'titulo',rotulo:'Título do relatório',obrigatorio:true,valor:f.name.replace(/\.pdf$/i,'')}],
+          enviar:async (v) => { const fd = new FormData(); fd.append('arquivo',f); fd.append('titulo',v.titulo); fd.append('categoria','relatorio_gerador'); await api.enviar(`/api/projetos/${ctx.id}/documentos`,fd); toast('Relatório vinculado a este projeto'); },
+        }); if (ok) ctx.recarregar(); else e.target.value = '';
+      });
+      ouvir(el,'click','[data-relatorio-publicar]',async (b) => {
+        const publicado = b.dataset.publicado === 'true';
+        if (!publicado && !await confirmar('Publicar relatório ao cliente?', `“${b.dataset.titulo}” ficará disponível no portal de ${ctx.h.nome}.`, {rotulo:'Publicar'})) return;
+        try { if (publicado) await api.del(`/api/documentos/${b.dataset.relatorioPublicar}/publicacao`); else await api.post(`/api/documentos/${b.dataset.relatorioPublicar}/publicacao`); toast(publicado ? 'Relatório retirado do portal' : 'Relatório publicado'); ctx.recarregar(); } catch (er) { erroDe(er); }
       });
     },
   };

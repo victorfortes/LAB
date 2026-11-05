@@ -10,20 +10,24 @@
 import { api } from '../api.js';
 import { pode } from '../estado.js';
 import { anel, animarAneis, animarBarras, contar } from '../fx.js';
-import { $, $$, avatar, dataBR, dataCurta, html, icone, matiz, ouvir, pilha, raw, reais } from '../util.js';
+import { $, $$, avatar, dataBR, dataCurta, relativo, html, icone, matiz, ouvir, pilha, raw, reais } from '../util.js';
 import { cabecalho, confirmar, erroDe, formulario, menu, toast, vazio } from '../ui.js';
-import { atualizarLateral, ir, navegar, posicionarSeg } from '../shell.js';
+import { aoSair, atualizarLateral, ir, navegar, posicionarSeg } from '../shell.js';
 import { htmlQuadro, ligarQuadro, novaTarefa } from './tarefas.js';
 import { equipe as equipeDoEscritorio } from './tarefas.js';
 import * as extra from './projeto_extra.js';
 import { abaCreditos } from './projeto_creditos.js';
 import { abaDiagnostico } from './projeto_diagnostico.js';
 import { abaNegociacoes } from './projeto_negociacoes.js';
+import { abaPlaybook } from './projeto_playbook.js';
+import { abaPesquisa } from './projeto_pesquisa.js';
 
 export { novoProcessoSolto } from './projeto_extra.js';
 
 const ABAS = [
   { id: 'visao', rotulo: 'Visão geral', icone: 'home' },
+  { id: 'playbook', rotulo: 'Playbook', icone: 'list', perm: 'tarefa.ler' },
+  { id: 'pesquisa', rotulo: 'Pesquisa', icone: 'search', perm: 'documento.ler' },
   { id: 'diagnostico', rotulo: 'Diagnóstico', icone: 'sparkle', perm: 'analise.executar', alerta: (c) => c.achados_criticos },
   { id: 'tarefas', rotulo: 'Tarefas', icone: 'check', perm: 'tarefa.ler', n: (c) => c.tarefas_abertas },
   { id: 'negociacoes', rotulo: 'Negociações', icone: 'target', perm: 'negociacao.ler' },
@@ -37,7 +41,7 @@ const ABAS = [
 ];
 
 const MODULOS = {
-  visao: abaVisao, diagnostico: abaDiagnostico, negociacoes: abaNegociacoes, tarefas: abaTarefas, creditos: abaCreditos, processos: extra.abaProcessos,
+  visao: abaVisao, playbook: abaPlaybook, pesquisa: abaPesquisa, diagnostico: abaDiagnostico, negociacoes: abaNegociacoes, tarefas: abaTarefas, creditos: abaCreditos, processos: extra.abaProcessos,
   documentos: extra.abaDocumentos, portal: extra.abaPortal, plano: extra.abaPlano,
   relatorios: extra.abaRelatorios, equipe: abaEquipe,
 };
@@ -85,7 +89,8 @@ export default async function projeto({ id, aba }) {
       <div id="aba" class="mt" aria-live="polite"></div>`,
 
     depois(raiz) {
-      ctx.raiz = raiz;
+      ctx.raiz = raiz; ctx.painel = $('#aba', raiz); ctx.abas = $('#abas', raiz); ctx.ativo = true;
+      aoSair(() => { ctx.ativo = false; ctx.ficha++; });
       ouvir(raiz, 'click', '[data-aba]', (b) => abrirAba(ctx, b.dataset.aba));
       // Ao pousar o mouse numa aba, as leituras dela já vão sendo buscadas.
       const quente = { tarefas: [`/api/tarefas?projeto=${id}`], creditos: [`/api/projetos/${id}/creditos`, `/api/projetos/${id}/credores`], processos: ['/api/processos'],
@@ -150,31 +155,33 @@ async function encerrar(ctx) {
 // ---------------------------------------------------------------- abas ---
 
 async function abrirAba(ctx, aba, primeira = false) {
+  if (!ctx.ativo) return;
   ctx.aba = aba;
   if (!primeira) history.replaceState(null, '', `#/projetos/${ctx.id}/${aba}`);
-  $$('#abas [data-aba]').forEach((b) => b.setAttribute('aria-selected', b.dataset.aba === aba));
-  posicionarSeg($('#abas'));
+  $$('[data-aba]', ctx.abas).forEach((b) => b.setAttribute('aria-selected', b.dataset.aba === aba));
+  posicionarSeg(ctx.abas);
   await desenhar(ctx);
 }
 
 async function desenhar(ctx) {
-  const painel = $('#aba'); if (!painel) return;
+  const painel = ctx.painel; if (!ctx.ativo || !painel?.isConnected) return;
   const minha = ++ctx.ficha;
   // A aba anterior fica esmaecida; o esqueleto só aparece se a espera passar de ~150 ms.
   painel.classList.add('carregando');
-  const espera = setTimeout(() => { if (minha === ctx.ficha) painel.innerHTML = '<div class="skel" style="height:220px;border-radius:24px"></div>'; }, painel.firstElementChild ? 150 : 0);
+  const espera = setTimeout(() => { if (minha === ctx.ficha && painel.isConnected) painel.innerHTML = '<div class="skel" style="height:220px;border-radius:24px"></div>'; }, painel.firstElementChild ? 150 : 0);
   try {
     const r = await MODULOS[ctx.aba](ctx);
     clearTimeout(espera); painel.classList.remove('carregando');
-    if (minha !== ctx.ficha) return;
-    painel.innerHTML = String(r.html);
+    if (minha !== ctx.ficha || !painel.isConnected) return;
+    const vista = document.createElement('div'); vista.className = 'project-tab-root';
+    vista.innerHTML = String(r.html); painel.replaceChildren(vista);
     $$('.up', painel).forEach((el, i) => el.style.setProperty('--i', Math.min(i, 10)));
     contar(painel); animarAneis(painel); animarBarras(painel);
     $$('.seg', painel).forEach(posicionarSeg);
-    r.depois?.(painel);
+    r.depois?.(vista);
   } catch (e) {
     clearTimeout(espera); painel.classList.remove('carregando');
-    if (minha !== ctx.ficha) return;
+    if (minha !== ctx.ficha || !painel.isConnected) return;
     console.error(e);
     painel.innerHTML = vazio('alert', 'Não foi possível abrir esta aba', e.message).toString();
   }
@@ -184,13 +191,14 @@ async function desenhar(ctx) {
 export async function atualizarBadges(ctx) {
   try {
     const [h, t] = await Promise.all([api.get(`/api/projetos/${ctx.id}`), pode('tarefa.ler') ? api.get(`/api/tarefas?projeto=${ctx.id}`) : { resumo: { abertas: 0 } }]);
+    if (!ctx.ativo) return;
     h.contagens.tarefas_abertas = t.resumo?.abertas ?? 0; ctx.h = h;
     for (const a of ABAS) {
-      const btn = $(`#abas [data-aba=${a.id}]`); if (!btn) continue;
+      const btn = $(`[data-aba=${a.id}]`, ctx.abas); if (!btn) continue;
       $$('b', btn).forEach((b) => b.remove());
       btn.insertAdjacentHTML('beforeend', String(badge(a, h)));
     }
-    posicionarSeg($('#abas'));
+    posicionarSeg(ctx.abas);
   } catch { /* os contadores são conveniência */ }
 }
 
@@ -198,7 +206,7 @@ export async function atualizarBadges(ctx) {
 
 async function abaVisao(ctx) {
   const { h } = ctx;
-  const neg = pode('negociacao.ler') ? await api.get(`/api/projetos/${ctx.id}/negociacoes`).catch(() => null) : null; const c = h.contagens; const pr = h.progresso;
+  const [neg, mensagens] = await Promise.all([pode('negociacao.ler') ? api.get(`/api/projetos/${ctx.id}/negociacoes`).catch(() => null) : null, api.get(`/api/projetos/${ctx.id}/mensagens`)]); const c = h.contagens; const pr = h.progresso;
   const pend = [];
   if (Number(c.achados_criticos)) pend.push(['shield', `${c.achados_criticos} achado(s) crítico(s) em aberto`, 'Análise documental', 'erro', 'documentos']);
   if (Number(c.creditos_a_validar)) pend.push(['scale', `${c.creditos_a_validar} crédito(s) sem classe validada`, 'Validação humana exigida', 'aviso', 'creditos']);
@@ -246,12 +254,37 @@ async function abaVisao(ctx) {
           ${h.proximosPrazos?.length ? html`<ul class="lista">${h.proximosPrazos.map((z) => html`<li><div><b>${z.titulo}</b><small>${z.numero}</small></div>
             <div class="fim"><span class="mono-sm">${dataBR(z.vencimento)}</span></div></li>`)}</ul>` : html`<p class="dica">Nenhum prazo aberto.</p>`}
         </section>
+        <section class="card glass up"><header class="card__head"><div><h2 class="card__title">Conversa com o cliente</h2><p class="card__sub">Conversa exclusiva de ${h.nome}.</p></div><button class="link" data-atualizar-chat>Atualizar</button></header>
+          <div class="chat project-chat" data-chat-projeto>${[...mensagens].reverse().map((m) => html`<div class="msg ${m.lado === 'nga' ? 'meu' : ''}">${m.texto}<small>${m.autor ?? (m.lado === 'nga' ? 'NGA' : 'Cliente')} · ${relativo(m.criado_em)}</small></div>`)}</div>
+          <form class="chat-in" data-enviar-chat><input class="input" name="texto" placeholder="Escreva para este cliente…" aria-label="Mensagem ao cliente deste projeto" autocomplete="off" required><button class="btn btn--accent" type="submit">${icone('send')}Enviar</button></form>
+        </section>
+        <section class="card glass up"><header class="card__head"><div><h2 class="card__title">Google Drive do projeto</h2><p class="card__sub">Pastas por cliente e projeto; documentos organizados por origem.</p></div></header>
+          <div class="project-tools"><button class="btn btn--ghost" data-drive>Preparar pastas</button><button class="btn btn--ghost" data-drive-sync>Sincronizar documentos</button></div><p class="dica" data-drive-estado></p>
+        </section>
         <section class="card glass up">
           <header class="card__head"><div><h2 class="card__title">Equipe</h2></div><button class="link" data-aba-ir="equipe">Gerenciar →</button></header>
           <ul class="lista">${h.equipe.map((m) => html`<li>${avatar(m.nome, 'md')}<div><b>${m.nome}</b><small>${ROTULO_EQUIPE[m.papel] ?? m.papel}</small></div></li>`)}</ul>
         </section>
       </div></div>`,
-    depois(el) { ouvir(el, 'click', '[data-aba-ir]', (b) => ctx.irParaAba(b.dataset.abaIr)); },
+    depois(el) {
+      ouvir(el, 'click', '[data-aba-ir]', (b) => ctx.irParaAba(b.dataset.abaIr));
+      const chat = $('[data-chat-projeto]', el); chat.scrollTop = chat.scrollHeight;
+      ouvir(el, 'click', '[data-atualizar-chat]', () => ctx.recarregar());
+      $('[data-enviar-chat]', el).addEventListener('submit', async (e) => {
+        e.preventDefault(); const f = e.target, texto = f.elements.texto.value.trim(); if (!texto) return;
+        const b = f.querySelector('button'); b.disabled = true;
+        try { await api.post(`/api/projetos/${ctx.id}/mensagens`, { texto }); f.reset(); ctx.recarregar(); } catch (er) { erroDe(er); b.disabled = false; }
+      });
+      ouvir(el, 'click', '[data-drive], [data-drive-sync]', async (b) => {
+        b.disabled = true;
+        try { const r = await api.post(`/api/google/projetos/${ctx.id}/${b.hasAttribute('data-drive-sync') ? 'documentos' : 'drive'}`); $('[data-drive-estado]', el).textContent = r.url ? `Pastas preparadas: ${r.url}` : (r.sincronizados !== undefined ? `${r.sincronizados} documento(s) sincronizado(s)` : 'Pastas do projeto preparadas no Drive.'); toast('Google Drive atualizado'); }
+        catch (er) { erroDe(er); } finally { b.disabled = false; }
+      });
+      const t = setInterval(async () => {
+        if (!ctx.ativo || ctx.aba !== 'visao' || !el.isConnected) return clearInterval(t);
+        try { const novas = await api.get(`/api/projetos/${ctx.id}/mensagens`); if (ctx.ativo && novas[0]?.id !== mensagens[0]?.id) { clearInterval(t); ctx.recarregar(); } } catch { /* próxima consulta */ }
+      }, 8000); aoSair(() => clearInterval(t));
+    },
   };
 }
 const ROTULO_EQUIPE = { lider: 'Líder', advogado: 'Advogado(a)', apoio: 'Apoio', revisor: 'Revisor(a)' };

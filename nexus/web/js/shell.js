@@ -213,13 +213,16 @@ function ligarPreaquecimento() {
 function renderizar(v, minha) {
   if (minha !== ficha) return;
   const main = $('#main');
-  main.innerHTML = String(v.html);
+  // Cada tela recebe sua própria raiz: listeners delegados antigos não podem
+  // disparar ações de um projeto anterior depois de navegar para outro.
+  const vista = document.createElement('div'); vista.className = 'view-root';
+  vista.innerHTML = String(v.html); main.replaceChildren(vista);
   $('#titulo-compacto').textContent = v.titulo ?? 'NGA LAB';
   document.title = `${v.titulo ?? 'NGA LAB'} · NGA LAB`;
   $$('.up', main).forEach((el, i) => { if (!el.style.getPropertyValue('--i')) el.style.setProperty('--i', Math.min(i, 14)); });
   contar(main); animarAneis(main); animarBarras(main);
   $$('.seg, .tabs', main).forEach(posicionarSeg);
-  v.depois?.(main);
+  v.depois?.(vista);
   main.scrollTop = 0; window.scrollTo({ top: 0 });
 }
 
@@ -243,6 +246,7 @@ function marcarNav() {
 export function posicionarSeg(seg) {
   const pill = $('.seg__pill, .tabs__pill', seg); if (!pill) return;
   const btn = $('[aria-pressed=true], [aria-selected=true]', seg); if (!btn) return;
+  pill.style.height = `${btn.offsetHeight}px`;
   pill.style.width = `${btn.offsetWidth}px`; pill.style.transform = `translate(${btn.offsetLeft}px, ${pill.classList.contains('tabs__pill') ? 0 : 3}px)`;
   pill.style.opacity = 1;
 }
@@ -253,10 +257,14 @@ export async function atualizarLateral() {
   try {
     if (ehCliente()) {
       estado.portal = await api.get('/api/portal/projetos');
-      estado.projetoDoCliente = guardado.ler('projetoCliente', null) ?? estado.portal[0]?.projeto_id ?? null;
+      const salvo = guardado.ler('projetoCliente', null);
+      estado.projetoDoCliente = estado.portal.some((p) => p.projeto_id === salvo) ? salvo : estado.portal[0]?.projeto_id ?? null;
       const fix = $('#fixados');
       if (fix) fix.innerHTML = estado.portal.length < 2 ? '' : html`<p class="side__label">Meus processos</p><ul class="pinned">${estado.portal.map((p) => html`<li><a href="#/inicio" data-trocar="${p.projeto_id}"><i class="hue--${matiz(p.projeto_id)}"></i><span>${p.nome}</span></a></li>`)}</ul>`.toString();
-      ouvir($('#fixados'), 'click', '[data-trocar]', (a) => { guardado.gravar('projetoCliente', a.dataset.trocar); estado.projetoDoCliente = a.dataset.trocar; navegar(); });
+      if (fix && !fix.dataset.trocaLigada) {
+        fix.dataset.trocaLigada = 'true';
+        ouvir(fix, 'click', '[data-trocar]', (a, ev) => { ev.preventDefault(); guardado.gravar('projetoCliente', a.dataset.trocar); estado.projetoDoCliente = a.dataset.trocar; api.limparCache(); navegar(); });
+      }
       if (estado.projetoDoCliente) {
         const [check, msgs] = await Promise.all([
           api.get(`/api/projetos/${estado.projetoDoCliente}/checklist`).catch(() => null),

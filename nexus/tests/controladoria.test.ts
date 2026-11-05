@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { bancoDeTeste, type BancoDeTeste } from './apoio/postgres.ts';
 import { Banco } from '../src/store/conexao.ts';
 import { criarApp } from '../src/server/app.ts';
-import { sincronizarAgendado, type Buscador, type ItemDjen } from '../src/server/controladoria.ts';
+import { sincronizarAgendado, hojeSaoPaulo, type Buscador, type ItemDjen } from '../src/server/controladoria.ts';
 import { hashDaSenha } from '../src/security/sessao.ts';
 
 let pg: BancoDeTeste; let banco: Banco; let app: ReturnType<typeof criarApp>;
@@ -12,7 +12,7 @@ const tok: Record<string, string> = {};
 let chamadas: Array<{ numeroOab: string; pagina: number }> = [];
 
 const item = (id: number, numero: string, texto = 'Intimação para manifestação em cinco dias.'): ItemDjen => ({
-  id, data_disponibilizacao: '2026-11-03', siglaTribunal: 'TJPR', tipoComunicacao: 'Intimação', nomeOrgao: '1ª Vara', texto, numero_processo: numero, link: 'https://dje', nomeClasse: 'Recuperação Judicial', destinatarios: [{ nome: 'EMPRESA X', polo: 'A' }],
+  id, data_disponibilizacao: hojeSaoPaulo(), siglaTribunal: 'TJPR', tipoComunicacao: 'Intimação', nomeOrgao: '1ª Vara', texto, numero_processo: numero, link: 'https://dje', nomeClasse: 'Recuperação Judicial', destinatarios: [{ nome: 'EMPRESA X', polo: 'A' }],
 });
 /** DJEN de mentira: a OAB 111 recebe as publicações 1 e 2; a OAB 222 recebe a 2 (a mesma, citando dois sócios) e a 3. */
 const djen: Buscador = async (p) => {
@@ -101,4 +101,26 @@ describe('controladoria: coleta do DJEN', () => {
     const oabs = await (await req(tok.ctrl!, '/api/controladoria/oabs')).json();
     expect(oabs[0].ultimo_erro).toContain('muito ocupado');
   });
+});
+
+describe('intimação detalhada: análise separada do prazo processual',()=>{
+ test('decodifica o inteiro teor, agenda prazo confirmado uma vez e mantém duas atividades distintas',async()=>{
+  const projectResponse=await req(tok.adm!,'/api/projetos',{method:'POST',body:JSON.stringify({nome:'Projeto DJEN',tipo:'consultivo',semPlaybook:true,cliente:{razaoSocial:'Cliente DJEN',cnpj:'33.000.167/0001-01'}})});
+  expect(projectResponse.status).toBe(201);const project=await projectResponse.json();
+  const pub=(await pg.dono.query('SELECT id,processo_id FROM publicacoes WHERE comunicacao_id=1')).rows[0];
+  await pg.dono.query('UPDATE processos SET projeto_id=$1 WHERE id=$2',[project.id,pub.processo_id]);
+  await pg.dono.query("UPDATE publicacoes SET texto='&lt;p&gt;Intima&amp;ccedil;&amp;atilde;o: prazo de 5 dias úteis.&lt;/p&gt;' WHERE id=$1",[pub.id]);
+  const detail=await (await req(tok.ctrl!,`/api/controladoria/publicacoes/${pub.id}/detalhe`)).json();
+  expect(detail.texto_legivel).toBe('Intimação: prazo de 5 dias úteis.');
+  let tasks=(await (await req(tok.ctrl!,'/api/tarefas')).json()).tarefas;
+  expect(tasks.filter((t:any)=>t.publicacaoId===pub.id&&t.tipoAtividade==='analise_intimacao')).toHaveLength(1);
+  const body={titulo:'Manifestar no processo',dias:5,regime:'uteis'};
+  const first=await req(tok.ctrl!,`/api/controladoria/publicacoes/${pub.id}/agendamento`,{method:'POST',body:JSON.stringify(body)});
+  expect(first.status).toBe(201);expect((await first.json()).repetido).toBe(false);
+  const again=await (await req(tok.ctrl!,`/api/controladoria/publicacoes/${pub.id}/agendamento`,{method:'POST',body:JSON.stringify(body)})).json();expect(again.repetido).toBe(true);
+  tasks=(await (await req(tok.ctrl!,'/api/tarefas')).json()).tarefas.filter((t:any)=>t.publicacaoId===pub.id);
+  expect(tasks).toHaveLength(2);
+  expect(tasks.find((t:any)=>t.tipoAtividade==='analise_intimacao').status).toBe('concluida');
+  expect(tasks.find((t:any)=>t.tipoAtividade==='prazo_processual').status).toBe('a_fazer');
+ });
 });

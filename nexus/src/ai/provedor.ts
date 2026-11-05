@@ -223,6 +223,52 @@ export class ProvedorAnthropic implements Provedor {
   }
 }
 
+/** Modelo local gratuito por chamada; documentos permanecem no servidor local. */
+export class ProvedorOllama implements Provedor {
+  readonly nome = 'ollama';
+  readonly disponivel = true;
+  readonly impedimento = null;
+  readonly #url: string;
+  readonly #modelo: string;
+  readonly #fetch: typeof fetch;
+  constructor(opcoes: { url?: string; modelo: string; fetch?: typeof fetch }) {
+    const url = new URL(opcoes.url ?? 'http://127.0.0.1:11434');
+    if (url.protocol !== 'http:' || !['localhost','127.0.0.1','[::1]'].includes(url.hostname) || url.username || url.password) {
+      throw new ProvedorIndisponivel('Ollama deve usar HTTP no endereço de loopback do servidor');
+    }
+    if (!opcoes.modelo || /(?:^|[:_-])cloud$/i.test(opcoes.modelo)) throw new ProvedorIndisponivel('configure um modelo Ollama local');
+    this.#url = new URL('/api/chat', url).href;
+    this.#modelo = opcoes.modelo;
+    this.#fetch = opcoes.fetch ?? fetch;
+  }
+  async analisar(pedido: PedidoDeAnalise): Promise<ResultadoDoProvedor> {
+    let result: Response;
+    try {
+      result = await this.#fetch(this.#url, {
+        method: 'POST', redirect: 'error', signal: AbortSignal.timeout(120_000),
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: this.#modelo, stream: false, think: false,
+          format: z.toJSONSchema(EsquemaRespostaDaIA),
+          options: { temperature: 0, num_predict: 8000 },
+          messages: [
+            { role: 'system', content: pedido.sistema },
+            { role: 'user', content: `${pedido.tarefa}\n\n${pedido.documento}` },
+          ],
+        }),
+      });
+    } catch { throw new ProvedorIndisponivel('Ollama local não respondeu em até 120 segundos; confira o serviço e o modelo instalado'); }
+    if (!result.ok) throw new ProvedorIndisponivel(`Ollama local respondeu HTTP ${result.status}; confira se o modelo está instalado`);
+    const body = await result.json().catch(() => null) as { message?: { content?: string }; done?: boolean; done_reason?: string; model?: string; prompt_eval_count?: number; eval_count?: number } | null;
+    if (!body || !body.done || body.done_reason === 'length') throw new RespostaInvalida('Ollama devolveu uma resposta incompleta');
+    let parsed: unknown;
+    try { parsed = JSON.parse(body.message?.content ?? ''); } catch { throw new RespostaInvalida('Ollama não devolveu JSON'); }
+    const output = EsquemaRespostaDaIA.safeParse(parsed);
+    if (!output.success) throw new RespostaInvalida('Ollama não respeitou o esquema dos achados');
+    return { resposta: output.data, modelo: `ollama/${body.model ?? this.#modelo}`, tokensEntrada: body.prompt_eval_count ?? 0, tokensSaida: body.eval_count ?? 0 };
+  }
+}
+
 /**
  * Monta o provedor a partir do ambiente.
  *
@@ -230,10 +276,13 @@ export class ProvedorAnthropic implements Provedor {
  * escrito — nunca um substituto que finge funcionar.
  */
 export function provedorDoAmbiente(env: Record<string, string | undefined> = process.env): Provedor {
+  if (env['NGA_IA_PROVEDOR'] === 'ollama') {
+    return new ProvedorOllama({ modelo: env['NGA_MODELO_IA'] ?? 'qwen3:4b', ...(env['NGA_OLLAMA_URL'] ? { url: env['NGA_OLLAMA_URL'] } : {}) });
+  }
   const chave = env['ANTHROPIC_API_KEY']?.trim();
   if (!chave) {
     return new ProvedorAusente(
-      'ANTHROPIC_API_KEY não está configurada neste ambiente. A análise ' +
+      'ANTHROPIC_API_KEY não está configurada e Ollama local não foi selecionado (NGA_IA_PROVEDOR=ollama). A análise ' +
       'determinística (identificadores, classificação, citações) roda sem ela; ' +
       'o resumo e os achados de leitura dependem do modelo.',
     );

@@ -317,7 +317,7 @@ describe('a autorização é refeita a cada download, não congelada no link', (
 });
 
 describe('integridade na entrega', () => {
-  test('arquivo adulterado em disco não é entregue', async () => {
+  test('cópia remota preserva o original quando o disco é adulterado', async () => {
     const t = await entrar('adv@nga.adv.br');
     const conteudo = new TextEncoder().encode('laudo pericial original');
     const r = await req(t, `/api/projetos/${projeto}/documentos`, {
@@ -329,8 +329,14 @@ describe('integridade na entrega', () => {
     const hash = hashDoConteudo(conteudo);
     await Bun.write(join(raiz, hash.slice(0, 2), hash.slice(2, 4), hash), 'conteúdo trocado');
     const baixado = await tratar(new Request(`http://x${link}`));
-    expect(baixado.status).toBe(500);
-    expect((await baixado.json()).erro).toContain('não confere com o hash registrado');
+    expect(baixado.status).toBe(200);
+    expect(new Uint8Array(await baixado.arrayBuffer())).toEqual(conteudo);
+    // Mesmo um conteúdo alterado com seu próprio hash deve falhar contra o hash do documento.
+    const adulterado = Buffer.from('conteúdo remoto trocado');
+    await pg.dono.query('UPDATE documento_conteudos SET conteudo=$1, hash_sha256=$2 WHERE documento_id=$3', [adulterado, hashDoConteudo(adulterado), doc]);
+    const recusado = await tratar(new Request(`http://x${link}`));
+    expect(recusado.status).toBe(500);
+    expect((await recusado.json()).erro).toContain('não confere com o hash registrado');
   });
 });
 

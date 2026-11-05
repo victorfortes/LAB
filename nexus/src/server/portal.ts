@@ -149,10 +149,10 @@ export async function enviarDocumento(
   await db.query(
     `INSERT INTO documentos (id, organizacao_id, projeto_id, titulo, caminho, tipo_mime,
        tamanho_bytes, hash_sha256, origem, visibilidade, enviado_por)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'portal_cliente','interno',$9)`,
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'interno',$10)`,
     [documentoId, requisito.organizacao_id, projetoId, dados.titulo, dados.caminho,
      dados.tipoMime ?? null, dados.tamanhoBytes ?? null, dados.hashSha256 ?? null,
-     identidade.usuarioId]);
+     lado === 'cliente' ? 'portal_cliente' : 'interno', identidade.usuarioId]);
 
   return vincularAoRequisito(db, dados.requisitoId, documentoId, identidade, lado);
 }
@@ -413,6 +413,10 @@ export async function enviarMensagem(
   const organizacaoId = rows[0]?.organizacao_id;
   if (!organizacaoId) throw new NaoEncontrado('projeto não encontrado');
 
+  if (dados.requisitoId) {
+    const req = await db.query('SELECT id FROM requisitos WHERE id = $1 AND projeto_id = $2', [dados.requisitoId, projetoId]);
+    if (!req.rows[0]) throw new PedidoInvalido('o item do checklist não pertence a este projeto');
+  }
   const id = crypto.randomUUID();
   await db.query(
     `INSERT INTO mensagens (id, organizacao_id, projeto_id, requisito_id, autor_id, lado, texto)

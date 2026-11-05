@@ -22,14 +22,17 @@ import { diagnostico } from './diagnostico.ts';
 import { atividade } from './atividade.ts';
 import * as negociacoes from './negociacoes.ts';
 import * as controladoria from './controladoria.ts';
+import { sugerirPrazo } from './publicacao_analise.ts';
 import { faseInicial, type TipoDeProjeto } from '../domain/projeto/fases.ts';
 import * as processos from './processos.ts';
 import * as relatorios from './relatorios.ts';
 import * as projetos from './projetos.ts';
 import * as tarefas from './tarefas.ts';
+import * as projetoConfig from './projeto_config.ts';
 import * as ferramentas from './ferramentas.ts';
 import * as convites from './convites.ts';
 import * as integracoes from './integracoes.ts';
+import * as google from './google.ts';
 import {
   SemEscopo, exigirEscopo, integracaoDoToken, marcarUso, pareceTokenDeIntegracao,
 } from '../security/integracao.ts';
@@ -237,6 +240,17 @@ export function criarApp(ctx: Contexto) {
         });
       }
 
+      // Google returns cross-site: relay through a same-origin document so Strict session cookies
+      // remain strict and the actual token exchange still requires the initiating user's session.
+      if (rota === '/api/google/callback' && metodo === 'GET') {
+        const code=url.searchParams.get('code'); const state=url.searchParams.get('state');
+        if(!code || !state || code.length>4096 || state.length>256) return erro('Autorização Google recusada ou incompleta.',400);
+        const next='/api/google/finalizar?'+new URLSearchParams({code,state});
+        const nonce=crypto.randomUUID();
+        const script='location.replace('+JSON.stringify(next).replaceAll('<','\\u003c')+')';
+        return new Response('<!doctype html><meta charset="utf-8"><title>Conectando Google</title><p>Concluindo conexão Google…</p><script nonce="'+nonce+'">'+script+'</script>',{headers:{'content-type':'text/html;charset=utf-8','cache-control':'no-store','referrer-policy':'no-referrer','content-security-policy':"default-src 'none'; script-src 'nonce-"+nonce+"'; base-uri 'none'; frame-ancestors 'none'"}});
+      }
+
       // --------------------------------------------------------- autenticado ---
       const identidade = await autenticado(req);
       if (identidade instanceof Response) return identidade;
@@ -266,6 +280,38 @@ export function criarApp(ctx: Contexto) {
             ehCliente ? m.ambiente === 'client' : true),
           resumo: resumoDeEstado(),
         });
+      }
+
+      // ------------------------------------------------------ Google ---
+      if (rota.startsWith('/api/google/')) {
+        exigir(identidade.papeis, 'projeto.ler');
+        if (rota === '/api/google/status' && metodo === 'GET') return json(await banco.comoUsuario(identidade.usuarioId, db => google.status(db, identidade)));
+        if (rota === '/api/google/conectar' && metodo === 'GET') {
+          exigir(identidade.papeis, 'integracao.gerir');
+          return json(await banco.comoUsuario(identidade.usuarioId, db => google.conectar(db, identidade)));
+        }
+        if (rota === '/api/google/finalizar' && metodo === 'GET') {
+          exigir(identidade.papeis, 'integracao.gerir');
+          if (!url.searchParams.get('code') || !url.searchParams.get('state')) return erro('Autorização Google recusada ou incompleta.', 400);
+          await banco.comoUsuario(identidade.usuarioId, db => google.callback(db, identidade, url.searchParams.get('code')!, url.searchParams.get('state')!));
+          return Response.redirect(new URL('/integracoes?google=conectado',req.url),303);
+        }
+        if (rota === '/api/google/eventos' && metodo === 'GET') {
+          const id=url.searchParams.get('projetoId');
+          if(id && !z.string().uuid().safeParse(id).success) return erro('Projeto inválido.',400);
+          return json(await banco.comoUsuario(identidade.usuarioId,db=>google.listarEventos(db,id??undefined)));
+        }
+        if (rota === '/api/google/eventos' && metodo === 'POST') {
+          exigir(identidade.papeis,'tarefa.escrever');
+          const d=google.EsquemaEvento.safeParse(await req.json().catch(()=>null));
+          if(!d.success)return erro('Evento inválido.',400,d.error.issues);
+          return json(await banco.comoUsuario(identidade.usuarioId,db=>google.criarEvento(db,identidade,d.data)),201);
+        }
+        const drive=/^\/api\/google\/projetos\/([0-9a-f-]{36})\/(drive|documentos)$/.exec(rota);
+        if(drive && metodo==='POST') {
+          exigir(identidade.papeis,'integracao.gerir');
+          return json(await banco.comoUsuario(identidade.usuarioId,db=>drive[2]==='drive'?google.criarPastas(db,drive[1]!):google.sincronizarDocumentos(db,drive[1]!,deposito.armazenamento)));
+        }
       }
 
       // --------------------------------------------------- integrações ---
@@ -311,6 +357,32 @@ export function criarApp(ctx: Contexto) {
         if (!corpo.success) return erro('dados inválidos', 400, corpo.error.issues);
         return json(await banco.comoUsuario(identidade.usuarioId, (db) =>
           tarefas.criar(db, mTarefasDoProjeto[1]!, corpo.data, identidade)), 201);
+      }
+
+      const mConfig = /^\/api\/projetos\/([0-9a-f-]{36})\/(automacoes|playbook\/notas|pesquisa)$/.exec(rota);
+      if (mConfig) {
+        exigir(identidade.papeis, metodo === 'GET' ? 'tarefa.ler' : 'projeto.escrever');
+        const pid = mConfig[1]!; const recurso = mConfig[2]!;
+        if (metodo === 'GET') return json(await banco.comoUsuario(identidade.usuarioId, async (db): Promise<unknown> =>
+          recurso === 'automacoes' ? projetoConfig.automacoes(db,pid) : recurso === 'pesquisa' ? projetoConfig.pesquisar(db,pid,url.searchParams.get('q') ?? '') : projetoConfig.notas(db,pid)));
+        if (recurso === 'automacoes' && metodo === 'POST') {
+          const corpo = projetoConfig.EsquemaAutomacao.safeParse(await req.json().catch(() => null));
+          if (!corpo.success) return erro('dados inválidos',400,corpo.error.issues);
+          return json(await banco.comoUsuario(identidade.usuarioId,(db)=>projetoConfig.criarAutomacao(db,pid,corpo.data,identidade)),201);
+        }
+        if (recurso === 'playbook/notas' && metodo === 'PUT') {
+          const corpo = projetoConfig.EsquemaNota.safeParse(await req.json().catch(() => null));
+          if (!corpo.success) return erro('dados inválidos',400,corpo.error.issues);
+          return json(await banco.comoUsuario(identidade.usuarioId,(db)=>projetoConfig.salvarNota(db,pid,corpo.data,identidade)));
+        }
+      }
+      const mAutomacao = /^\/api\/automacoes\/([0-9a-f-]{36})$/.exec(rota);
+      if (mAutomacao && ['PATCH','DELETE'].includes(metodo)) {
+        exigir(identidade.papeis,'projeto.escrever');
+        if (metodo === 'DELETE') return json(await banco.comoUsuario(identidade.usuarioId,(db)=>projetoConfig.excluirAutomacao(db,mAutomacao[1]!,identidade)));
+        const corpo = projetoConfig.EsquemaAtualizarAutomacao.safeParse(await req.json().catch(() => null));
+        if (!corpo.success) return erro('dados inválidos',400,corpo.error.issues);
+        return json(await banco.comoUsuario(identidade.usuarioId,(db)=>projetoConfig.atualizarAutomacao(db,mAutomacao[1]!,corpo.data,identidade)));
       }
 
       // ------------------------------------------------------ negociações ---
@@ -373,8 +445,26 @@ export function criarApp(ctx: Contexto) {
         exigir(identidade.papeis, 'controladoria.ler');
         const p = url.searchParams;
         return json(await banco.comoUsuario(identidade.usuarioId, (db) => controladoria.listarPublicacoes(db, {
+          ...(url.searchParams.get('inicio') ? {inicio:url.searchParams.get('inicio')!}:{}),
+          ...(url.searchParams.get('fim') ? {fim:url.searchParams.get('fim')!}:{}),
+          ...(url.searchParams.get('periodo') ? {periodo:url.searchParams.get('periodo')!}:{}),
           ...(p.get('situacao') ? { situacao: p.get('situacao')! } : {}), ...(p.get('oab') ? { oab: p.get('oab')! } : {}),
           ...(p.get('q') ? { q: p.get('q')! } : {}), pagina: Number(p.get('pagina') ?? 1) || 1 })));
+      }
+      const mPubAnalise=/^\/api\/controladoria\/publicacoes\/([0-9a-f-]{36})\/(detalhe|analise)$/.exec(rota);
+      if(mPubAnalise && ((mPubAnalise[2]==='detalhe'&&metodo==='GET')||(mPubAnalise[2]==='analise'&&metodo==='POST'))) {
+        exigir(identidade.papeis,'controladoria.ler');
+        const p=await banco.comoUsuario(identidade.usuarioId,db=>controladoria.detalharPublicacao(db,mPubAnalise[1]!));
+        if(mPubAnalise[2]==='detalhe')return json(p);
+        const data=p.data_disponibilizacao instanceof Date?p.data_disponibilizacao.toISOString().slice(0,10):String(p.data_disponibilizacao).slice(0,10);
+        return json(await sugerirPrazo(p.texto_legivel,data));
+      }
+      const mPubAgenda=/^\/api\/controladoria\/publicacoes\/([0-9a-f-]{36})\/agendamento$/.exec(rota);
+      if(mPubAgenda && metodo==='POST') {
+        exigir(identidade.papeis,'controladoria.gerir'); exigir(identidade.papeis,'prazo.escrever');
+        const d=controladoria.EsquemaAgendamento.safeParse(await req.json().catch(()=>null));
+        if(!d.success)return erro('Agendamento inválido.',400,d.error.issues);
+        return json(await banco.comoUsuario(identidade.usuarioId,db=>controladoria.agendarPublicacao(db,mPubAgenda[1]!,d.data,identidade)),201);
       }
       const mPub = /^\/api\/controladoria\/publicacoes\/([0-9a-f-]{36})$/.exec(rota);
       if (mPub && metodo === 'PATCH') {

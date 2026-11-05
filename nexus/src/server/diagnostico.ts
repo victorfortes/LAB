@@ -41,19 +41,25 @@ export async function diagnostico(db: PoolClient, projetoId: string) {
             (SELECT count(*) FROM achados c WHERE c.analise_id = a.id AND c.gravidade = 'critico' AND c.situacao = 'aberto') AS criticos
        FROM documentos d
        LEFT JOIN documento_processamento p ON p.documento_id = d.id
-       LEFT JOIN requisitos r ON r.documento_id = d.id
-       LEFT JOIN LATERAL (SELECT * FROM analises x WHERE x.documento_id = d.id ORDER BY x.criado_em DESC LIMIT 1) a ON TRUE
-      WHERE d.projeto_id = $1 ORDER BY d.criado_em DESC`, [projetoId]);
+       LEFT JOIN requisitos r ON r.documento_id = d.id AND r.projeto_id = d.projeto_id
+       LEFT JOIN LATERAL (SELECT * FROM analises x WHERE x.documento_id = d.id AND x.projeto_id = d.projeto_id ORDER BY x.criado_em DESC LIMIT 1) a ON TRUE
+      WHERE d.projeto_id = $1 AND d.origem = 'portal_cliente' ORDER BY d.criado_em DESC`, [projetoId]);
 
-  const { rows: itens } = await db.query<{ id: string; categoria: string; titulo: string; fundamento: string | null; obrigatorio: boolean; situacao: string }>(
-    'SELECT id, categoria, titulo, fundamento, obrigatorio, situacao FROM requisitos WHERE projeto_id = $1', [projetoId]);
+  const { rows: requisitos } = await db.query<{ id: string; categoria: string; titulo: string; fundamento: string | null; obrigatorio: boolean; situacao: string; enviado_pelo_cliente: boolean }>(
+    `SELECT r.id, r.categoria, r.titulo, r.fundamento, r.obrigatorio, r.situacao,
+            coalesce(d.origem = 'portal_cliente', false) AS enviado_pelo_cliente
+       FROM requisitos r LEFT JOIN documentos d ON d.id = r.documento_id AND d.projeto_id = r.projeto_id
+      WHERE r.projeto_id = $1`, [projetoId]);
+  // O diagnóstico inicial mede a entrega do cliente. Documento interno ou
+  // aprovação sem evidência de envio não deve aumentar essa cobertura.
+  const itens = requisitos.map(r => ({ ...r, situacao: !r.enviado_pelo_cliente && r.situacao !== 'nao_aplicavel' ? 'pendente' : r.situacao }));
 
   const { rows: achados } = await db.query<{
     id: string; titulo: string; descricao: string | null; gravidade: string; categoria: string; natureza: string; origem: string; documento: string; documento_id: string;
   }>(
     `SELECT c.id, c.titulo, c.descricao, c.gravidade, c.categoria, c.natureza, c.origem, d.titulo AS documento, d.id AS documento_id
        FROM achados c JOIN analises a ON a.id = c.analise_id JOIN documentos d ON d.id = a.documento_id
-      WHERE a.projeto_id = $1 AND c.situacao = 'aberto'
+      WHERE a.projeto_id = $1 AND d.projeto_id = $1 AND d.origem = 'portal_cliente' AND c.situacao = 'aberto'
       ORDER BY CASE c.gravidade WHEN 'critico' THEN 0 WHEN 'atencao' THEN 1 ELSE 2 END, c.ordem LIMIT 40`, [projetoId]);
 
   // ---- cobertura do checklist
@@ -120,6 +126,7 @@ export async function diagnostico(db: PoolClient, projetoId: string) {
 
   return {
     geradoEm: new Date().toISOString(),
+    escopo: 'documentos_enviados_pelo_cliente',
     cobertura: {
       obrigatorios: obrig.length,
       aprovados: obrig.filter((i) => i.situacao === 'aprovado').length,

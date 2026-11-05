@@ -63,10 +63,10 @@ export function catalogo(): readonly Ferramenta[] {
       caminho: '/gerador/',
     },
     {
-      id: 'radar', aplicacao: 'radar', estado: 'em_desenvolvimento',
+      id: 'radar', aplicacao: 'radar', estado: 'em_uso', independente: true, semIncorporar: true,
       nome: 'Radar de RJs e Falências',
-      descricao: 'Coleta de publicações do DJEN. Roda agendado, sem interface própria.',
-      url: null,
+      descricao: 'Radar Concursal: descobertas no DJEN, processos e credores. Coleta diária pelo serviço do Mac.',
+      url: url('NGA_URL_RADAR', 'https://judy-track-pro.lovable.app'),
     },
   ];
 }
@@ -74,13 +74,13 @@ export function catalogo(): readonly Ferramenta[] {
 async function sondar(endereco: string): Promise<{ noAr: boolean; ms: number | null; titulo: string | null }> {
   const inicio = performance.now();
   try {
-    const r = await fetch(endereco, { signal: AbortSignal.timeout(1500), redirect: 'manual' });
+    const r = await fetch(endereco, { signal: AbortSignal.timeout(endereco.startsWith('https://') ? 6000 : 2000), redirect: 'manual' });
     const ms = Math.round(performance.now() - inicio);
     // Qualquer resposta HTTP prova que há alguém escutando; só falha de
     // conexão ou tempo esgotado conta como fora do ar.
-    const corpo = r.headers.get('content-type')?.includes('text/html') ? await r.text() : '';
+    const corpo = r.headers.get('content-type')?.includes('text/html') ? await r.text().catch(() => '') : '';
     const titulo = /<title>([^<]*)<\/title>/i.exec(corpo)?.[1]?.trim() ?? null;
-    return { noAr: true, ms, titulo };
+    return { noAr: r.status >= 200 && r.status < 400, ms, titulo };
   } catch {
     return { noAr: false, ms: null, titulo: null };
   }

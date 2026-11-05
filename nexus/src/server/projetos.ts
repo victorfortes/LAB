@@ -139,6 +139,8 @@ export async function criar(
     empresaId = emp[0]!.id;
   }
   if (empresaId) {
+    const empresa = await db.query('SELECT id FROM empresas WHERE id = $1 AND organizacao_id = $2', [empresaId, organizacaoId]);
+    if (!empresa.rows[0]) throw new PedidoInvalido('a empresa deve pertencer ao escritório deste projeto');
     await db.query(
       `INSERT INTO projetos_empresas (projeto_id, empresa_id, papel) VALUES ($1,$2,$3)
        ON CONFLICT DO NOTHING`, [id, empresaId, papelDaEmpresa]);
@@ -349,6 +351,13 @@ export async function entrarNaEquipe(
     'SELECT organizacao_id FROM projetos WHERE id = $1', [projetoId]);
   const projeto = rows[0];
   if (!projeto) throw new NaoEncontrado('projeto não encontrado');
+
+  const integrante = await db.query(
+    `SELECT u.id FROM usuarios u JOIN vinculos v ON v.usuario_id = u.id
+      WHERE u.id = $1 AND v.organizacao_id = $2 AND v.revogado_em IS NULL AND u.ativo
+        AND v.papel NOT IN ('integracao','parceiro_externo','cliente_administrador','cliente_usuario') LIMIT 1`,
+    [dados.usuarioId, projeto.organizacao_id]);
+  if (!integrante.rows[0]) throw new PedidoInvalido('o integrante deve fazer parte da equipe ativa do escritório deste projeto');
 
   // Trocar de líder é substituir, não acumular: o índice parcial da migração
   // 015 recusaria dois líderes ativos, então o anterior sai primeiro.

@@ -10,13 +10,17 @@ const ESCOPOS = { 'processos': ['processos'], 'prazos': ['prazos'], 'documentos'
 export default async function ajustes() {
   const eu = estado.eu;
   const gere = pode('integracao.gerir');
-  const [int, ia, arq] = await Promise.all([
-    gere ? api.get('/api/integracoes') : null, api.get('/api/ia/estado').catch(() => null), api.get('/api/arquivos/estado').catch(() => null)]);
+  const [int, ia, arq, google] = await Promise.all([
+    gere ? api.get('/api/integracoes') : null, api.get('/api/ia/estado').catch(() => null), api.get('/api/arquivos/estado').catch(() => null), api.get('/api/google/status').catch(() => null)]);
   return {
     titulo: 'Ajustes',
     html: html`${cabecalho({ titulo: 'Ajustes', sub: 'Conta, integrações e o que está de fato funcionando' })}
       <div class="grid-hub mt">
         <div style="display:grid;gap:var(--gap)">
+          <section class="card glass up"><header class="card__head"><div><h2 class="card__title">Google Calendar, Meet e Drive</h2><p class="card__sub">Conexão da conta do escritório para os eventos e arquivos dos projetos.</p></div><span class="selo ${google?.conectado ? 'ok' : 'aviso'}">${google?.conectado ? 'Conectado' : 'Pendente'}</span></header>
+            <p class="dica">Os eventos criados no calendário recebem o vínculo com o projeto. Os documentos do portal são organizados nas pastas do cliente e do projeto.</p>
+            ${google?.configurado ? html`<button class="btn btn--accent" data-google-conectar>${google.conectado ? 'Renovar autorização Google' : 'Conectar conta Google'}</button>` : html`<p class="dica">Para habilitar, conclua a configuração da aplicação Google do escritório:</p><ul class="lista">${(google?.instrucoes ?? []).map((i) => html`<li>${i}</li>`)}</ul><p class="mono-sm">Pendente: ${(google?.faltantes ?? []).join(', ') || 'Configuração indisponível'}</p>`}
+          </section>
           ${gere ? html`<section class="card glass up"><header class="card__head"><div><h2 class="card__title">Integrações</h2><p class="card__sub">Credenciais para as aplicações do Lab entregarem dados. O token aparece uma única vez.</p></div>
             <button type="button" class="btn btn--accent" data-nova>${icone('plus')}Nova credencial</button></header>
             ${int.integracoes.length ? html`<ul class="lista">${int.integracoes.map((i) => html`<li><div><b>${i.nome}</b><small>${i.aplicacao} · ${i.escopos.join(', ')} · ${i.nuncaUsada ? 'nunca usada' : `último uso ${relativo(i.ultimo_uso_em)} · ${i.usos} entrega(s)`}</small></div>
@@ -38,6 +42,7 @@ export default async function ajustes() {
               <li><div><b>Armazenamento de arquivos</b><small>${arq ? (arq.descricao ?? arq.modo ?? JSON.stringify(arq).slice(0, 120)) : '—'}</small></div></li></ul></section>
         </div></div>`,
     depois(el) {
+      ouvir(el, 'click', '[data-google-conectar]', async () => { try { const r = await api.get('/api/google/conectar'); location.assign(r.url); } catch (e) { erroDe(e); } });
       el.querySelector('#efeitos')?.addEventListener('change', (e) => { guardado.gravar('efeitos', e.target.value); toast('Efeitos atualizados'); setTimeout(() => location.reload(), 400); });
       ouvir(el, 'click', '[data-nova]', async () => {
         let r = null;

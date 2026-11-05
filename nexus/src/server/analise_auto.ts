@@ -16,7 +16,7 @@ import { extractText, getDocumentProxy } from 'unpdf';
 import { auditar, type Banco } from '../store/conexao.ts';
 import type { Identidade } from '../security/sessao.ts';
 import type { Provedor } from '../ai/provedor.ts';
-import type { Deposito } from './arquivos.ts';
+import { lerConteudoDocumento, type Deposito } from './arquivos.ts';
 import { chaveDoHash } from '../store/arquivos.ts';
 import * as analise from './analise.ts';
 
@@ -83,7 +83,7 @@ export async function processar(
       banco.comoUsuario(usuarioId, (db) => marcar(db, documentoId, doc.organizacao_id, doc.projeto_id, estado, detalhe));
 
     if (!doc.tem_arquivo || !doc.hash_sha256) { await fim('sem_texto', 'o documento não tem arquivo guardado'); return 'sem_texto'; }
-    const bytes = await dep.armazenamento.ler(chaveDoHash(doc.hash_sha256), doc.hash_sha256);
+    const bytes = await banco.comoUsuario(usuarioId, (db) => lerConteudoDocumento(db, documentoId, dep, chaveDoHash(doc.hash_sha256!), doc.hash_sha256!));
     const extraido = await extrair(bytes, (doc.tipo_mime ?? '').split(';')[0]!.trim());
     if ('vazio' in extraido) { await fim('sem_texto', extraido.vazio); return 'sem_texto'; }
 

@@ -566,3 +566,29 @@ a, button, [role=tab], .tk-card, .pcard, .lista li, .check-row, label.btn, .tab 
 .sit-dot.nao_aplicavel { background: transparent; border: 2px solid var(--text-3); }
 
 .pub-texto { white-space: pre-wrap; font-size: 14.5px; line-height: 1.55; color: var(--text-2); margin: 0 0 6px; }
+
+/* Overlays and controls belong to LAB, independent from the bundled theme. */
+.modal.lab-modal { position:fixed; inset:0; width:100%; height:100dvh; max-height:none; border-radius:0; margin:0; display:grid; place-items:center; align-items:center; padding:clamp(12px,3vw,28px); z-index:1000; overflow:auto; }
+.lab-modal .modal__box, .lab-modal .modal__box.wide { margin:auto; max-height:calc(100dvh - 40px); border-radius:24px; }
+.lab-modal .modal__box { width:min(560px,100%); }
+.lab-modal .modal__box.wide { width:min(860px,100%); }
+.lab-modal .modal__body { min-width:0; }
+.lab-modal input, .lab-modal select, .lab-modal textarea { max-width:100%; }
+.seg { isolation:isolate; overflow:hidden; border-radius:999px; }
+.seg .seg__pill { pointer-events:none; border-radius:999px; }
+.side__me .av--me { background:var(--fill); color:var(--text-2); border:1px solid var(--sep); box-shadow:none; border-radius:12px; width:34px; height:34px; font-size:12px; }
+.play-tree { display:grid; gap:20px; padding:8px 0; }
+.play-tree__branch { display:grid; grid-template-columns:minmax(150px,1fr) minmax(0,3fr); gap:24px; align-items:start; }
+.play-tree__root { border:1px solid var(--sep); border-radius:16px; background:var(--fill); padding:16px; font-weight:650; position:relative; }
+.play-tree__root:after { content:''; position:absolute; width:25px; height:1px; background:var(--sep); right:-25px; top:50%; }
+.play-tree__leaves { border-left:1px solid var(--sep); display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:12px; padding-left:20px; }
+.play-tree__leaf { border:1px solid var(--sep); border-radius:16px; text-align:left; padding:14px; display:grid; gap:6px; min-height:92px; background:var(--glass); cursor:pointer; }
+.play-tree__leaf:hover { border-color:var(--lab-amber); }
+.play-tree__leaf small { color:var(--text-3); }
+.project-chat { max-height:320px; min-height:120px; overflow:auto; }
+.project-chat .msg { white-space:pre-wrap; overflow-wrap:anywhere; }
+.project-tools { display:flex; flex-wrap:wrap; gap:8px; }
+.cal__create { float:right; padding:0 4px; font-size:17px; color:var(--text-3); }
+.cal__ev.marcador { border-left-color:var(--lab-amber); }
+.cal__ev.reuniao { border-left-color:var(--lab-green); }
+@media (max-width:600px) { .play-tree__branch { grid-template-columns:1fr; gap:12px; } .play-tree__root:after { display:none; } .play-tree__leaves { margin-left:12px; } .lab-modal .modal__box { padding:20px; } }

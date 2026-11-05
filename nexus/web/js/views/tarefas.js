@@ -58,7 +58,15 @@ export function htmlQuadro(tarefas, opts) {
 
 /** Liga arrastar e abrir. `recarregar` repinta a tela depois de qualquer mudança. */
 export function ligarQuadro(raiz, tarefas, recarregar, projetoFixo) {
-  const board = raiz.querySelector('.tk-board'); if (!board) return;
+  // Registrar mesmo no estado vazio/lista; filtrar não pode duplicar handlers.
+  if (!raiz.__tarefasLigadas) {
+    raiz.__tarefasLigadas = true;
+    ouvir(raiz, 'click', '[data-editar]', (b) => editarTarefa(raiz.__tarefasAtuais.find((t) => t.id === b.dataset.editar), recarregar));
+    ouvir(raiz, 'click', '[data-nova]', (b) => novaTarefa(recarregar, projetoFixo, b.dataset.nova).catch(erroDe));
+  }
+  raiz.__tarefasAtuais = tarefas;
+  const board = raiz.querySelector('.tk-board'); if (!board || board.__arrastavel) return;
+  board.__arrastavel = true;
   quadroArrastavel(board, {
     item: '.tk-card', coluna: '.tk-col', lista: '.tk-col__list',
     aoSoltar: async (id, status) => {
@@ -66,14 +74,12 @@ export function ligarQuadro(raiz, tarefas, recarregar, projetoFixo) {
       catch (e) { erroDe(e); throw e; }
     },
   });
-  ouvir(raiz, 'click', '[data-editar]', (b) => editarTarefa(tarefas.find((t) => t.id === b.dataset.editar), recarregar));
-  ouvir(raiz, 'click', '[data-nova]', (b) => novaTarefa(recarregar, projetoFixo, b.dataset.nova));
 }
 
 export default async function tarefas() {
   const dados = await api.get('/api/tarefas');
   estado.tarefas = dados.tarefas;
-  const visao = guardado.ler('tarVisao', 'quadro');
+  const visao = guardado.ler('tarVisaoV2', 'lista');
   const todas = dados.tarefas; const lista = todas.filter(passa);
   const r = dados.resumo;
   const semana = todas.filter((t) => t.situacaoDoPrazo === 'esta_semana' || t.situacaoDoPrazo === 'hoje').length;
@@ -87,7 +93,7 @@ export default async function tarefas() {
   return {
     titulo: 'Tarefas',
     html: html`${cabecalho({
-      titulo: 'Tarefas', sub: `${r.abertas} em aberto em ${nProj} ${nProj === 1 ? 'projeto' : 'projetos'} · arraste os cartões entre as colunas`,
+      titulo: 'Tarefas', sub: `${r.abertas} em aberto em ${nProj} ${nProj === 1 ? 'projeto' : 'projetos'} · ${visao==='lista'?'análise de intimações e prazos processuais separados':'arraste os cartões entre as colunas'}`,
       acoes: html`${seg}${pode('tarefa.escrever') ? html`<button type="button" class="btn btn--accent" data-nova="a_fazer">${icone('plus')}Nova tarefa</button>` : ''}`,
       resumo: [{ rotulo: 'Em aberto', valor: r.abertas }, { rotulo: 'Para esta semana', valor: semana }, { rotulo: 'Atrasadas', valor: r.atrasadas, tom: r.atrasadas ? 'alert' : 'ok' }, { rotulo: 'Concluídas', valor: r.concluidas }],
     })}
@@ -103,7 +109,7 @@ export default async function tarefas() {
     <div id="tarefas-corpo">${corpo(visao, lista, todas)}</div>`,
     depois(raiz) {
       const recarregar = () => navegar();
-      ouvir(raiz, 'click', '[data-visao]', (b) => { guardado.gravar('tarVisao', b.dataset.visao); navegar(); });
+      ouvir(raiz, 'click', '[data-visao]', (b) => { guardado.gravar('tarVisaoV2', b.dataset.visao); navegar(); });
       ouvir(raiz, 'click', '[data-f]', (b) => {
         const f = b.dataset.f;
         if (f === 'minhas') { filtros.minhas = !filtros.minhas; navegar(); }
@@ -120,6 +126,9 @@ export default async function tarefas() {
         ligarQuadro(raiz, todas, recarregar);
       });
       ligarQuadro(raiz, todas, recarregar);
+      ouvir(raiz, 'click', '[data-publicacao]', (b) => import('./controladoria.js').then(m=>m.abrirPublicacao(b.dataset.publicacao)).catch(erroDe));
+      ouvir(raiz, 'change', '[data-status-tarefa]', async(b)=>{try{b.disabled=true;await api.patch(`/api/tarefas/${b.dataset.statusTarefa}`,{status:b.value});atualizarLateral();navegar();}catch(e){b.disabled=false;erroDe(e);}});
+      ouvir(raiz, 'click', '[data-concluir]', async(b)=>{try{b.disabled=true;await api.patch(`/api/tarefas/${b.dataset.concluir}`,{status:'concluida'});toast('Atividade concluída');atualizarLateral();navegar();}catch(e){b.disabled=false;erroDe(e);}});
       ouvir(raiz, 'click', '[data-editar-linha]', (b) => editarTarefa(todas.find((t) => t.id === b.dataset.editarLinha), recarregar));
     },
   };
@@ -130,12 +139,11 @@ function corpo(visao, lista, todas) {
     'Tarefa é o trabalho do dia a dia dentro de um projeto: quem faz, até quando, em que ponto está.',
     pode('tarefa.escrever') ? '<button class="btn btn--accent" data-nova="a_fazer">Criar a primeira tarefa</button>' : '')}</section>`;
   if (visao === 'quadro') return htmlQuadro(lista);
-  return html`<section class="card glass up"><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Tarefa</th><th>Projeto</th><th>Responsável</th><th>Prioridade</th><th>Prazo</th><th>Situação</th></tr></thead>
-    <tbody>${lista.map((t) => html`<tr><td><button class="link" data-editar-linha="${t.id}"><b>${t.titulo}</b></button></td>
-      <td><span class="pchip hue--${matiz(t.projetoId)}"><i></i>${t.projeto}</span></td><td>${t.responsavel ?? '—'}</td>
-      <td>${PRIO[t.prioridade] ? html`<span class="prio ${PRIO[t.prioridade][0]}">${PRIO[t.prioridade][1]}</span>` : t.prioridade}</td>
-      <td class="mono-sm" ${t.situacaoDoPrazo === 'atrasada' ? raw('style="color:var(--lab-red)"') : ''}>${t.prazo ? dataCurta(t.prazo) : '—'}</td>
-      <td><span class="selo ${t.status === 'concluida' ? 'ok' : t.status === 'em_revisao' ? 'aviso' : t.status === 'em_andamento' ? 'info' : ''}">${COLUNAS.find((c) => c.id === t.status).nome}</span></td></tr>`)}</tbody></table></div></section>`;
+  return html`<section class="card glass up task-list"><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Atividade</th><th>Projeto / processo</th><th>Responsável</th><th>Data / vencimento</th><th>Situação</th><th></th></tr></thead>
+    <tbody>${lista.map((t) => html`<tr><td class="task-title"><button class="link" data-editar-linha="${t.id}"><b>${t.titulo}</b></button><span class="task-type">${t.tipoAtividade==='analise_intimacao'?'Análise de intimação':t.tipoAtividade==='prazo_processual'?'Cumprimento de prazo processual':'Tarefa do projeto'}${t.prioridade==='urgente'||t.prioridade==='alta'?` · prioridade ${t.prioridade}`:''}</span>${t.publicacaoId?html`<button class="link task-origin" type="button" data-publicacao="${t.publicacaoId}">Abrir intimação e análise</button>`:''}</td>
+      <td><span class="pchip hue--${matiz(t.projetoId)}"><i></i>${t.projeto}</span>${t.processo?html`<div class="mono-sm mt">${t.processo}</div>`:''}</td><td>${t.responsavel??'Sem responsável'}</td>
+      <td class="mono-sm" ${t.situacaoDoPrazo==='atrasada'?raw('style="color:var(--lab-red)"'):''}>${t.prazo?dataCurta(t.prazo):'Sem data'}<span class="task-type">${t.tipoAtividade==='prazo_processual'?'Vencimento processual':t.tipoAtividade==='analise_intimacao'?'Data de análise interna':'Entrega da tarefa'}</span></td>
+      <td>${pode('tarefa.escrever')?html`<select class="select" data-status-tarefa="${t.id}" aria-label="Situação de ${t.titulo}">${COLUNAS.map(c=>html`<option value="${c.id}" ${c.id===t.status?raw('selected'):''}>${c.nome}</option>`)}</select>`:html`<span class="selo">${COLUNAS.find(c=>c.id===t.status)?.nome??t.status}</span>`}</td><td>${pode('tarefa.escrever')&&t.status!=='concluida'?html`<button class="ibtn" type="button" data-concluir="${t.id}" aria-label="Concluir ${t.titulo}">${icone('check')}</button>`:''}</td></tr>`)}</tbody></table></div></section>`;
 }
 
 async function camposDaTarefa(t = {}, projetoFixo) {

@@ -194,7 +194,7 @@ async function caixa(p) {
 
 async function relatorios(p) {
   const docs = (await api.get(`/api/projetos/${p.projeto_id}/documentos`)).filter((d) => d.visibilidade === 'publicado');
-  const rel = docs.filter((d) => d.categoria === 'Relatório');
+  const rel = docs.filter((d) => d.categoria === 'relatorio_gerador' && d.visibilidade === 'publicado');
   return {
     resumo: [{ rotulo: 'Relatórios', valor: rel.length }, { rotulo: 'Outros documentos', valor: docs.length - rel.length }],
     html: html`<section class="card glass up"><header class="card__head"><div><h2 class="card__title">Relatórios da NGA</h2><p class="card__sub">Acompanhamento mensal e quadros preparados para você</p></div></header>

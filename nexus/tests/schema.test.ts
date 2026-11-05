@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import type { Client } from 'pg';
+import { readdir } from 'node:fs/promises';
 import { bancoDeTeste, type BancoDeTeste } from './apoio/postgres.ts';
 
 let banco: BancoDeTeste;
@@ -61,12 +62,9 @@ async function como<T>(usuarioId: string, fn: () => Promise<T>): Promise<T> {
 describe('migrations', () => {
   test('todas as migrations aplicaram e ficaram registradas', async () => {
     const { rows } = await db.query<{ nome: string }>('SELECT nome FROM schema_migracoes ORDER BY nome');
-    expect(rows.map((r) => r.nome)).toEqual([
-      '001_nucleo.sql', '002_insolvencia.sql', '003_rls.sql', '004_papel_aplicacao.sql',
-      '005_sessoes.sql', '006_autenticacao.sql', '007_portal.sql',
-      '008_financeiro_recuperanda.sql', '009_rls_portal.sql',
-      '010_analise.sql', '011_rls_analise.sql', '012_arquivos.sql',
-      '013_processos.sql', '014_rls_processos.sql', '015_projeto.sql', '016_integracoes.sql', '017_tarefas.sql', '018_convites.sql', '019_analise_automatica.sql', '020_checklists_oficiais.sql', '021_negociacoes.sql', '022_playbook.sql', '023_controladoria.sql']);
+    const arquivos = (await readdir(new URL('../src/db/migrations/', import.meta.url)))
+      .filter(nome => nome.endsWith('.sql')).sort();
+    expect(rows.map((r) => r.nome)).toEqual(arquivos);
   });
 
   test('rodar de novo é idempotente', async () => {

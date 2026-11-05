@@ -115,6 +115,8 @@ export async function receber(
      dados.titulo, dados.categoria ?? null, guardado.chave, tipo.mime,
      guardado.tamanho, guardado.hash, nome, origem, identidade.usuarioId]);
 
+  await db.query('SELECT guardar_conteudo_documento($1,$2)', [documentoId, Buffer.from(bytes)]);
+
   await auditar(db, {
     organizacaoId: organizacaoId ?? null, usuarioId: identidade.usuarioId,
     acao: 'documento.arquivo_recebido', entidade: 'documento', entidadeId: documentoId,
@@ -215,7 +217,7 @@ export async function entregar(
   // A chave usada é a derivada do HASH, não a coluna `caminho` em si: assim um
   // caminho adulterado no banco não consegue apontar para outro arquivo.
   const chave = doc.hash_sha256 ? chaveDoHash(doc.hash_sha256) : doc.caminho;
-  const dados = await dep.armazenamento.ler(chave, doc.hash_sha256 ?? undefined);
+  const dados = await lerConteudoDocumento(db, documentoId, dep, chave, doc.hash_sha256 ?? undefined);
 
   await auditar(db, {
     organizacaoId: doc.organizacao_id, usuarioId,
@@ -261,6 +263,8 @@ export function respostaDeDownload(c: ConteudoEntregue): Response {
 export function estado(dep: Deposito) {
   return {
     armazenamento: dep.armazenamento.nome,
+    conteudoNoBanco: true,
+    descricao: 'Conteúdo no PostgreSQL, com hash conferido e cópia local de compatibilidade.',
     limiteBytes: dep.limiteBytes,
     validadeDoLinkSegundos: dep.validadeSegundos,
     tiposAceitos: TIPOS_ACEITOS.map((t) => ({ extensao: t.extensao, rotulo: t.rotulo })),
@@ -269,10 +273,21 @@ export function estado(dep: Deposito) {
     naoConstruido: [
       'Adaptador para S3, GCS ou Azure Blob: não há credencial de objeto nesta ' +
       'instalação e nenhuma chamada real foi feita.',
-      'Extração de texto de PDF e OCR: o texto da análise ainda entra colado.',
+      'OCR de PDF escaneado e imagens: exige transcrição ou extrator específico.',
       'Antivírus no recebimento: nenhum verificador está integrado.',
     ],
   };
 }
 
 export { ArquivoAusente, ArquivoCorrompido, TipoRecusado };
+
+/** Prefere o acervo remoto sob RLS; disco mantém compatibilidade com o legado. */
+export async function lerConteudoDocumento(db: PoolClient, documentoId: string, dep: Deposito, chave: string, hash?: string): Promise<Uint8Array> {
+  const {rows} = await db.query<{conteudo: Buffer; hash_sha256: string}>(
+    'SELECT conteudo, hash_sha256 FROM documento_conteudos WHERE documento_id=$1', [documentoId]);
+  const r = rows[0];
+  if (!r) return dep.armazenamento.ler(chave, hash);
+  const encontrado = new Bun.CryptoHasher('sha256').update(r.conteudo).digest('hex');
+  if (encontrado !== (hash ?? r.hash_sha256)) throw new ArquivoCorrompido(chave, hash ?? r.hash_sha256, encontrado);
+  return new Uint8Array(r.conteudo);
+}

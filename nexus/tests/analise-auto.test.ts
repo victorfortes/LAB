@@ -3,6 +3,7 @@ import { PDFDocument, StandardFonts } from 'pdf-lib';
 import { bancoDeTeste, type BancoDeTeste } from './apoio/postgres.ts';
 import { Banco } from '../src/store/conexao.ts';
 import { criarApp } from '../src/server/app.ts';
+import { ProvedorAusente } from '../src/ai/provedor.ts';
 import { hashDaSenha } from '../src/security/sessao.ts';
 import { ArmazenamentoLocal } from '../src/store/arquivos.ts';
 import { deposito as montarDeposito } from '../src/server/arquivos.ts';
@@ -34,7 +35,8 @@ beforeAll(async () => {
   await pg.dono.query(`ALTER ROLE nga_app PASSWORD 'nga_app'`);
   banco = new Banco({ host: 'localhost', port: pg.porta, user: 'nga_app', password: 'nga_app', database: 'nga_teste' });
   const dir = await mkdtemp(join(tmpdir(), 'acervo-'));
-  app = criarApp({ banco, deposito: montarDeposito(new ArmazenamentoLocal(dir), { NGA_SEGREDO_ARQUIVOS: 'x'.repeat(40) }), analiseAutomatica: true });
+  // Esta integração testa extração/triagem/isolamento; não usa as credenciais nem o modelo do ambiente local.
+  app = criarApp({ banco, provedor: new ProvedorAusente('teste de extração e triagem determinística, sem chamada de modelo'), deposito: montarDeposito(new ArmazenamentoLocal(dir), { NGA_SEGREDO_ARQUIVOS: 'x'.repeat(40) }), analiseAutomatica: true });
   await pg.dono.query(`INSERT INTO organizacoes (id,tipo,nome) VALUES ($1,'escritorio','NGA')`, [NGA]);
   await pg.dono.query(`INSERT INTO usuarios (id,email,nome,senha_hash) VALUES ($1,'socio@nga.adv.br','Sócio',$2)`, [SOCIO, await hashDaSenha(SENHA)]);
   await pg.dono.query(`INSERT INTO vinculos (usuario_id,organizacao_id,papel) VALUES ($1,$2,'socio_administrador')`, [SOCIO, NGA]);

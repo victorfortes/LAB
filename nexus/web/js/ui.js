@@ -24,18 +24,32 @@ export const erroDe = (e) => toast(e?.message ?? String(e), 'erro');
  */
 export function modal({ titulo, subtitulo = '', corpo = '', acoes = [], largo = false, aoAbrir }) {
   return new Promise((resolver) => {
-    const el = document.createElement('div'); el.className = 'modal'; el.setAttribute('role', 'dialog'); el.setAttribute('aria-modal', 'true');
+    const el = document.createElement('div'); el.className = 'modal lab-modal'; el.setAttribute('role', 'dialog'); el.setAttribute('aria-modal', 'true');
     el.innerHTML = `<div class="modal__box glass-lite${largo ? ' wide' : ''}">
       <div class="modal__head"><div><h2>${esc(titulo)}</h2>${subtitulo ? `<p>${esc(subtitulo)}</p>` : ''}</div>
         <button class="ibtn ibtn--sm" type="button" data-fechar aria-label="Fechar">${icone('x')}</button></div>
       <div class="modal__body">${corpo}</div>
       <div class="modal__err" role="alert"></div>
       <div class="modal__foot">${acoes.map((a) => `<button type="button" class="btn ${a.tipo === 'primario' ? 'btn--accent' : a.tipo === 'perigo' ? 'btn--ghost perigo-btn' : 'btn--ghost'}" data-acao="${esc(a.id)}">${esc(a.rotulo)}</button>`).join('')}</div></div>`;
+    const focoAnterior = document.activeElement; let encerrado = false;
     document.body.append(el);
-    const fechar = (valor) => { el.remove(); document.removeEventListener('keydown', tecla); resolver(valor); };
-    const tecla = (e) => { if (e.key === 'Escape') fechar(null); };
+    const fechar = (valor) => {
+      if (encerrado) return; encerrado = true;
+      el.remove(); document.removeEventListener('keydown', tecla);
+      if (focoAnterior?.isConnected) focoAnterior.focus(); resolver(valor);
+    };
+    const tecla = (e) => {
+      if ([...document.querySelectorAll('.lab-modal')].at(-1) !== el) return;
+      if (e.key === 'Escape') { e.preventDefault(); fechar(null); }
+      if (e.key === 'Tab') {
+        const focaveis = [...el.querySelectorAll('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href]')];
+        const primeiro = focaveis[0], ultimo = focaveis.at(-1);
+        if (e.shiftKey && document.activeElement === primeiro) { e.preventDefault(); ultimo?.focus(); }
+        else if (!e.shiftKey && document.activeElement === ultimo) { e.preventDefault(); primeiro?.focus(); }
+      }
+    };
     document.addEventListener('keydown', tecla);
-    el.addEventListener('mousedown', (e) => { if (e.target === el) fechar(null); });
+    el.addEventListener('click', (e) => { if (e.target === el) fechar(null); });
     el.addEventListener('click', (e) => {
       if (e.target.closest('[data-fechar]')) return fechar(null);
       const b = e.target.closest('[data-acao]'); if (b) el.dispatchEvent(new CustomEvent('acao', { detail: { id: b.dataset.acao, botao: b } }));
@@ -79,12 +93,15 @@ export async function formulario({ titulo, subtitulo, campos, enviar, rotulo = '
         if (c.tipo === 'number') v = v === '' ? undefined : Number(v);
         return [c.nome, v === '' ? undefined : v];
       }));
+      let salvando = false;
       const submeter = async () => {
+        if (salvando) return;
         const falta = campos.find((c) => c.obrigatorio && !String(form.elements[c.nome].value).trim());
         if (falta) { el.erro(`Preencha: ${falta.rotulo}`); form.elements[falta.nome].focus(); return; }
+        salvando = true;
         const btn = $('[data-acao=ok]', el); btn.disabled = true; btn.textContent = 'Salvando…'; el.erro('');
         try { resultado = await enviar(coletar()) ?? true; el.fechar(true); }
-        catch (e) { el.erro(e.message); btn.disabled = false; btn.textContent = rotulo; }
+        catch (e) { salvando = false; el.erro(e.message); btn.disabled = false; btn.textContent = rotulo; }
       };
       form.addEventListener('submit', (e) => { e.preventDefault(); submeter(); });
       el.addEventListener('acao', (e) => { if (e.detail.id === 'cancelar') el.fechar(null); else submeter(); });

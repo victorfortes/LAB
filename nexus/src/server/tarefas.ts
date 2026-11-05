@@ -42,7 +42,7 @@ interface Linha {
   id: string; projeto_id: string; titulo: string; descricao: string | null;
   status: StatusDaTarefa; prioridade: Prioridade; prazo: Date | null;
   responsavel_id: string | null; responsavel: string | null; projeto: string;
-  origem: string; concluida_em: Date | null; criado_em: Date;
+  origem: string; origem_id: string | null; publicacao_id: string | null; processo_numero:string|null; vencimento_processual:Date|null; chave_playbook: string | null; concluida_em: Date | null; criado_em: Date;
 }
 
 function enriquecer(l: Linha, hoje: string) {
@@ -51,7 +51,7 @@ function enriquecer(l: Linha, hoje: string) {
     id: l.id, projetoId: l.projeto_id, projeto: l.projeto, titulo: l.titulo,
     descricao: l.descricao, status: l.status, prioridade: l.prioridade, prazo,
     responsavelId: l.responsavel_id, responsavel: l.responsavel,
-    origem: l.origem, concluidaEm: l.concluida_em, criadoEm: l.criado_em,
+    origem: l.origem, origemId:l.origem_id, publicacaoId:l.publicacao_id, processo:l.processo_numero, vencimentoProcessual:dia(l.vencimento_processual), tipoAtividade:l.chave_playbook?.startsWith('djen-analise:')?'analise_intimacao':l.origem==='prazo'?'prazo_processual':'tarefa', chavePlaybook: l.chave_playbook, concluidaEm: l.concluida_em, criadoEm: l.criado_em,
     situacaoDoPrazo: situacaoDoPrazo({ status: l.status, prazo, prioridade: l.prioridade }, hoje),
   };
 }
@@ -77,14 +77,27 @@ export async function listar(db: PoolClient, filtros: Filtros = {}) {
   const { rows } = await db.query<Linha>(
     `SELECT t.id, t.projeto_id, t.titulo, t.descricao, t.status, t.prioridade, t.prazo,
             t.responsavel_id, u.nome AS responsavel, p.nome AS projeto,
-            t.origem, t.concluida_em, t.criado_em
+            t.origem, t.origem_id, pub.id AS publicacao_id, pr.numero AS processo_numero, prazo.vencimento AS vencimento_processual, t.chave_playbook, t.concluida_em, t.criado_em
        FROM tarefas t
        JOIN projetos p ON p.id = t.projeto_id
        LEFT JOIN usuarios u ON u.id = t.responsavel_id
+       LEFT JOIN prazos prazo ON t.origem='prazo' AND prazo.id=t.origem_id AND prazo.organizacao_id=t.organizacao_id
+       LEFT JOIN publicacoes pub ON pub.organizacao_id=t.organizacao_id AND (t.chave_playbook='djen-analise:'||pub.id::text OR (t.origem='prazo' AND pub.prazo_id=t.origem_id))
+       LEFT JOIN processos pr ON pr.id=coalesce(pub.processo_id,prazo.processo_id) AND pr.organizacao_id=t.organizacao_id
       ${cond.length ? `WHERE ${cond.join(' AND ')}` : ''}`, args);
 
   const tarefas = ordenar(rows.map((r) => enriquecer(r, hoje)), hoje);
   return { hoje, tarefas, resumo: resumir(tarefas, hoje) };
+}
+
+async function validarResponsavel(db: PoolClient, organizacaoId: string, usuarioId: string | null | undefined) {
+  if (!usuarioId) return;
+  const r = await db.query(
+    `SELECT u.id FROM usuarios u JOIN vinculos v ON v.usuario_id = u.id
+      WHERE u.id = $1 AND v.organizacao_id = $2 AND v.revogado_em IS NULL AND u.ativo
+        AND v.papel NOT IN ('integracao','parceiro_externo','cliente_administrador','cliente_usuario') LIMIT 1`,
+    [usuarioId, organizacaoId]);
+  if (!r.rows[0]) throw new PedidoInvalido('o responsável deve integrar a equipe ativa do escritório deste projeto');
 }
 
 export async function criar(
@@ -96,6 +109,7 @@ export async function criar(
   const projeto = proj[0];
   if (!projeto) throw new NaoEncontrado('projeto não encontrado');
 
+  await validarResponsavel(db, projeto.organizacao_id, dados.responsavelId);
   const concluida = dados.status === 'concluida';
   const { rows } = await db.query<{ id: string }>(
     `INSERT INTO tarefas (organizacao_id, projeto_id, titulo, descricao, status, prioridade,
@@ -124,6 +138,7 @@ export async function atualizar(
   }>('SELECT organizacao_id, titulo, status FROM tarefas WHERE id = $1', [tarefaId]);
   const atual = rows[0];
   if (!atual) throw new NaoEncontrado('tarefa não encontrada');
+  await validarResponsavel(db, atual.organizacao_id, dados.responsavelId);
 
   const sets: string[] = ['atualizado_em = now()'];
   const args: unknown[] = [tarefaId];

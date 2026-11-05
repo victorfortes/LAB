@@ -5,6 +5,7 @@
  * passar por Z" é a informação, não um detalhe técnico.
  */
 let aoDeslogar = () => {};
+let geracaoCache = 0;
 export const aoPerderSessao = (fn) => { aoDeslogar = fn; };
 
 export class ErroDeApi extends Error {
@@ -32,7 +33,7 @@ const json = (metodo, corpo) => ({
 const TTL_MS = 12_000;
 const SEM_CACHE = /\/api\/(atividade|sessao|eu|ferramentas)\b|\/diagnostico\b|\/mensagens\b|\/financeiro\b/;
 const guardadas = new Map(); const emAndamento = new Map();
-const limpar = () => { guardadas.clear(); emAndamento.clear(); };
+const limpar = () => { geracaoCache++; guardadas.clear(); emAndamento.clear(); };
 
 function lerComCache(caminho) {
   if (SEM_CACHE.test(caminho)) return pedir(caminho);
@@ -40,7 +41,8 @@ function lerComCache(caminho) {
   if (g && Date.now() - g.em < TTL_MS) return Promise.resolve(structuredClone(g.valor));
   let p = emAndamento.get(caminho);
   if (!p) {
-    p = pedir(caminho).then((v) => { guardadas.set(caminho, { valor: v, em: Date.now() }); return v; }).finally(() => emAndamento.delete(caminho));
+    const geracao = geracaoCache;
+    p = pedir(caminho).then((v) => { if (geracao === geracaoCache) guardadas.set(caminho, { valor: v, em: Date.now() }); return v; }).finally(() => { if (emAndamento.get(caminho) === p) emAndamento.delete(caminho); });
     emAndamento.set(caminho, p);
   }
   // Cada chamador recebe a sua cópia: as telas mexem nos objetos (reverse, contadores).
@@ -53,6 +55,7 @@ export const api = {
   /** Pré-aquece uma leitura sem esperar nem falhar alto: usado ao passar o mouse num link. */
   aquecer: (c) => { lerComCache(c).catch(() => {}); },
   post: escrever((c, corpo = {}) => pedir(c, json('POST', corpo))),
+  put: escrever((c, corpo) => pedir(c, json('PUT', corpo))),
   patch: escrever((c, corpo) => pedir(c, json('PATCH', corpo))),
   del: escrever((c) => pedir(c, { method: 'DELETE' })),
   /** multipart: o navegador define a fronteira; declarar `content-type` quebra o parse. */
