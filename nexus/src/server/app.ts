@@ -322,7 +322,7 @@ export function criarApp(ctx: Contexto) {
           exigir(identidade.papeis, 'integracao.gerir');
           if (!url.searchParams.get('code') || !url.searchParams.get('state')) return erro('Autorização Google recusada ou incompleta.', 400);
           await banco.comoUsuario(identidade.usuarioId, db => google.callback(db, identidade, url.searchParams.get('code')!, url.searchParams.get('state')!));
-          return Response.redirect(new URL('/integracoes?google=conectado',req.url),303);
+          return new Response(null,{status:303,headers:{location:'/#/ajustes'}});
         }
         if (rota === '/api/google/eventos' && metodo === 'GET') {
           const id=url.searchParams.get('projetoId');
