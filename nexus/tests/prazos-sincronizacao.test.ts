@@ -17,9 +17,9 @@ test('recepção Astrea individualizada mantém vencimento conferido, sinaliza d
  expect(tasks).toHaveLength(3);expect(tasks.every(t=>t[1]==='projeto')).toBe(true);expect(tasks.every(t=>t[4]===null)).toBe(true);
  const again=await receberPrazos(db as never,credential,data());expect(again.repetidos).toBe(1);expect(deadlines).toHaveLength(1);expect(tasks).toHaveLength(3);
 });
-test('vencimento confirmado exige credencial Prazos, confirmação identificada e processo com projeto',async()=>{
- const db={query:async()=>({rows:[{id:'processo',projeto_id:null}]})};
- const orphan=await receberPrazos(db as never,credential,data());expect(orphan.criados).toBe(0);expect(orphan.recusados[0]?.motivo).toContain('sem projeto');
+test('vencimento confirmado exige credencial Prazos e aguarda vínculo se o processo estiver sem projeto',async()=>{
+ const db={query:async(sql:string)=>({rows:sql.startsWith('SELECT id,projeto_id FROM processos')?[{id:'processo',projeto_id:null}]:[]})};
+ const orphan=await receberPrazos(db as never,credential,data());expect(orphan).toEqual({criados:0,repetidos:0,pendentesVinculo:1,recusados:[]});
  const wrong=await receberPrazos(db as never,{...credential,aplicacao:'outra'},data());expect(wrong.criados).toBe(0);expect(wrong.recusados[0]?.motivo).toContain('credencial Prazos');
 });
 
