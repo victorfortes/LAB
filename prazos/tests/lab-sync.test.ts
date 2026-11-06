@@ -15,9 +15,9 @@ test('gravação Astrea confirmada dispara entrega idempotente e preserva vencim
  const schedule=[...astrea.schedules.values()][0]!;expect(sent[0].prazos[0].vencimentoConfirmado).toBe(schedule.dueDate);expect(sent[0].prazos[0].confirmadoPorLeitura).toBe(true);expect(sent[0].prazos[0].tarefasAcompanhamento).toHaveLength(2);
  await sync.drain({force:true});expect(sent).toHaveLength(1);expect((await sync.status()).enviados).toBe(1);
 });
-test('falha LAB deixa fila durável sem repetir Astrea; nova instância recupera',async()=>{
+test('falha LAB deixa fila durável sem repetir Astrea; confirmação de pendência encerra a entrega',async()=>{
  const{s,repo,astrea,r}=await confirmed();await s.writer.write(r.id,actor('admin'));const writes=astrea.writes;const vault=testVault();let calls=0;
- const fake:typeof fetch=(async()=>{calls++;return calls===1?new Response('',{status:503}):Response.json({criados:0,repetidos:1,recusados:[]});})as unknown as typeof fetch;
+ const fake:typeof fetch=(async()=>{calls++;return calls===1?new Response('',{status:503}):Response.json({criados:0,repetidos:0,pendentesVinculo:1,recusados:[]});})as unknown as typeof fetch;
  const first=new LabSync(repo,{vault,mode:'live',fetch:fake,env:{}});await first.configure('https://lab.example','nga_int_'+'y'.repeat(40));await first.drain();expect((await first.status()).pendentes).toBe(1);
  const recovered=new LabSync(repo,{vault,mode:'live',fetch:fake,env:{}});await recovered.drain({force:true});expect((await recovered.status()).enviados).toBe(1);expect(astrea.writes).toBe(writes);
 });

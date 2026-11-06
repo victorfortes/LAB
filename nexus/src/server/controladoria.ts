@@ -14,6 +14,7 @@ import { auditar, type Banco } from '../store/conexao.ts';
 import type { Identidade } from '../security/sessao.ts';
 import { NaoEncontrado, PedidoInvalido } from './erros.ts';
 import { textoPublicacao } from './publicacao_analise.ts';
+import * as integracoes from './integracoes.ts';
 
 const URL_DJEN = 'https://comunicaapi.pje.jus.br/api/v1/comunicacao';
 
@@ -277,4 +278,74 @@ export async function vincularProjetoDaPublicacao(db:PoolClient,id:string,projet
  }
  await atualizarPublicacao(db,id,{processoId},identidade);
  return detalharPublicacao(db,id);
+}
+
+type PrazoAstreaPendente = z.infer<typeof integracoes.EsquemaPrazosRecebidos>['prazos'][number];
+
+export const EsquemaVinculoPrazoAstrea = EsquemaVinculoPublicacao.extend({
+  segredoJustica: z.boolean(),
+});
+
+export async function listarPrazosAstreaPendentes(db: PoolClient) {
+  const { rows } = await db.query(`
+    SELECT (array_agg(id ORDER BY recebido_em, id))[1] AS id, organizacao_id, numero_processo,
+           jsonb_agg(jsonb_build_object('titulo', payload->>'titulo', 'vencimento', payload->>'vencimentoConfirmado')
+             ORDER BY payload->>'vencimentoConfirmado', id) AS prazos
+      FROM prazos_astrea_pendentes
+     GROUP BY organizacao_id, numero_processo
+     ORDER BY min(payload->>'vencimentoConfirmado'), numero_processo, organizacao_id
+     LIMIT 100`);
+  return rows;
+}
+
+export async function vincularPrazosAstrea(
+  db: PoolClient, id: string, dados: z.infer<typeof EsquemaVinculoPrazoAstrea>, identidade: Identidade,
+) {
+  const { rows: [pendente] } = await db.query<{ organizacao_id: string; numero_processo: string }>(
+    'SELECT organizacao_id, numero_processo FROM prazos_astrea_pendentes WHERE id=$1', [id]);
+  if (!pendente) throw new NaoEncontrado('Esta pendência já foi vinculada ou não está disponível.');
+  const { organizacao_id: org, numero_processo: numero } = pendente;
+  await integracoes.bloquearProcessoAstrea(db, org, numero);
+
+  const { rows: entregas } = await db.query<{ payload: PrazoAstreaPendente; integracao_id: string; nome: string; usuario_id: string }>(`
+    SELECT p.payload, i.id AS integracao_id, i.nome, i.usuario_id
+      FROM prazos_astrea_pendentes p JOIN integracoes i
+        ON i.id=p.integracao_id AND i.organizacao_id=p.organizacao_id
+     WHERE p.organizacao_id=$1 AND p.numero_processo=$2 ORDER BY p.externo_id`, [org, numero]);
+  if (!entregas.length) throw new NaoEncontrado('Esta pendência já foi vinculada.');
+  const { rowCount } = await db.query(
+    "SELECT id FROM projetos WHERE id=$1 AND organizacao_id=$2 AND situacao<>'encerrado' FOR SHARE",
+    [dados.projetoId, org]);
+  if (!rowCount) throw new NaoEncontrado('Selecione um projeto ativo do escritório que recebeu este prazo.');
+  const { rows: [processo] } = await db.query<{ id: string; projeto_id: string | null }>(
+    'SELECT id, projeto_id FROM processos WHERE organizacao_id=$1 AND numero=$2 FOR UPDATE', [org, numero]);
+
+  if (!processo) {
+    const { criar } = await import('./processos.ts');
+    await criar(db, { numero, ...dados }, {
+      ...identidade, organizacoes: identidade.organizacoes.filter((o) => o.id === org),
+    });
+  } else if (!processo.projeto_id) {
+    await db.query('UPDATE processos SET projeto_id=$2 WHERE id=$1', [processo.id, dados.projetoId]);
+  } else if (processo.projeto_id !== dados.projetoId) {
+    throw new PedidoInvalido('Este processo já pertence a outro projeto. Confira o cadastro antes de vincular os prazos.');
+  }
+
+  let criados = 0;
+  for (const entrega of entregas) {
+    const resultado = await integracoes.receberPrazos(db, {
+      id: entrega.integracao_id, organizacaoId: org, nome: entrega.nome, usuarioId: entrega.usuario_id,
+      aplicacao: 'prazos', escopos: ['prazos'],
+    }, { prazos: [entrega.payload] });
+    if (resultado.criados + resultado.repetidos !== 1) {
+      throw new PedidoInvalido('Não foi possível importar todos os prazos deste processo.');
+    }
+    criados += resultado.criados;
+  }
+  await db.query('DELETE FROM prazos_astrea_pendentes WHERE organizacao_id=$1 AND numero_processo=$2', [org, numero]);
+  await auditar(db, {
+    organizacaoId: org, usuarioId: identidade.usuarioId, acao: 'controladoria.astrea_vinculado',
+    entidade: 'projeto', entidadeId: dados.projetoId, depois: { numero, recebidos: entregas.length, criados },
+  });
+  return { criados, recebidos: entregas.length };
 }

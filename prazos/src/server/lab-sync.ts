@@ -56,9 +56,9 @@ export class LabSync {
     try{
      const r=await(this.opts.fetch??fetch)(credentials.email,{method:'POST',headers:{authorization:`Bearer ${credentials.password}`,'content-type':'application/json'},body:JSON.stringify(d.payload),signal:AbortSignal.timeout(20000)});
      if(!r.ok)throw new Error(`LAB HTTP ${r.status}; confira a conexão e a credencial.`);
-     const data=await r.json() as {criados?:number;repetidos?:number;recusados?:Array<{motivo:string}>};
+     const data=await r.json() as {criados?:number;repetidos?:number;pendentesVinculo?:number;recusados?:Array<{motivo:string}>};
      if(data.recusados?.length)throw new Error(data.recusados.map(x=>x.motivo).join('; ').slice(0,300));
-     if((data.criados??0)+(data.repetidos??0)<1)throw new Error('LAB não confirmou recebimento do prazo.');
+     if((data.criados??0)+(data.repetidos??0)+(data.pendentesVinculo??0)<1)throw new Error('LAB não confirmou recebimento do prazo.');
      await this.repo.updateLabDelivery(d.key,{status:'sent',attempts:d.attempts+1,error:null,updatedAt:new Date().toISOString()});sent++;
      await this.repo.appendAudit({actor:'integracao-lab',action:'lab.prazo_sincronizado',entityType:'record',entityId:d.recordId,data:{key:d.key}});
     }catch(error){

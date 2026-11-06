@@ -308,35 +308,44 @@ export const EsquemaPrazosRecebidos = z.object({
   })).min(1).max(200),
 });
 
+export async function bloquearProcessoAstrea(db: PoolClient, organizacaoId: string, numero: string) {
+  const chave = organizacaoId + ':processo:' + numero.replace(/\D/g, '');
+  await db.query('SELECT pg_advisory_xact_lock(hashtext($1))', [chave]);
+}
+
 export async function receberPrazos(
   db: PoolClient, integracao: Integracao,
   dados: z.infer<typeof EsquemaPrazosRecebidos>,
 ) {
-  let criados = 0, repetidos = 0;
+  let criados = 0, repetidos = 0, pendentesVinculo = 0;
   const recusados: Array<{ item: string; motivo: string }> = [];
+  // Lotes simultâneos bloqueiam os processos e os identificadores na mesma ordem.
+  const ordem = [...dados.prazos].sort((a, b) =>
+    a.numeroProcesso.replace(/\D/g, '').localeCompare(b.numeroProcesso.replace(/\D/g, '')) ||
+    (a.externoId ?? '').localeCompare(b.externoId ?? ''));
 
-  for (const z of dados.prazos) {
+  for (const z of ordem) {
     if (!validarProcessoCnj(z.numeroProcesso)) {
       recusados.push({ item: z.numeroProcesso, motivo: 'dígito verificador do número não confere' });
       continue;
     }
     const numero = formatarProcesso(z.numeroProcesso);
+    if (z.vencimentoConfirmado) {
+      if (integracao.aplicacao !== 'prazos' || !z.confirmadoPorLeitura || !z.astreaId || !z.externoId) {
+        recusados.push({ item: numero, motivo: 'vencimento Astrea exige credencial Prazos e confirmação por releitura identificada' });
+        continue;
+      }
+      await bloquearProcessoAstrea(db, integracao.organizacaoId, numero);
+    }
 
     const { rows: processos } = await db.query<{ id: string;projeto_id:string|null }>(
       'SELECT id,projeto_id FROM processos WHERE organizacao_id = $1 AND numero = $2',
       [integracao.organizacaoId, numero]);
     const processoId = processos[0]?.id;
-    if (!processoId) {
-      // Não se cria processo a partir de um prazo: o vínculo errado espalha
-      // prazo em caso que não é o do cliente. A falta volta nomeada.
+    if (!processoId && !z.vencimentoConfirmado) {
       recusados.push({ item: numero, motivo: 'processo não cadastrado nesta organização' });
       continue;
     }
-
-    if(z.vencimentoConfirmado && (integracao.aplicacao!=='prazos'||!z.confirmadoPorLeitura||!z.astreaId||!z.externoId)){
-      recusados.push({item:numero,motivo:'vencimento Astrea exige credencial Prazos e confirmação por releitura identificada'});continue;
-    }
-    if(z.vencimentoConfirmado && !processos[0]?.projeto_id){recusados.push({item:numero,motivo:'processo cadastrado sem projeto; vincule-o no LAB para individualizar prazo e tarefas'});continue;}
     if(z.externoId){
       await db.query('SELECT pg_advisory_xact_lock(hashtext($1))',[integracao.organizacaoId+':'+integracao.aplicacao+':'+z.externoId]);
       const same=await db.query('SELECT id FROM prazos WHERE organizacao_id=$1 AND calculo->>\'externoId\'=$2 AND calculo->>\'aplicacaoOrigem\'=$3',[integracao.organizacaoId,z.externoId,integracao.aplicacao]);
@@ -355,6 +364,15 @@ export async function receberPrazos(
       evento: z.evento, origem: z.origem, dias,
       regime: z.regime ?? usual?.regime ?? 'uteis',
     });
+
+    if (z.vencimentoConfirmado && !processos[0]?.projeto_id) {
+      await db.query(`INSERT INTO prazos_astrea_pendentes
+        (organizacao_id, integracao_id, numero_processo, externo_id, payload)
+        VALUES ($1,$2,$3,$4,$5) ON CONFLICT (organizacao_id, externo_id) DO NOTHING`,
+        [integracao.organizacaoId, integracao.id, numero, z.externoId, JSON.stringify(z)]);
+      pendentesVinculo++;
+      continue;
+    }
 
     const { rows: jaExiste } = await db.query<{ id: string }>(
       `SELECT id FROM prazos
@@ -401,11 +419,11 @@ export async function receberPrazos(
   await auditar(db, {
     organizacaoId: integracao.organizacaoId, usuarioId: integracao.usuarioId,
     acao: 'integracao.prazos_recebidos', entidade: 'integracao', entidadeId: integracao.id,
-    depois: { integracao: integracao.nome, criados, repetidos, recusados },
+    depois: { integracao: integracao.nome, criados, repetidos, pendentesVinculo, recusados },
     origem: 'integracao',
   });
 
-  return { criados, repetidos, recusados };
+  return { criados, repetidos, pendentesVinculo, recusados };
 }
 
 /** Resolve o projeto a partir do número do processo, para o Íntegra. */

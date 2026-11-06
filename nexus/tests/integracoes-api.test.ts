@@ -277,6 +277,57 @@ describe('Íntegra entrega as partes dos autos', () => {
   });
 });
 
+describe('prazos do Astrea aguardando projeto', () => {
+  test('guarda, restringe e importa as entregas confirmadas uma única vez', async () => {
+    const numero = '5001234-63.2023.8.16.0014';
+    const prazo = {
+      numeroProcesso: numero, titulo: 'Contestação · teste de vínculo', dias: 15,
+      evento: '2026-11-06', vencimentoConfirmado: '2026-11-27', confirmadoPorLeitura: true,
+      astreaId: 'teste-astrea-001', externoId: 'teste-pendente-001',
+      tarefasAcompanhamento: [{ tipo: 'analise', titulo: 'Analisar intimação', data: '2026-11-09' }],
+    };
+    const enviar = (p = prazo) => entregar(tokenPrazos, '/api/integracao/prazos', { prazos: [p] });
+    expect((await (await enviar({ ...prazo, confirmadoPorLeitura: false })).json()).recusados).toHaveLength(1);
+    for (let vez = 0; vez < 2; vez++) {
+      const resposta = await enviar();
+      expect(resposta.status).toBe(201);
+      expect(await resposta.json()).toMatchObject({ criados: 0, pendentesVinculo: 1, recusados: [] });
+    }
+    const outra = { ...prazo, titulo: 'Cumprir diligência', astreaId: 'teste-astrea-002', externoId: 'teste-pendente-002' };
+    expect((await (await enviar(outra)).json()).pendentesVinculo).toBe(1);
+    const rota = '/api/controladoria/prazos-astrea';
+    const t = await entrar('socia@nga.adv.br');
+    const cliente = await entrar('dir@grupox.com');
+    const advogado = await entrar('adv@nga.adv.br');
+    expect((await req(cliente, rota)).status).toBe(403);
+    expect((await req(advogado, rota)).status).toBe(403);
+    const lista = await (await req(t, rota)).json();
+    expect(lista).toHaveLength(1);
+    expect(lista[0].numero_processo).toBe(numero);
+    expect(lista[0].prazos).toHaveLength(2);
+    expect((await pg.dono.query('SELECT id FROM processos WHERE numero=$1', [numero])).rowCount).toBe(0);
+    const vincular = (token: string, projetoId: string) => req(token, `${rota}/${lista[0].id}/vinculo`, {
+      method: 'POST', body: JSON.stringify({ projetoId, segredoJustica: true }),
+    });
+    expect((await vincular(cliente, projeto)).status).toBe(403);
+    expect((await vincular(t, crypto.randomUUID())).status).toBe(404);
+    const ligados = await vincular(t, projeto);
+    expect(ligados.status).toBe(200);
+    expect(await ligados.json()).toEqual({ criados: 2, recebidos: 2 });
+    expect((await vincular(t, projeto)).status).toBe(404);
+    expect(await (await req(t, rota)).json()).toEqual([]);
+    expect(await (await enviar()).json()).toMatchObject({ criados: 0, repetidos: 1, pendentesVinculo: 0 });
+    const salvos = await pg.dono.query(`SELECT p.projeto_id, p.segredo_justica, z.vencimento::text
+      FROM processos p JOIN prazos z ON z.processo_id=p.id WHERE p.numero=$1`, [numero]);
+    expect(salvos.rows).toEqual(Array.from({ length: 2 }, () => ({
+      projeto_id: projeto, segredo_justica: true, vencimento: '2026-11-27',
+    })));
+    const tarefas = await pg.dono.query(`SELECT projeto_id FROM tarefas WHERE chave_playbook LIKE 'astrea-%:teste-pendente-%'`);
+    expect(tarefas.rows).toHaveLength(4);
+    expect(tarefas.rows.every((t) => t.projeto_id === projeto)).toBe(true);
+  });
+});
+
 describe('revogação', () => {
   test('o uso fica registrado antes de revogar', async () => {
     const t = await entrar('socia@nga.adv.br');

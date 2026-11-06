@@ -518,6 +518,20 @@ export function criarApp(ctx: Contexto) {
 
       // ------------------------------------------------------ controladoria ---
       // Só sócio administrador e controladoria (permissões controladoria.*). Nenhum outro papel chega aqui.
+      if (rota === '/api/controladoria/prazos-astrea' && metodo === 'GET') {
+        exigir(identidade.papeis, 'controladoria.ler');
+        return json(await banco.comoUsuario(identidade.usuarioId, controladoria.listarPrazosAstreaPendentes));
+      }
+      const mPrazoAstrea = /^\/api\/controladoria\/prazos-astrea\/([0-9a-f-]{36})\/vinculo$/.exec(rota);
+      if (mPrazoAstrea && metodo === 'POST') {
+        exigir(identidade.papeis, 'controladoria.gerir');
+        exigir(identidade.papeis, 'processo.escrever');
+        exigir(identidade.papeis, 'prazo.escrever');
+        const d = controladoria.EsquemaVinculoPrazoAstrea.safeParse(await req.json().catch(() => null));
+        if (!d.success) return erro('Escolha um projeto e informe se o novo processo corre em segredo de justiça.', 400, d.error.issues);
+        return json(await banco.comoUsuario(identidade.usuarioId, (db) =>
+          controladoria.vincularPrazosAstrea(db, mPrazoAstrea[1]!, d.data, identidade)));
+      }
       if (rota === '/api/controladoria/oabs' && metodo === 'GET') {
         exigir(identidade.papeis, 'controladoria.ler');
         return json(await banco.comoUsuario(identidade.usuarioId, controladoria.listarOabs));

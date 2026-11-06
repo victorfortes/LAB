@@ -20,7 +20,7 @@ let periodoInicio = hojeISO(), periodoFim = hojeISO(), historico = false;
 let consulta='',oabFiltro='',pagina=1;
 
 export default async function controladoria() {
-  const [oabs, lista] = await Promise.all([api.get('/api/controladoria/oabs'), api.get(`/api/controladoria/publicacoes?situacao=${filtro}${historico ? '&periodo=todas' : `&inicio=${periodoInicio}&fim=${periodoFim}`}&q=${encodeURIComponent(consulta)}&oab=${encodeURIComponent(oabFiltro)}&pagina=${pagina}`)]);
+  const [pendentes, oabs, lista] = await Promise.all([api.get('/api/controladoria/prazos-astrea'), api.get('/api/controladoria/oabs'), api.get(`/api/controladoria/publicacoes?situacao=${filtro}${historico ? '&periodo=todas' : `&inicio=${periodoInicio}&fim=${periodoFim}`}&q=${encodeURIComponent(consulta)}&oab=${encodeURIComponent(oabFiltro)}&pagina=${pagina}`)]);
   for(const p of lista.publicacoes)p.texto=p.texto_legivel??p.texto;
   const gere = pode('controladoria.gerir');
   const r = lista.resumo;
@@ -32,6 +32,15 @@ export default async function controladoria() {
       acoes: gere ? html`<button type="button" class="btn btn--ghost" data-oabs>${icone('user')}OABs</button><button type="button" class="btn btn--accent" data-sync>${icone('refresh')}Buscar agora</button>` : '',
       resumo: [{ rotulo: 'Novas', valor: r.novas, tom: r.novas ? 'warn' : '' }, { rotulo: 'Lidas', valor: r.lidas }, { rotulo: 'Tratadas', valor: r.tratadas }],
     })}
+    ${pendentes.length ? html`<section class="card glass mt" aria-labelledby="astrea-titulo">
+      <header class="card__head"><div><h2 class="card__title" id="astrea-titulo">Prazos do Astrea a vincular</h2>
+      <p class="card__sub">Confira o cliente e vincule o processo ao projeto. O LAB importa os vencimentos confirmados no Astrea e as tarefas correspondentes.</p></div></header>
+      ${pendentes.map((item) => html`<details class="mt">
+        <summary><span class="mono-sm">${item.numero_processo}</span> · ${item.prazos.length} prazo(s) · primeiro vencimento em ${dataBR(item.prazos[0].vencimento)}</summary>
+        <ul>${item.prazos.map((p) => html`<li>${dataBR(p.vencimento)} · ${p.titulo}</li>`)}</ul>
+        ${gere ? html`<button type="button" class="btn btn--ghost" data-astrea-vincular="${item.id}">Vincular ao projeto</button>` : ''}
+      </details>`)}
+    </section>` : ''}
     <form class="tk-bar glass mt" data-periodo><label class="field"><span>Disponibilização de</span><input class="input" type="date" name="inicio" value="${periodoInicio}" required></label><label class="field"><span>Até</span><input class="input" type="date" name="fim" value="${periodoFim}" required></label><button class="btn btn--ghost" type="submit">Aplicar período</button><button class="btn btn--ghost" type="button" data-hoje>Hoje (${lista.totais?.hoje ?? 0})</button><button class="btn btn--ghost" type="button" data-historico>Histórico (${lista.totais?.historico ?? 0})</button></form>
     <form class="tk-bar glass mt" data-busca-pub><label class="field"><span>Buscar publicação ou processo</span><input class="input" name="q" type="search" value="${consulta}" placeholder="Número CNJ, órgão ou trecho da intimação"></label><label class="field"><span>Advogado / OAB</span><select class="select" name="oab"><option value="">Todas as OABs</option>${oabs.map(o=>html`<option value="${o.nome}" ${o.nome===oabFiltro?html`selected`:''}>${o.nome} · ${o.numero_oab}/${o.uf_oab}</option>`)}</select></label><button class="btn btn--ghost">Pesquisar</button></form>
     <p class="dica mt">${historico ? 'Exibindo todo o histórico' : `Disponibilizações de ${dataBR(periodoInicio)} a ${dataBR(periodoFim)}`} · ${lista.publicacoes.length} publicação(ões) neste filtro.</p>
@@ -57,6 +66,32 @@ export default async function controladoria() {
           ${p.link ? html`<a class="btn btn--ghost" href="${p.link}" target="_blank" rel="noopener noreferrer">${icone('arrowUpRight')}Diário</a>` : ''}</div>` : ''}</article>`)
       : html`<section class="card glass up">${vazio('inbox', oabs.length ? 'Nenhuma publicação neste filtro' : 'Nenhuma OAB cadastrada', oabs.length ? 'Use "Buscar agora" ou troque o filtro. A busca automática roda a cada hora.' : 'Cadastre as OABs dos sócios; o sistema busca no DJEN e traz as publicações para cá.', gere && !oabs.length ? '<button class="btn btn--accent" data-oabs>Cadastrar OABs</button>' : '')}</section>`}</div><div class="flex mt"><button class="btn btn--ghost" type="button" data-pub-anterior ${pagina===1?'disabled':''}>Página anterior</button><span class="dica">Página ${pagina}</span><button class="btn btn--ghost" type="button" data-pub-proxima ${lista.publicacoes.length<200?'disabled':''}>Próxima página</button></div>`,
     depois(el) {
+      ouvir(el, 'click', '[data-astrea-vincular]', async (b) => {
+        const item = pendentes.find((p) => p.id === b.dataset.astreaVincular);
+        try {
+          const projetos = (await api.get('/api/projetos')).filter((p) => p.situacao !== 'encerrado');
+          if (!projetos.length) return toast('Cadastre o projeto correto antes de vincular este processo.', 'aviso');
+          const ok = await formulario({
+            titulo: 'Vincular processo do Astrea',
+            subtitulo: `${item.numero_processo} · ${item.prazos.length} prazo(s) confirmados no Astrea`,
+            rotulo: 'Vincular e importar',
+            campos: [
+              { nome: 'projetoId', rotulo: 'Projeto / cliente', tipo: 'select', obrigatorio: true,
+                opcoes: [{ v: '', t: 'Selecione o projeto correto' }, ...projetos.map((p) => ({ v: p.id, t: p.cliente ? `${p.nome} · ${p.cliente}` : p.nome }))] },
+              { nome: 'segredoJustica', rotulo: 'Segredo de justiça se o processo for novo', tipo: 'select', obrigatorio: true,
+                dica: 'Para processos já cadastrados, vale a configuração atual.',
+                opcoes: [{ v: '', t: 'Selecione' }, { v: 'sim', t: 'Sim' }, { v: 'nao', t: 'Não' }] },
+            ],
+            async enviar(v) {
+              const r = await api.post(`/api/controladoria/prazos-astrea/${item.id}/vinculo`, {
+                projetoId: v.projetoId, segredoJustica: v.segredoJustica === 'sim',
+              });
+              toast(`${r.recebidos} prazo(s) do Astrea vinculados ao projeto.`);
+            },
+          });
+          if (ok) navegar();
+        } catch (e) { erroDe(e); }
+      });
       const selecionadas=()=>[...el.querySelectorAll('[data-pubsel]:checked')].map(b=>b.dataset.pubsel);
       const nsel=()=>{const slot=el.querySelector('[data-nsel]');if(slot)slot.textContent=`${selecionadas().length} selecionadas`;};
       ouvir(el,'change','[data-pubsel]',nsel);
