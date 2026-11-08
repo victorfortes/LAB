@@ -41,7 +41,7 @@ function gerarPmt(negs, recarregar) {
 }
 
 export async function abaNegociacoes(ctx) {
-  const [d, pmt] = await Promise.all([api.get(`/api/projetos/${ctx.id}/negociacoes`), api.get(`/api/projetos/${ctx.id}/pmts`)]);
+  const [d, pmt] = await Promise.all([api.get(`/api/projetos/${ctx.id}/negociacoes`), api.get(`/api/projetos/${ctx.id}/pmts`).catch(() => ({ itens: [], porMes: [], resumo: { total: '0', pago: '0', vencido: '0', qtdVencidas: 0, proximos30: '0', qtdProximos30: 0 } }))]);
   const escreve = pode('negociacao.escrever') && ctx.h.situacao !== 'encerrado';
   return {
     html: html`<div class="flex up" style="margin-bottom:12px"><span class="dica">${d.resumo.emNegociacao} em negociação · ${d.resumo.standBy} em stand by · ${d.resumo.concluidas} concluída(s)${d.resumo.acordos ? ` (${d.resumo.acordos} com acordo)` : ''}. Arraste entre as colunas.</span><span class="grow"></span>

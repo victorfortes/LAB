@@ -174,7 +174,8 @@ async function plano(p) {
 
 async function caixa(p) {
   if (!p.mostra_financeiro) return bloqueado('o fluxo de caixa');
-  const r = await painelFinanceiroProjeto(p.projeto_id, () => navegar());
+  const r = await painelFinanceiroProjeto(p.projeto_id, () => navegar()).catch(() => null);
+  if (!r) return { resumo: [], html: html`<section class="card glass up">${vazio('chart', 'Fluxo de caixa indisponível', 'Tente de novo em alguns instantes.')}</section>` };
   return { resumo: [], html: r.html, depois: r.depois };
 }
 
