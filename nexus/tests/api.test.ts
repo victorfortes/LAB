@@ -214,6 +214,25 @@ describe('cronograma do plano', () => {
     const { rows } = await pg.dono.query<{count:string}>('SELECT count(*)::text FROM obrigacoes WHERE plano_id=$1', [plano]);
     expect(rows[0]!.count).toBe('60');
   });
+
+  test('PRJ Studio simula por classe validada e preserva o cronograma gravado', async () => {
+    const rota = `/api/projetos/${projeto}/prj/simulacao`;
+    const dados = { classe: 'II', dataBase: '2026-11-01', desagio: 0.3, carenciaMeses: 1,
+      parcelas: 2, periodicidade: 'mensal', jurosAoAno: 0, sistema: 'sem_juros' };
+    const antes = await pg.dono.query('SELECT id,valor,pago_em FROM obrigacoes WHERE plano_id=$1 ORDER BY id', [plano]);
+    const t = await entrar('socio@nga.adv.br');
+    const resposta = await comToken(t, rota, { method: 'POST', body: JSON.stringify(dados) });
+    expect(resposta.status).toBe(200);
+    const r = await resposta.json();
+    expect(r.creditos).toBe(1);
+    expect(r.pendentesNoQgc).toBe(1);
+    expect(r.totais).toMatchObject({ original: '100000000', desagio: '30000000', novado: '70000000', total: '70000000' });
+    expect(r.cronograma.map((p: { valor: string; vencimento: string }) => [p.vencimento, p.valor]))
+      .toEqual([['2027-01-01','35000000'],['2027-02-01','35000000']]);
+    expect((await pg.dono.query('SELECT id,valor,pago_em FROM obrigacoes WHERE plano_id=$1 ORDER BY id', [plano])).rows).toEqual(antes.rows);
+    const estagio = await entrar('estagio@nga.adv.br');
+    expect((await comToken(estagio, rota, { method: 'POST', body: JSON.stringify(dados) })).status).toBe(403);
+  });
 });
 
 describe('apuração da AGC', () => {

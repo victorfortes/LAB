@@ -11,6 +11,7 @@ import { ErroDeAutenticacao, autenticar, identidadeDoToken, revogar, type Identi
 import { SemPermissao, exigir, PERMISSOES, type Permissao } from '../security/rbac.ts';
 import { type Credito, consolidarPorClasse, desdobrarParaVotacao, enquadrar } from '../domain/insolvencia/creditos.ts';
 import { apurarAssembleia, type VotoLancado } from '../domain/insolvencia/quorum.ts';
+import { EsquemaSimulacaoPrj, simularPrj } from './prj_studio.ts';
 import { gerarCronograma, type CondicaoDePagamento } from '../domain/insolvencia/plano.ts';
 import { formatarReais } from '../domain/shared/dinheiro.ts';
 import { AMBIENTES, MODULOS, resumoDeEstado } from './modulos.ts';
@@ -940,6 +941,14 @@ export function criarApp(ctx: Contexto) {
           metodo === 'POST'
             ? portal.publicarDocumento(db, mPublicar[1]!, identidade)
             : portal.despublicarDocumento(db, mPublicar[1]!, identidade)));
+      }
+
+      const mSimulacaoPrj = /^\/api\/projetos\/([0-9a-f-]{36})\/prj\/simulacao$/.exec(rota);
+      if (mSimulacaoPrj && metodo === 'POST') {
+        exigir(identidade.papeis, 'plano.escrever');
+        const d = EsquemaSimulacaoPrj.safeParse(await req.json().catch(() => null));
+        if (!d.success) return erro(d.error.issues[0]?.message ?? 'premissas inválidas', 400, d.error.issues);
+        return json(await banco.comoUsuario(identidade.usuarioId, (db) => simularPrj(db, mSimulacaoPrj[1]!, d.data)));
       }
 
       const mObrigacoes = /^\/api\/projetos\/([0-9a-f-]{36})\/obrigacoes$/.exec(rota);

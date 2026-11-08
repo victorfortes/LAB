@@ -426,6 +426,63 @@ async function convidar(ctx, portal) {
 
 // ============================================================ PLANO E CAIXA ===
 
+function painelPrj() {
+  return html`<section class="card glass up mt"><header class="card__head"><div><h2 class="card__title">PRJ Studio</h2>
+    <p class="card__sub">Simule as condições de uma classe sobre os créditos sujeitos e validados no QGC. O cálculo preserva o cronograma oficial.</p></div></header>
+    <div class="grid-hub">
+      <form data-simular-prj>
+        <div class="row2">
+          <label class="field"><span>Classe do QGC</span><select class="select" name="classe"><option value="I">I · Trabalhista</option><option value="II">II · Garantia real</option><option value="III" selected>III · Quirografários e afins</option><option value="IV">IV · ME e EPP</option></select></label>
+          <label class="field"><span>Marco inicial do plano</span><input class="input" name="dataBase" type="date" value="${hojeISO()}" required></label>
+          <label class="field"><span>Deságio (%)</span><input class="input" name="desagio" type="number" min="0" max="99.999" step="0.001" value="0" required></label>
+          <label class="field"><span>Carência (meses)</span><input class="input" name="carenciaMeses" type="number" min="0" max="120" value="0" required></label>
+          <label class="field"><span>Parcelas</span><input class="input" name="parcelas" type="number" min="1" max="360" value="12" required></label>
+          <label class="field"><span>Periodicidade</span><select class="select" name="periodicidade"><option>mensal</option><option>bimestral</option><option>trimestral</option><option>semestral</option><option>anual</option></select></label>
+          <label class="field"><span>Amortização</span><select class="select" name="sistema"><option value="sem_juros">Sem juros</option><option value="sac">SAC</option><option value="price">Price (PMT)</option></select></label>
+          <label class="field"><span>Juros ao ano (%)</span><input class="input" name="jurosAoAno" type="number" min="0" max="100" step="0.001" value="0" required></label>
+          <label class="field"><span>Regime da taxa</span><select class="select" name="regimeDeJuros"><option value="nominal">Nominal</option><option value="efetiva">Efetiva</option></select></label>
+        </div>
+        <label class="field mt"><span><input type="checkbox" name="capitalizarNaCarencia"> Capitalizar juros durante a carência</span></label>
+        <button class="btn btn--accent mt" type="submit">Calcular cenário</button>
+      </form>
+      <div data-resultado-prj aria-live="polite"><p class="dica">Defina os parâmetros para conferir o desembolso e os vencimentos da classe.</p></div>
+    </div></section>`;
+}
+
+function ligarPrj(el, projetoId) {
+  const form = $('[data-simular-prj]', el);
+  if (!form) return;
+  const resultado = $('[data-resultado-prj]', el);
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const v = form.elements;
+    const botao = $('button[type=submit]', form);
+    botao.disabled = true;
+    resultado.textContent = 'Calculando cenário…';
+    try {
+      const r = await api.post(`/api/projetos/${projetoId}/prj/simulacao`, {
+        classe: v.classe.value, dataBase: v.dataBase.value, desagio: v.desagio.valueAsNumber / 100,
+        carenciaMeses: v.carenciaMeses.valueAsNumber, parcelas: v.parcelas.valueAsNumber,
+        periodicidade: v.periodicidade.value, jurosAoAno: v.jurosAoAno.valueAsNumber / 100,
+        sistema: v.sistema.value, regimeDeJuros: v.regimeDeJuros.value,
+        capitalizarNaCarencia: v.capitalizarNaCarencia.checked,
+      });
+      resultado.innerHTML = String(html`<h3 class="card__title">Resultado da classe ${r.classe}</h3>
+        <p class="dica">${r.creditos} crédito(s) sujeito(s) e validado(s) nesta classe · ${r.pendentesNoQgc} pendente(s) de validação no QGC</p>
+        ${r.creditos ? html`<dl class="overview-details">
+          <div><dt>Passivo original</dt><dd>R$ ${reais(r.totais.original)}</dd></div>
+          <div><dt>Após deságio</dt><dd>R$ ${reais(r.totais.novado)}</dd></div>
+          <div><dt>Desembolso total</dt><dd>R$ ${reais(r.totais.total)}</dd></div>
+        </dl>
+        <details class="mt"><summary class="checklist-summary">Ver cronograma e memória de cálculo</summary><p class="dica">${r.memoria}</p>
+        <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Vencimento</th><th>Juros</th><th>Amortização</th><th>Pagamento</th><th>Saldo</th></tr></thead>
+          <tbody>${r.cronograma.map(p=>html`<tr><td>${dataBR(p.vencimento)}</td><td>${reais(p.juros)}</td><td>${reais(p.amortizacao)}</td><td>${reais(p.valor)}</td><td>${reais(p.saldo)}</td></tr>`)}</tbody>
+        </table></div></details>`:html`<p class="dica">Valide os créditos sujeitos dessa classe no QGC para calcular o cronograma.</p>`}`);
+    } catch (erro) { resultado.textContent = erro.message; }
+    finally { botao.disabled = false; }
+  });
+}
+
 export async function abaPlano(ctx) {
   const [ob, fin] = await Promise.allSettled([api.get(`/api/projetos/${ctx.id}/obrigacoes`), pode('financeiro_cliente.ler') ? api.get(`/api/projetos/${ctx.id}/financeiro`) : Promise.reject(new Error('sem permissão'))]);
   const o = ob.status === 'fulfilled' ? ob.value : null; const f = fin.status === 'fulfilled' ? fin.value : null;
@@ -452,8 +509,10 @@ export async function abaPlano(ctx) {
           ${f.fluxo.periodosNegativos.length ? html`<p class="selo erro" style="margin-bottom:12px">Caixa projetado negativo em ${f.fluxo.periodosNegativos.length} período(s)</p>` : ''}
           <div class="barras">${f.fluxo.periodos.map((p) => { const v = Number(p.saldoProjetado); return html`<div class="barra"><b>${p.saldoProjetadoFormatado}</b><div class="barra__col"><i data-h="${Math.max(6, (Math.abs(v) / maxSaldo) * 100)}" ${v < 0 ? raw('style="background:linear-gradient(180deg,#ff9b9b,var(--lab-red))"') : ''}></i></div><small>${p.rotulo}</small></div>`; })}</div>`
           : vazio('chart', 'Sem fluxo de caixa', 'O fluxo aparece quando houver lançamentos do cliente neste projeto.')}
-      </section>`,
+      </section>
+      ${pode('plano.escrever') ? painelPrj() : ''}`,
     depois(el) {
+      ligarPrj(el, ctx.id);
       ouvir(el, 'click', '[data-lancar]', async () => {
         const ok = await formulario({
           titulo: 'Novo lançamento', rotulo: 'Lançar',
