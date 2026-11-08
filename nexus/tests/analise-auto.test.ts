@@ -96,6 +96,7 @@ test('worker retoma upload da API hospedada, inclui documento interno e recupera
  const pending=await banco.semContexto(async db=>(await db.query('SELECT * FROM documentos_de_analise_pendentes(5)')).rows.map(r=>r.documento_id));
  expect(pending).toContain(cliente);expect(pending).toContain(interno);
  expect(await processarFilaAnalise(banco,dep,provider)).toBe(1);
+ expect(await processarFilaAnalise(banco,dep,provider)).toBe(1);
  expect(await processarFilaAnalise(banco,dep,provider)).toBe(0);
  let state=(await pg.dono.query('SELECT estado FROM documento_processamento WHERE documento_id=$1',[cliente])).rows[0].estado;expect(state).toBe('analisado');
  await pg.dono.query("UPDATE documento_processamento SET estado='lendo',atualizado_em=now() WHERE documento_id=$1",[cliente]);
