@@ -69,12 +69,11 @@ export async function baixarTitulo(db: PoolClient, tituloId: string, d: z.infer<
 }
 
 export async function painelFinanceiro(db: PoolClient, projetoId: string, g: Granularidade) {
-  const [{ rows: contas }, { rows: lanc }, { rows: tit }, { rows: imp }] = await Promise.all([
-    db.query<{ id: string; nome: string; saldo_inicial: string }>('SELECT id,nome,saldo_inicial FROM contas_financeiras WHERE projeto_id=$1', [projetoId]),
-    db.query<{ data: Date; tipo: 'receita' | 'despesa'; situacao: 'previsto' | 'realizado'; valor: string; titulo_id: string | null; categoria: string; contraparte: string | null }>('SELECT data,tipo,situacao,valor,titulo_id,categoria,contraparte FROM lancamentos WHERE projeto_id=$1', [projetoId]),
-    db.query('SELECT * FROM titulos WHERE projeto_id=$1 ORDER BY vencimento LIMIT 5000', [projetoId]),
-    db.query('SELECT id,arquivo,formato,linhas,importadas,duplicadas,erros,criado_em FROM fin_importacoes WHERE projeto_id=$1 ORDER BY criado_em DESC LIMIT 30', [projetoId]),
-  ]);
+  // Em sequência: a transação usa uma conexão só, e ela não executa consultas em paralelo.
+  const { rows: contas } = await db.query<{ id: string; nome: string; saldo_inicial: string }>('SELECT id,nome,saldo_inicial FROM contas_financeiras WHERE projeto_id=$1', [projetoId]);
+  const { rows: lanc } = await db.query<{ data: Date; tipo: 'receita' | 'despesa'; situacao: 'previsto' | 'realizado'; valor: string; titulo_id: string | null; categoria: string; contraparte: string | null }>('SELECT data,tipo,situacao,valor,titulo_id,categoria,contraparte FROM lancamentos WHERE projeto_id=$1', [projetoId]);
+  const { rows: tit } = await db.query('SELECT * FROM titulos WHERE projeto_id=$1 ORDER BY vencimento LIMIT 5000', [projetoId]);
+  const { rows: imp } = await db.query('SELECT id,arquivo,formato,linhas,importadas,duplicadas,erros,criado_em FROM fin_importacoes WHERE projeto_id=$1 ORDER BY criado_em DESC LIMIT 30', [projetoId]);
   const h = hoje(); const saldoInicial = contas.reduce((a, c) => a + BigInt(c.saldo_inicial), 0n);
   const titulos = (tit as Array<Record<string, any>>).map((t) => ({ id: t.id as string, tipo: t.tipo as 'pagar' | 'receber', contraparte: t.contraparte as string, descricao: t.descricao as string | null, categoria: t.categoria as string, centroCusto: t.centro_custo as string | null, vencimento: dia(t.vencimento)!, valorOriginal: t.valor_original as string, valorAtualizado: t.valor_atualizado as string, valorLiquidado: t.valor_liquidado as string, saldo: (BigInt(t.valor_atualizado) - BigInt(t.valor_liquidado)).toString(), situacao: t.situacao as string, parcela: t.parcela as number | null, parcelas: t.parcelas as number | null, origem: t.origem as string, vencido: dia(t.vencimento)! < h && !['liquidado', 'cancelado'].includes(t.situacao) }));
   const lancs = lanc.map((l) => ({ data: dia(l.data)!, tipo: l.tipo, situacao: l.situacao, valor: BigInt(l.valor), tituloId: l.titulo_id }));
@@ -245,14 +244,19 @@ export const podeVerEntregas = (email: string): boolean => (process.env.NGA_EMAI
  * Lê TODOS os documentos do projeto, do cliente e do escritório, exceto relatórios.
  * Usa o texto já extraído; sem ele, extrai na hora. O que não dá para ler sai como não lido.
  */
+const LIMITE_DE_EXTRACAO = 20;
 export async function raioXDoProjeto(db: PoolClient, projetoId: string, dep: Deposito) {
   const p = await db.query('SELECT id FROM projetos WHERE id=$1', [projetoId]); if (!p.rowCount) throw new NaoEncontrado('projeto não encontrado');
   const { rows } = await db.query<{ id: string; titulo: string; tipo_mime: string | null; hash_sha256: string | null; tem_arquivo: boolean; texto: string | null }>(
     `SELECT d.id,d.titulo,d.tipo_mime,d.hash_sha256,d.tem_arquivo,t.texto FROM documentos d LEFT JOIN documento_textos t ON t.documento_id=d.id
       WHERE d.projeto_id=$1 AND coalesce(d.categoria,'') NOT IN ('relatorio_gerador','relatorio','Relatório') ORDER BY d.criado_em DESC LIMIT 150`, [projetoId]);
   const documentos: DocumentoLido[] = []; const naoLidos: { titulo: string; motivo: string }[] = [];
+  // Extrair PDF na hora é caro: limita por chamada e diz o que ficou de fora, em vez de estourar o tempo.
+  let extraidosAgora = 0;
   for (const d of rows) {
     if (d.texto) { documentos.push({ id: d.id, titulo: d.titulo, texto: d.texto }); continue; }
+    if (extraidosAgora >= LIMITE_DE_EXTRACAO) { naoLidos.push({ titulo: d.titulo, motivo: 'aguardando leitura automática: limite desta consulta atingido' }); continue; }
+    extraidosAgora++;
     if (!d.tem_arquivo || !d.hash_sha256) { naoLidos.push({ titulo: d.titulo, motivo: 'sem arquivo guardado' }); continue; }
     try {
       const e = await extrair(await lerConteudoDocumento(db, d.id, dep, chaveDoHash(d.hash_sha256), d.hash_sha256), d.tipo_mime ?? '');

@@ -138,6 +138,8 @@ const servidor = Bun.serve({
   port: PORTA_WEB,
   // 127.0.0.1 por padrão: só este Mac alcança. NGA_HOST=0.0.0.0 abre para a rede local (celular no mesmo Wi-Fi) — decisão explícita.
   hostname: process.env['NGA_HOST'] ?? '127.0.0.1',
+  // O padrão de 10 s corta a conexão no Raio X, que lê documentos inteiros.
+  idleTimeout: 180,
   async fetch(req) {
     const url = new URL(req.url);
     const doGerador = await gerador(req, url); if (doGerador) return doGerador;

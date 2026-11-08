@@ -87,6 +87,8 @@ const comSeguranca = async (r: Response | Promise<Response>, req: Request, url: 
 const servidor = Bun.serve({
   port: porta,
   hostname: process.env.NGA_HOST ?? '127.0.0.1',
+  // O padrão de 10 s corta a conexão no Raio X, que lê documentos inteiros.
+  idleTimeout: 180,
   async fetch(req) {
     const url = new URL(req.url);
     const doGerador = await gerador(req, url); if (doGerador) return doGerador;
