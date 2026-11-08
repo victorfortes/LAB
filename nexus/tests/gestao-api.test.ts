@@ -131,3 +131,10 @@ test('PDF acima do limite da nuvem sai com motivo, sem abrir o arquivo', async (
   const { extrair } = await import('../src/server/analise_auto.ts');
   expect(await extrair(new Uint8Array(4 * 1024 * 1024), 'application/pdf', { limitePdfBytes: 3 * 1024 * 1024 })).toMatchObject({ vazio: expect.stringContaining('limite') });
 });
+
+test('carteira: escritório vê os clientes; o cliente não', async () => {
+  await pg.dono.query(`INSERT INTO astrea_registros(organizacao_id,chave,tipo,cliente_nome) VALUES($1,'k1','Processo','Sem etiqueta')`, [NGA]);
+  const c = await j(req(s, '/api/clientes')); expect(c.semEtiqueta.n).toBe(1);
+  expect((await j(req(s, '/api/clientes/sem-etiqueta'))).length).toBe(1);
+  for (const u of ['/api/clientes', '/api/clientes/sem-etiqueta', `/api/projetos/${pA}/registros-astrea`]) expect((await req(a, u)).status).toBe(403);
+});

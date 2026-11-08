@@ -59,7 +59,7 @@ export function catalogo(): readonly Ferramenta[] {
       nome: 'NGA Relatórios',
       descricao: 'Gerador de relatórios jurídicos da NGA, com login individual e banco próprio no Supabase.',
       // Servido por este mesmo servidor, sob /gerador/ (ver estaticos.ts). Abre em nova aba: não aceita iframe.
-      url: `${url('NGA_URL_RELATORIOS', `http://127.0.0.1:${process.env.NGA_PORTA ?? 8790}/gerador`)}/`,
+      url: `${url('NGA_URL_RELATORIOS', 'https://nga-lab-launchpad.lovable.app/gerador')}/`,
       caminho: '/gerador/',
     },
     {

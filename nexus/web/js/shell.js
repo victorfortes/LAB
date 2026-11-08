@@ -16,6 +16,7 @@ const NAV_EQUIPE = [
   { rota: 'painel', rotulo: 'Painel', icone: 'home' },
   { rota: 'tarefas', rotulo: 'Tarefas', icone: 'check', contagem: 'tarefas' },
   { rota: 'calendario', rotulo: 'Calendário', icone: 'calendar' },
+  { rota: 'clientes', rotulo: 'Clientes', icone: 'users', permissao: 'cliente.ler' },
   { rota: 'projetos', rotulo: 'Projetos', icone: 'folder' },
   { rota: 'conversas', rotulo: 'Conversas', icone: 'comment' },
   { rota: 'ferramentas', rotulo: 'Ferramentas', icone: 'bolt' },
@@ -43,7 +44,7 @@ const ROTAS = {
     ['painel', 'painel'], ['tarefas', 'tarefas'], ['calendario', 'calendario'],
     ['projetos', 'projetos'], ['projetos/:id', 'projeto'], ['projetos/:id/:aba', 'projeto'],
     ['ferramentas', 'ferramentas'], ['ferramentas/:id', 'ferramentas'], ['controladoria', 'controladoria'],
-    ['relatorios', 'relatorios'], ['equipe', 'equipe'], ['ajustes', 'ajustes'], ['conversas', 'conversas'], ['conversas/:id', 'conversas'], ['entregas', 'entregas'],
+    ['relatorios', 'relatorios'], ['equipe', 'equipe'], ['ajustes', 'ajustes'], ['clientes', 'clientes'], ['conversas', 'conversas'], ['conversas/:id', 'conversas'], ['entregas', 'entregas'],
   ],
   cliente: [
     ['inicio', 'portal', { aba: 'inicio' }], ['andamento', 'portal', { aba: 'andamento' }],

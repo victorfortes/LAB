@@ -967,6 +967,10 @@ export function criarApp(ctx: Contexto) {
         if (acao === 'mensagens/lidas' && metodo === 'POST') { exigir(identidade.papeis, 'projeto.ler'); return json(await como((db) => gestao.marcarLidas(db, pid, ehCliente ? 'cliente' : 'nga'))); }
         return erro('método não permitido', 405);
       }
+      if (rota === '/api/clientes' && metodo === 'GET') { if (ehCliente) return erro('acesso negado', 403); exigir(identidade.papeis, 'cliente.ler'); return json(await como((db) => gestao.clientesDaCarteira(db))); }
+      if (rota === '/api/clientes/sem-etiqueta' && metodo === 'GET') { if (ehCliente) return erro('acesso negado', 403); exigir(identidade.papeis, 'cliente.ler'); return json(await como((db) => gestao.semEtiqueta(db, url.searchParams.get('q') ?? ''))); }
+      const mSemCnj = /^\/api\/projetos\/([0-9a-f-]{36})\/registros-astrea$/.exec(rota);
+      if (mSemCnj && metodo === 'GET') { if (ehCliente) return erro('acesso negado', 403); exigir(identidade.papeis, 'processo.ler'); return json(await como((db) => gestao.registrosSemCnjDoProjeto(db, mSemCnj[1]!))); }
       if (rota === '/api/conversas' && metodo === 'GET') { if (ehCliente) return erro('acesso negado', 403); exigir(identidade.papeis, 'projeto.ler'); return json(await como((db) => gestao.conversas(db))); }
       if (rota === '/api/lab/entregas' && metodo === 'GET') {
         if (ehCliente || !gestao.podeVerEntregas(identidade.email)) return erro('rota não encontrada', 404);

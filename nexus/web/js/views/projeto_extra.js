@@ -30,7 +30,7 @@ const botaoFechar = [{ id: 'ok', rotulo: 'Fechar', tipo: 'primario' }];
 const SITUACAO_PROC = { ativo: ['ok', 'Ativo'], suspenso: ['aviso', 'Suspenso'], baixado: ['info', 'Baixado'], arquivado: ['info', 'Arquivado'], extinto: ['erro', 'Extinto'] };
 
 export async function abaProcessos(ctx) {
-  const lista = await api.get(`/api/processos?projeto=${ctx.id}`);
+  const [lista, semCnj] = await Promise.all([api.get(`/api/processos?projeto=${ctx.id}`), api.get(`/api/projetos/${ctx.id}/registros-astrea`).catch(() => [])]);
   const escreve = pode('processo.escrever') && ctx.h.situacao !== 'encerrado';
   return {
     html: html`<div class="flex up" style="margin-bottom:12px"><span class="dica">Prazos contados em dias úteis forenses (CPC, art. 219 e 224), com feriados nacionais. A conferência final de feriado local é sua.</span>
@@ -47,7 +47,8 @@ export async function abaProcessos(ctx) {
             <div data-prazos-conteudo aria-live="polite"></div><button type="button" class="btn btn--ghost mt" data-abrir="${p.id}">Abrir detalhes do processo</button>
           </td></tr>`;
         })}</tbody></table></div></section>`
-        : html`<section class="card glass up">${vazio('file', 'Nenhum processo neste projeto', 'Cadastre o processo para acompanhar movimentações e calcular prazos com o fundamento à vista.', escreve ? '<button class="btn btn--accent" data-novo>Cadastrar processo</button>' : '')}</section>`}`,
+        : html`<section class="card glass up">${vazio('file', 'Nenhum processo neste projeto', 'Cadastre o processo para acompanhar movimentações e calcular prazos com o fundamento à vista.', escreve ? '<button class="btn btn--accent" data-novo>Cadastrar processo</button>' : '')}</section>`}
+      ${semCnj.length ? html`<details class="card glass up mt"><summary class="checklist-summary"><b>Outros registros do Astrea</b> <small>${semCnj.length} sem número CNJ válido (casos, tribunais superiores, números antigos)</small></summary><div class="tbl-wrap mt"><table class="tbl"><thead><tr><th>Título</th><th>Número no Astrea</th><th>Fase</th><th>Responsável</th></tr></thead><tbody>${semCnj.map((r) => html`<tr><td>${r.titulo}<small>${r.tipo}${r.acao ? ` · ${r.acao}` : ''}</small></td><td class="mono-sm">${r.numero_original || '—'}</td><td>${r.fase ?? '—'}</td><td>${r.responsavel}</td></tr>`)}</tbody></table></div></details>` : ''}`,
     depois(el) {
       ouvir(el, 'click', '[data-novo]', () => novoProcesso(ctx.id).then((ok) => ok && ctx.recarregar()));
       ouvir(el, 'click', '[data-prazos-processo]', async b => {
