@@ -16,7 +16,7 @@ beforeAll(async()=>{
  await pg.dono.query("INSERT INTO projetos(id,organizacao_id,nome,tipo) VALUES($1,$3,'A','consultivo'),($2,$3,'B','consultivo')",[a,b,org]);
 },120000);
 afterAll(async()=>{await banco?.encerrar();await pg?.encerrar();});
-test('notas do playbook ficam no projeto escolhido',async()=>{
+test('notas do caderno de pesquisa ficam no projeto escolhido',async()=>{
  await banco.comoUsuario(user,db=>config.salvarNota(db,a,config.EsquemaNota.parse({chave:'contabil',resumo:'Só A',pontosAtencao:'conferir balanço'}),ident));
  expect(await banco.comoUsuario(user,db=>config.notas(db,b))).toEqual([]);
  expect((await banco.comoUsuario(user,db=>config.notas(db,a)))[0].resumo).toBe('Só A');

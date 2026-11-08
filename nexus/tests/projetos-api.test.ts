@@ -190,7 +190,7 @@ describe('o hub reúne o que está pendurado no projeto', () => {
     // Equipe e prazo são controle interno: sem política de portal, vêm vazios.
     expect(hub.equipe).toEqual([]);
     expect(hub.proximosPrazos).toEqual([]);
-    expect(hub.contagens.prazos_abertos).toBe(0);
+    expect(hub.contagens).toBeUndefined();
   });
 });
 

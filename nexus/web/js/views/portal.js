@@ -10,9 +10,10 @@ import { estado, pode } from '../estado.js';
 import { anel } from '../fx.js';
 import { $, dataBR, guardado, hojeISO, html, icone, avatar, ouvir, paraCentavos, raw, relativo, tamanho } from '../util.js';
 import { cabecalho, erroDe, formulario, toast, vazio } from '../ui.js';
+import { painelFinanceiroProjeto } from './projeto_financeiro.js';
 import { atualizarLateral, navegar } from '../shell.js';
 
-const TITULOS = { inicio: 'Início', andamento: 'Andamento', documentos: 'Documentos', plano: 'Plano de pagamento', caixa: 'Fluxo de caixa', relatorios: 'Relatórios', mensagens: 'Mensagens' };
+const TITULOS = { inicio: 'Início', andamento: 'Andamento', documentos: 'Documentos', plano: 'Plano de pagamento', caixa: 'Fluxo de caixa', atas: 'Atas de reunião', relatorios: 'Relatórios', mensagens: 'Mensagens' };
 const SIT = { pendente: ['', 'Pendente'], enviado: ['info', 'Enviado'], em_analise: ['info', 'Em análise'], aprovado: ['ok', 'Aprovado'], rejeitado: ['erro', 'Rejeitado'], complementacao: ['aviso', 'Complementar'], nao_aplicavel: ['', 'Não se aplica'] };
 
 export default async function portal({ aba }) {
@@ -173,32 +174,14 @@ async function plano(p) {
 
 async function caixa(p) {
   if (!p.mostra_financeiro) return bloqueado('o fluxo de caixa');
-  const f = await api.get(`/api/projetos/${p.projeto_id}/financeiro`);
-  const max = Math.max(1, ...f.fluxo.periodos.map((x) => Math.abs(Number(x.saldoProjetado))));
-  return {
-    resumo: [{ rotulo: 'Saldo atual', valor: `R$ ${f.indicadores.saldoAtualFormatado}` }, { rotulo: 'Meses de caixa', valor: f.indicadores.mesesDeCaixa ?? '—' }],
-    html: html`<section class="card glass up"><header class="card__head"><div><h2 class="card__title">Saldo projetado por mês</h2><p class="card__sub">Realizado + previsto. ${f.fluxo.periodosNegativos.length ? 'Atenção: há mês com caixa negativo.' : ''}</p></div>
-      ${pode('financeiro_cliente.escrever') ? html`<button type="button" class="btn btn--accent" data-lancar>${icone('plus')}Lançamento</button>` : ''}</header>
-      ${f.fluxo.periodos.length ? html`<div class="barras">${f.fluxo.periodos.map((x) => { const v = Number(x.saldoProjetado); return html`<div class="barra"><b>${x.saldoProjetadoFormatado}</b><div class="barra__col"><i data-h="${Math.max(6, (Math.abs(v) / max) * 100)}" ${v < 0 ? raw('style="background:linear-gradient(180deg,#ff9b9b,var(--lab-red))"') : ''}></i></div><small>${x.rotulo}</small></div>`; })}</div>`
-        : vazio('chart', 'Sem lançamentos', 'Registre receitas e despesas (realizadas ou previstas) para ver o caixa.')}</section>`,
-    depois(el) {
-      ouvir(el, 'click', '[data-lancar]', async () => {
-        const ok = await formulario({
-          titulo: 'Novo lançamento', rotulo: 'Lançar',
-          campos: [{ nome: 'tipo', rotulo: 'Tipo', tipo: 'select', metade: true, valor: 'despesa', opcoes: [{ v: 'receita', t: 'Receita' }, { v: 'despesa', t: 'Despesa' }] },
-            { nome: 'situacao', rotulo: 'Situação', tipo: 'select', metade: true, valor: 'realizado', opcoes: [{ v: 'realizado', t: 'Realizado' }, { v: 'previsto', t: 'Previsto' }] },
-            { nome: 'data', rotulo: 'Data', tipo: 'date', obrigatorio: true, metade: true, valor: hojeISO() }, { nome: 'valor', rotulo: 'Valor (R$)', obrigatorio: true, metade: true },
-            { nome: 'categoria', rotulo: 'Categoria', obrigatorio: true, placeholder: 'Folha, fornecedores, vendas…' }],
-          async enviar(v) { const valor = paraCentavos(v.valor); if (!valor) throw new Error('Valor inválido. Use 12.500,00'); await api.post(`/api/projetos/${p.projeto_id}/financeiro`, { tipo: v.tipo, situacao: v.situacao, data: v.data, valor, categoria: v.categoria }); toast('Lançamento registrado'); },
-        });
-        if (ok) navegar();
-      });
-    },
-  };
+  const r = await painelFinanceiroProjeto(p.projeto_id, () => navegar());
+  return { resumo: [], html: r.html, depois: r.depois };
 }
 
-// --------------------------------------------------------------- relatórios ---
-
+async function atas(p) {
+  const l = await api.get(`/api/projetos/${p.projeto_id}/atas`);
+  return { resumo: [], html: l.length ? html`${l.map((a) => html`<details class="card glass up mt"><summary class="checklist-summary"><b>${a.titulo}</b> <small>${dataBR(a.realizadaEm)}</small></summary><div class="mt">${[['Pauta', a.pauta], ['Decisões', a.decisoes], ['Encaminhamentos', a.encaminhamentos]].filter(([, t]) => t).map(([r, t]) => html`<h3 class="mini-h">${r}</h3><p style="white-space:pre-wrap;margin:0">${t}</p>`)}</div></details>`)}` : html`<section class="card glass up">${vazio('doc', 'Nenhuma ata publicada', 'As atas das reuniões aparecem aqui quando o escritório publicar.')}</section>` };
+}
 async function relatorios(p) {
   const docs = (await api.get(`/api/projetos/${p.projeto_id}/documentos`)).filter((d) => d.visibilidade === 'publicado');
   const rel = docs.filter((d) => d.categoria === 'relatorio_gerador' && d.visibilidade === 'publicado');
@@ -216,6 +199,7 @@ async function relatorios(p) {
 
 async function mensagens(p) {
   const msgs = (await api.get(`/api/projetos/${p.projeto_id}/mensagens`)).reverse();
+  if (msgs.some((m) => m.lado === 'nga' && !m.lida_em)) api.post(`/api/projetos/${p.projeto_id}/mensagens/lidas`, {}).catch(() => {});
   guardado.gravar(`msgLidas.${p.projeto_id}`, new Date().toISOString()); atualizarLateral();
   return {
     html: html`<section class="card glass up"><header class="card__head"><div><h2 class="card__title">Conversa com a NGA</h2><p class="card__sub">Dúvidas, avisos e pedidos. A equipe responde aqui.</p></div></header>
@@ -231,4 +215,4 @@ async function mensagens(p) {
   };
 }
 
-const ABAS = { inicio, andamento, documentos, plano, caixa, relatorios, mensagens };
+const ABAS = { inicio, andamento, documentos, plano, caixa, relatorios, mensagens, atas };

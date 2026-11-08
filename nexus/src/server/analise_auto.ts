@@ -19,13 +19,14 @@ import type { Provedor } from '../ai/provedor.ts';
 import { lerConteudoDocumento, type Deposito } from './arquivos.ts';
 import { chaveDoHash } from '../store/arquivos.ts';
 import * as analise from './analise.ts';
+import { xlsxParaTexto } from '../domain/analise/planilha.ts';
 
 export type EstadoDoProcessamento = 'na_fila' | 'lendo' | 'analisado' | 'sem_texto' | 'erro';
 
 interface Extraido { readonly texto: string; readonly origem: 'texto_enviado' | 'pdf_nativo'; readonly paginas?: number }
 
-async function extrair(bytes: Uint8Array, mime: string): Promise<Extraido | { vazio: string }> {
-  if (mime === 'text/plain' || mime === 'text/csv') {
+export async function extrair(bytes: Uint8Array, mime: string): Promise<Extraido | { vazio: string }> {
+  if (mime.startsWith('text/plain') || mime.startsWith('text/csv')) {
     try {
       const texto = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
       return texto.trim() ? { texto, origem: 'texto_enviado' } : { vazio: 'o arquivo não tem texto' };
@@ -41,7 +42,11 @@ async function extrair(bytes: Uint8Array, mime: string): Promise<Extraido | { va
     }
     return { texto, origem: 'pdf_nativo', paginas: totalPages };
   }
-  return { vazio: `formato ${mime || 'desconhecido'} sem extrator (só texto e PDF com texto)` };
+  if (mime.includes('spreadsheetml')) {
+    const texto = xlsxParaTexto(bytes).trim();
+    return texto ? { texto, origem: 'texto_enviado' } : { vazio: 'a planilha está vazia' };
+  }
+  return { vazio: `formato ${mime || 'desconhecido'} sem extrator (lê texto, CSV, Excel e PDF com texto)` };
 }
 
 async function marcar(

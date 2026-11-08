@@ -143,8 +143,7 @@ function quadro(lista, catalogo, grupoId) {
   const grupo = GRUPOS_DO_QUADRO.find((g) => g.id === grupoId) ?? GRUPOS_DO_QUADRO[0];
   const tipoDoModelo = grupo.modelo ?? grupo.tipos[0];
   const fases = catalogo.find((c) => c.tipo === tipoDoModelo)?.fases ?? [];
-  const doGrupo = lista.filter((p) => grupo.tipos.includes(p.tipo) && p.situacao !== 'encerrado' && !p.playbook_modelo_id);
-  const personalizados = lista.filter(p=>grupo.tipos.includes(p.tipo)&&p.situacao!=='encerrado'&&p.playbook_modelo_id);
+  const doGrupo = lista.filter((p) => grupo.tipos.includes(p.tipo) && p.situacao !== 'encerrado');
   const primeira = fases[0]?.id;
 
   const porFase = new Map(fases.map((f) => [f.id, []]));
@@ -157,7 +156,6 @@ function quadro(lista, catalogo, grupoId) {
         ${GRUPOS_DO_QUADRO.map((g) => html`<button type="button" role="tab" data-grupo="${g.id}" aria-selected="${g.id === grupo.id}">${g.rotulo}<b>${conta(g)}</b></button>`)}</div>
       <span class="dica">As colunas são os marcos legais do procedimento. Avançar é passo a passo; voltar é permitido.</span>
     </div>
-    ${personalizados.length?html`<section class="card glass mb"><header class="card__head"><div><h2 class="card__title">Procedimentos personalizados</h2><p class="card__sub">Cada projeto tem suas próprias fases e etapas. Veja as etapas na fase do procedimento.</p></div></header><ul class="lista">${personalizados.map(p=>html`<li><div><b>${p.nome}</b><small>${p.faseAtual?.nome??'Sem fase'}</small></div><a class="btn btn--ghost" href="#/projetos/${p.id}/playbook">Abrir procedimento →</a></li>`)}</ul></section>`:''}
     <div class="fases up">
       ${fases.map((f, i) => {
         const cards = porFase.get(f.id) ?? [];
@@ -183,7 +181,6 @@ function cartaoDoQuadro(p) {
 }
 
 export async function novoProjeto() {
-  const modelos=(await api.get('/api/playbooks')).filter(m=>m.ativo);
   return formulario({
     titulo: 'Novo projeto', subtitulo: 'Cada projeto começa na primeira fase do procedimento escolhido. Quem cria lidera.',
     rotulo: 'Criar projeto',
@@ -198,14 +195,12 @@ export async function novoProjeto() {
       { nome: 'resumo', rotulo: 'Resumo do caso', tipo: 'textarea', placeholder: 'Uma ou duas frases: o que é este projeto.' },
       { nome: 'prioridade', rotulo: 'Prioridade', tipo: 'select', metade: true, valor: '3', opcoes: [{ v: 1, t: '1 · Máxima' }, { v: 2, t: '2 · Alta' }, { v: 3, t: '3 · Normal' }, { v: 4, t: '4 · Baixa' }, { v: 5, t: '5 · Mínima' }] },
       { nome: 'previsaoFim', rotulo: 'Previsão de término', tipo: 'date', metade: true },
-      ...(modelos.length?[{nome:'playbookModeloId',rotulo:'Modelo de fases e tarefas',tipo:'select',opcoes:[{v:'',t:'Usar o padrão do escritório para este tipo'},...modelos.map(m=>({v:m.id,t:m.nome}))]}]:[]),
-      { nome: 'playbook', rotulo: 'Gerar as tarefas do playbook?', tipo: 'select', valor: 'sim', opcoes: [{ v: 'sim', t: 'Sim — o projeto já nasce com as tarefas da abertura e da primeira fase' }, { v: 'nao', t: 'Não — o caso já está andando' }] },
     ],
     async enviar(v) {
-      const corpo = { nome: v.nome, tipo: v.tipo, prioridade: Number(v.prioridade ?? 3), resumo: v.resumo, previsaoFim: v.previsaoFim, semPlaybook: v.playbook === 'nao',playbookModeloId:v.playbookModeloId };
+      const corpo = { nome: v.nome, tipo: v.tipo, prioridade: Number(v.prioridade ?? 3), resumo: v.resumo, previsaoFim: v.previsaoFim };
       if (v.razaoSocial) corpo.cliente = { razaoSocial: v.razaoSocial, cnpj: v.cnpj };
       const r = await api.post('/api/projetos', corpo);
-      toast(`Projeto criado${r.playbook?.criadas ? ` · ${r.playbook.criadas} tarefas geradas pelo playbook` : ''}`); atualizarLateral(); ir(`projetos/${r.id}`);
+      toast('Projeto criado'); atualizarLateral(); ir(`projetos/${r.id}`);
     },
   });
 }

@@ -17,11 +17,12 @@ const NAV_EQUIPE = [
   { rota: 'tarefas', rotulo: 'Tarefas', icone: 'check', contagem: 'tarefas' },
   { rota: 'calendario', rotulo: 'Calendário', icone: 'calendar' },
   { rota: 'projetos', rotulo: 'Projetos', icone: 'folder' },
+  { rota: 'conversas', rotulo: 'Conversas', icone: 'comment' },
   { rota: 'ferramentas', rotulo: 'Ferramentas', icone: 'bolt' },
   { rota: 'controladoria', rotulo: 'Controladoria', icone: 'inbox', permissao: 'controladoria.ler', contagem: 'pubs' },
   { rota: 'relatorios', rotulo: 'Relatórios', icone: 'chart' },
   { rota: 'equipe', rotulo: 'Equipe', icone: 'users' },
-  { rota:'admin-playbooks',rotulo:'Modelos de playbook',icone:'list',permissao:'admin.gerir' },
+  { rota: 'entregas', rotulo: 'Entregas LAB', icone: 'flag', dono: true },
   { rota: 'ajustes', rotulo: 'Ajustes', icone: 'settings' },
 ];
 const NAV_CLIENTE = [
@@ -31,9 +32,10 @@ const NAV_CLIENTE = [
   { rota: 'plano', rotulo: 'Plano de pagamento', icone: 'money' },
   { rota: 'caixa', rotulo: 'Fluxo de caixa', icone: 'chart' },
   { rota: 'relatorios', rotulo: 'Relatórios', icone: 'chart' },
+  { rota: 'atas', rotulo: 'Atas de reunião', icone: 'doc' },
   { rota: 'mensagens', rotulo: 'Mensagens', icone: 'comment', contagem: 'msgs' },
 ];
-const nav = () => (ehCliente() ? NAV_CLIENTE : NAV_EQUIPE.filter((n) => !n.permissao || pode(n.permissao)));
+const nav = () => (ehCliente() ? NAV_CLIENTE : NAV_EQUIPE.filter((n) => (!n.permissao || pode(n.permissao)) && (!n.dono || estado.eu?.podeVerEntregas)));
 
 /** Tabela de rotas: [padrão, módulo da view, parâmetros extras]. */
 const ROTAS = {
@@ -41,12 +43,12 @@ const ROTAS = {
     ['painel', 'painel'], ['tarefas', 'tarefas'], ['calendario', 'calendario'],
     ['projetos', 'projetos'], ['projetos/:id', 'projeto'], ['projetos/:id/:aba', 'projeto'],
     ['ferramentas', 'ferramentas'], ['ferramentas/:id', 'ferramentas'], ['controladoria', 'controladoria'],
-    ['admin-playbooks','admin_playbooks'], ['relatorios', 'relatorios'], ['equipe', 'equipe'], ['ajustes', 'ajustes'],
+    ['relatorios', 'relatorios'], ['equipe', 'equipe'], ['ajustes', 'ajustes'], ['conversas', 'conversas'], ['conversas/:id', 'conversas'], ['entregas', 'entregas'],
   ],
   cliente: [
     ['inicio', 'portal', { aba: 'inicio' }], ['andamento', 'portal', { aba: 'andamento' }],
     ['documentos', 'portal', { aba: 'documentos' }], ['plano', 'portal', { aba: 'plano' }],
-    ['caixa', 'portal', { aba: 'caixa' }], ['relatorios', 'portal', { aba: 'relatorios' }], ['mensagens', 'portal', { aba: 'mensagens' }],
+    ['caixa', 'portal', { aba: 'caixa' }], ['relatorios', 'portal', { aba: 'relatorios' }], ['mensagens', 'portal', { aba: 'mensagens' }], ['atas', 'portal', { aba: 'atas' }],
   ],
 };
 
@@ -172,9 +174,11 @@ export async function navegar() {
     main.classList.remove('carregando');
     console.error(e);
     main.innerHTML = html`<div class="empty up"><div class="empty__ico">${icone('alert')}</div><h3>Não foi possível abrir</h3><p>${e.message}</p>
-      <button class="btn btn--ghost" onclick="location.reload()">Tentar de novo</button></div>`.toString();
+      <button class="btn btn--ghost" data-recarregar>Tentar de novo</button></div>`.toString();
   }
 }
+
+document.addEventListener('click', (e) => { if (e.target.closest?.('[data-recarregar]')) location.reload(); });
 
 // ---------------------------------------------------------- pré-aquecimento ---
 

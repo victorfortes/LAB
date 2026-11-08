@@ -28,6 +28,7 @@ import { fileURLToPath } from 'node:url';
 import { Banco } from '../src/store/conexao.ts';
 import { servidorDoGerador, servirEstatico } from '../src/server/estaticos.ts';
 import { criarApp } from '../src/server/app.ts';
+import { aplicarCabecalhos } from '../src/server/cabecalhos.ts';
 import { migrar } from '../src/db/migrar.ts';
 import { ArmazenamentoLocal } from '../src/store/arquivos.ts';
 import { deposito as montarDeposito } from '../src/server/arquivos.ts';
@@ -110,6 +111,7 @@ const banco = new Banco({
 const armazenamento = new ArmazenamentoLocal(dirAcervo);
 await armazenamento.iniciar();
 const api = criarApp({
+  exigirTrocaDeSenha: true,
   banco,
   deposito: montarDeposito(armazenamento, {
     ...process.env, NGA_SEGREDO_ARQUIVOS: cfg.segredoArquivos,
@@ -125,6 +127,13 @@ const TIPOS: Record<string, string> = {
 // Gerador de Relatórios (monorepo: ../relatorios), servido sob /gerador/ para abrir dentro do NGA LAB.
 const gerador = servidorDoGerador(join(RAIZ, '../relatorios'));
 
+const emHttps = (req: Request, url: URL) => url.protocol === 'https:' || req.headers.get('x-forwarded-proto') === 'https';
+const comSeguranca = async (r: Response | Promise<Response>, req: Request, url: URL) => {
+  const resposta = await r; const h = new Headers(resposta.headers);
+  aplicarCabecalhos(h, { https: emHttps(req, url), pagina: true });
+  return new Response(resposta.body, { status: resposta.status, headers: h });
+};
+
 const servidor = Bun.serve({
   port: PORTA_WEB,
   // 127.0.0.1 por padrão: só este Mac alcança. NGA_HOST=0.0.0.0 abre para a rede local (celular no mesmo Wi-Fi) — decisão explícita.
@@ -134,8 +143,7 @@ const servidor = Bun.serve({
     const doGerador = await gerador(req, url); if (doGerador) return doGerador;
     if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/arquivos/')) {
       const r = await api(req);
-      r.headers.set('x-content-type-options', 'nosniff');
-      r.headers.set('referrer-policy', 'no-referrer');
+      aplicarCabecalhos(r.headers, { https: emHttps(req, url), pagina: false });
       return r;
     }
     if (url.pathname === '/nga.css') {
@@ -147,10 +155,10 @@ const servidor = Bun.serve({
     if (!destino.startsWith(join(RAIZ, 'web'))) return new Response('404', { status: 404 });
     const arquivo = Bun.file(destino);
     if (await arquivo.exists()) {
-      return servirEstatico(arquivo, TIPOS[pedido.slice(pedido.lastIndexOf('.'))] ?? 'application/octet-stream', req);
+      return comSeguranca(servirEstatico(arquivo, TIPOS[pedido.slice(pedido.lastIndexOf('.'))] ?? 'application/octet-stream', req), req, url);
     }
-    return new Response(Bun.file(join(RAIZ, 'web/index.html')),
-      { headers: { 'content-type': TIPOS['.html']! } });
+    return comSeguranca(new Response(Bun.file(join(RAIZ, 'web/index.html')),
+      { headers: { 'content-type': TIPOS['.html']! } }), req, url);
   },
 });
 

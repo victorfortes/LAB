@@ -7,7 +7,12 @@ import type { Identidade } from '../security/sessao.ts';
 import { ArquivoCorrompido, type Armazenamento } from '../store/arquivos.ts';
 import { NaoEncontrado, PedidoInvalido } from './erros.ts';
 
-const SCOPES = ['https://www.googleapis.com/auth/calendar.events', 'https://www.googleapis.com/auth/drive.file'];
+const SCOPES = ['https://www.googleapis.com/auth/calendar.events', 'https://www.googleapis.com/auth/drive'];
+/** Pastas já existentes no Drive do escritório. `drive.file` não enxerga pasta criada por gente: daí o escopo `drive`, que exige reconectar a conta. */
+export const PASTA_REESTRUTURACAO = '1-JlcrOlJlTWVX_UGHR-XTkdB8jXD8HGK';
+export const PASTA_CIVEL = '1VEWVDDC1jGq36nOEMVl-0uJoVmgoyX26';
+const TIPOS_REESTRUTURACAO = new Set(['recuperacao_judicial','recuperacao_extrajudicial','falencia','reestruturacao','negociacao_credores']);
+export const pastaDoTipo = (tipo: string) => (TIPOS_REESTRUTURACAO.has(tipo) ? PASTA_REESTRUTURACAO : PASTA_CIVEL);
 const REQUIRED = ['NGA_GOOGLE_CLIENT_ID','NGA_GOOGLE_CLIENT_SECRET','NGA_GOOGLE_REDIRECT_URI','NGA_GOOGLE_TOKEN_KEY'] as const;
 const hash = (v: string) => createHash('sha256').update(v).digest('hex');
 function config() {
@@ -84,7 +89,7 @@ export async function googleJson(access: string, url: string, init: RequestInit=
   return await r.json() as Record<string,any>;
 }
 async function projeto(db: PoolClient,id:string) {
-  const { rows }=await db.query<{id:string;organizacao_id:string;nome:string;cliente:string}>(`SELECT p.id,p.organizacao_id,p.nome,coalesce((SELECT o.nome FROM portais po JOIN organizacoes o ON o.id=po.organizacao_cliente_id WHERE po.projeto_id=p.id AND po.ativo ORDER BY po.criado_em LIMIT 1),p.nome) AS cliente FROM projetos p WHERE p.id=$1`,[id]);
+  const { rows }=await db.query<{id:string;organizacao_id:string;nome:string;tipo:string;cliente:string}>(`SELECT p.id,p.organizacao_id,p.nome,p.tipo,coalesce((SELECT o.nome FROM portais po JOIN organizacoes o ON o.id=po.organizacao_cliente_id WHERE po.projeto_id=p.id AND po.ativo ORDER BY po.criado_em LIMIT 1),p.nome) AS cliente FROM projetos p WHERE p.id=$1`,[id]);
   if (!rows[0]) throw new NaoEncontrado('Projeto não encontrado.'); return rows[0];
 }
 export const EsquemaEvento = z.object({projetoId:z.string().uuid(),titulo:z.string().trim().min(1).max(300),inicio:z.iso.datetime({offset:true}),fim:z.iso.datetime({offset:true}),descricao:z.string().max(5000).default(''),marcador:z.enum(['reuniao','prazo','audiencia','interno','cliente','lembrete']).default('reuniao'),criarMeet:z.boolean().default(true)}).refine((e)=>new Date(e.fim)>new Date(e.inicio),'O fim deve ser posterior ao início.');
@@ -130,8 +135,7 @@ export async function criarPastas(db:PoolClient,id:string) {
   const p=await projeto(db,id); await db.query('SELECT pg_advisory_xact_lock(hashtext($1))',[`google-drive:${id}`]);
   const {rows}=await db.query('SELECT * FROM google_drive_pastas WHERE projeto_id=$1',[id]);if(rows[0])return rows[0];
   const access=await token(db,p.organizacao_id);
-  const root=await folder(access,'NGA LAB',`org:${p.organizacao_id}`);
-  const client=await folder(access,p.cliente,`cliente:${p.organizacao_id}:${hash(p.cliente).slice(0,24)}`,root);
+  const client=await folder(access,p.cliente,`cliente:${p.organizacao_id}:${hash(p.cliente).slice(0,24)}`,pastaDoTipo(p.tipo));
   const project=await folder(access,p.nome,`projeto:${id}`,client);const pastas:Record<string,string>={};
   for(const [tag,name]of Object.entries({cliente:'01 Documentos do cliente',escritorio:'02 Documentos do escritório',relatorios:'03 Relatórios',processos:'04 Processos'})) pastas[tag]=await folder(access,name,`projeto:${id}:${tag}`,project);
   await db.query('INSERT INTO google_drive_pastas(projeto_id,organizacao_id,pasta_id,pastas) VALUES($1,$2,$3,$4)',[id,p.organizacao_id,project,JSON.stringify(pastas)]);

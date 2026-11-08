@@ -98,6 +98,34 @@ export async function revogar(db: PoolClient, token: string): Promise<void> {
     [hashDoToken(token)]);
 }
 
+/** Muitas tentativas erradas: 429, com a mesma resposta exista ou não o e-mail. */
+export class LoginBloqueado extends Error {
+  override readonly name = 'LoginBloqueado';
+  constructor() { super('muitas tentativas. Aguarde 15 minutos e tente de novo'); }
+}
+
+export const loginBloqueado = async (db: PoolClient, email: string, ip?: string): Promise<boolean> =>
+  (await db.query<{ b: boolean }>('SELECT auth_login_bloqueado($1,$2) AS b', [email, ip ?? null])).rows[0]!.b;
+export const registrarFalha = async (db: PoolClient, email: string, ip?: string): Promise<void> => {
+  await db.query('SELECT auth_registrar_falha($1,$2)', [email, ip ?? null]);
+};
+export const limparFalhas = async (db: PoolClient, email: string): Promise<void> => {
+  await db.query('SELECT auth_limpar_falhas($1)', [email]);
+};
+export const deveTrocarSenha = async (db: PoolClient, usuarioId: string): Promise<boolean> =>
+  (await db.query<{ b: boolean }>('SELECT auth_deve_trocar_senha($1) AS b', [usuarioId])).rows[0]!.b;
+
+/** Troca a própria senha, conferindo a atual. As outras sessões do usuário caem. */
+export async function trocarSenha(
+  db: PoolClient, identidade: Identidade, token: string, atual: string, nova: string,
+): Promise<void> {
+  const { rows } = await db.query<{ senha_hash: string }>('SELECT * FROM auth_credenciais($1)', [identidade.email]);
+  const confere = rows[0] ? await Bun.password.verify(atual, rows[0].senha_hash).catch(() => false) : false;
+  if (!confere) throw new ErroDeAutenticacao('a senha atual não confere');
+  if (nova === atual) throw new ErroDeAutenticacao('a nova senha precisa ser diferente da atual');
+  await db.query('SELECT auth_trocar_senha($1,$2,$3)', [identidade.usuarioId, await hashDaSenha(nova), hashDoToken(token)]);
+}
+
 export class ErroDeAutenticacao extends Error {
   override readonly name = 'ErroDeAutenticacao';
 }

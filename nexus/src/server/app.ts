@@ -7,7 +7,7 @@
 import type { PoolClient } from 'pg';
 import { z } from 'zod';
 import { Banco, auditar } from '../store/conexao.ts';
-import { ErroDeAutenticacao, autenticar, identidadeDoToken, revogar, type Identidade } from '../security/sessao.ts';
+import { ErroDeAutenticacao, LoginBloqueado, autenticar, deveTrocarSenha, hashDaSenha, identidadeDoToken, limparFalhas, loginBloqueado, registrarFalha, revogar, trocarSenha, type Identidade } from '../security/sessao.ts';
 import { SemPermissao, exigir, PERMISSOES, type Permissao } from '../security/rbac.ts';
 import { type Credito, consolidarPorClasse, desdobrarParaVotacao, enquadrar } from '../domain/insolvencia/creditos.ts';
 import { apurarAssembleia, type VotoLancado } from '../domain/insolvencia/quorum.ts';
@@ -16,6 +16,7 @@ import { gerarCronograma, type CondicaoDePagamento } from '../domain/insolvencia
 import { formatarReais } from '../domain/shared/dinheiro.ts';
 import { AMBIENTES, MODULOS, resumoDeEstado } from './modulos.ts';
 import { TransicaoInvalida } from '../domain/portal/checklist.ts';
+import { TransicaoDeFaseInvalida } from '../domain/projeto/fases.ts';
 import * as portal from './portal.ts';
 import * as analise from './analise.ts';
 import * as analiseAuto from './analise_auto.ts';
@@ -25,12 +26,14 @@ import * as negociacoes from './negociacoes.ts';
 import * as controladoria from './controladoria.ts';
 import * as gerador from './gerador.ts';
 import { sugerirPrazo } from './publicacao_analise.ts';
-import { faseInicial, type TipoDeProjeto } from '../domain/projeto/fases.ts';
 import * as processos from './processos.ts';
 import * as relatorios from './relatorios.ts';
 import * as projetos from './projetos.ts';
-import * as playbookConfig from './playbook_config.ts';
 import * as tarefas from './tarefas.ts';
+import * as gestao from './gestao.ts';
+import { interpretar } from '../domain/financeiro/linguagem.ts';
+import { interpretarArquivo } from '../domain/financeiro/importacao.ts';
+import { MODULOS as CATALOGO_LAB } from './modulos.ts';
 import * as equipeAdmin from './equipe.ts';
 import * as projetoConfig from './projeto_config.ts';
 import * as ferramentas from './ferramentas.ts';
@@ -41,18 +44,32 @@ import * as google from './google.ts';
 import {
   SemEscopo, exigirEscopo, integracaoDoToken, marcarUso, pareceTokenDeIntegracao,
 } from '../security/integracao.ts';
-import { TransicaoDeFaseInvalida } from '../domain/projeto/fases.ts';
 import { PRAZOS_USUAIS } from '../domain/processo/prazos.ts';
 import { calendarioNacional, noRecesso } from '../domain/processo/feriados.ts';
 import { ErroDePrazo } from '../domain/processo/prazos.ts';
 import { NaoEncontrado, PedidoInvalido } from './erros.ts';
 import * as arquivos from './arquivos.ts';
 import { ArmazenamentoLocal, ArquivoAusente, ArquivoCorrompido } from '../store/arquivos.ts';
-import { TipoRecusado } from '../store/tipos-de-arquivo.ts';
+import { TipoRecusado, reconhecerTipo } from '../store/tipos-de-arquivo.ts';
 import { AssinaturaExpirada, AssinaturaInvalida, verificar } from '../security/assinatura.ts';
 import { ProvedorIndisponivel, provedorDoAmbiente, type Provedor } from '../ai/provedor.ts';
 
 const COOKIE = 'nga_sessao';
+/** CSV, OFX e XML são texto; o resto passa pela mesma barreira de conteúdo do acervo. */
+function reconhecerTipoFinanceiro(nome: string, dados: Uint8Array): void {
+  if (!/\.(csv|txt|ofx|xml)$/i.test(nome)) reconhecerTipo(dados, nome);
+}
+const EsquemaTrocaDeSenha = z.object({ atual: z.string().min(1).max(256), nova: z.string().min(12).max(256) });
+const ROTAS_SO_DO_ESCRITORIO: readonly RegExp[] = [
+  /^\/api\/google\//, /^\/api\/escritorio\//, /^\/api\/analises\//, /^\/api\/achados\//,
+  /^\/api\/arquivos\/estado$/, /^\/api\/documentos\/[^/]+\/(analises|texto|reprocessamento)/,
+];
+/** O que o cliente lê do projeto. Lista positiva: campo novo não vaza por padrão. */
+const projetoParaCliente = (p: Record<string, unknown>) => ({
+  ...Object.fromEntries(['id', 'nome', 'tipo', 'situacao', 'fase', 'fase_desde', 'iniciado_em', 'previsao_fim', 'encerrado_em', 'rotuloDoTipo', 'faseAtual', 'progresso', 'fasesDisponiveis']
+    .filter((k) => k in p).map((k) => [k, p[k]])),
+  equipe: [], proximosPrazos: [],
+});
 
 /**
  * Identidade mínima para o usuário de serviço de uma integração.
@@ -79,6 +96,8 @@ export interface Contexto {
   /** Lê e analisa sozinho o que chega. Desligado por padrão para não deixar trabalho solto nos testes. */
   readonly analiseAutomatica?: boolean;
   readonly analiseEmWorker?: boolean;
+  /** Em produção, a senha temporária só serve para escolher a definitiva. */
+  readonly exigirTrocaDeSenha?: boolean;
   /** Fonte do DJEN. Em testes entra uma fake; em produção, a API pública do CNJ. */
   readonly buscadorDjen?: controladoria.Buscador;
   /**
@@ -235,11 +254,20 @@ export function criarApp(ctx: Contexto) {
       if (rota === '/api/sessao' && metodo === 'POST') {
         const corpo = EsquemaLogin.safeParse(await req.json().catch(() => null));
         if (!corpo.success) return erro('dados inválidos', 400, corpo.error.issues);
-        const { token, expiraEm } = await banco.semContexto((db) =>
-          autenticar(db, corpo.data.email, corpo.data.senha, {
-            ip: req.headers.get('x-forwarded-for') ?? undefined,
-            agente: req.headers.get('user-agent') ?? undefined,
+        const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim().slice(0, 64) || undefined;
+        if (await banco.semContexto((db) => loginBloqueado(db, corpo.data.email, ip))) throw new LoginBloqueado();
+        let sessao: { token: string; expiraEm: Date };
+        try {
+          sessao = await banco.semContexto((db) => autenticar(db, corpo.data.email, corpo.data.senha, {
+            ip, agente: req.headers.get('user-agent')?.slice(0, 300) ?? undefined,
           }));
+        } catch (falha) {
+          // Em transação própria: o erro acima desfaz a dele, e a falha precisa ficar gravada.
+          if (falha instanceof ErroDeAutenticacao) await banco.semContexto((db) => registrarFalha(db, corpo.data.email, ip));
+          throw falha;
+        }
+        await banco.semContexto((db) => limparFalhas(db, corpo.data.email));
+        const { token, expiraEm } = sessao;
         return new Response(JSON.stringify({ ok: true, expiraEm }), {
           status: 200,
           headers: {
@@ -295,8 +323,22 @@ export function criarApp(ctx: Contexto) {
       // Cliente é quem NÃO tem vínculo com o escritório. Decidido aqui, uma vez.
       const ehCliente = !identidade.organizacoes.some((o) => o.tipo === 'escritorio');
 
+      const trocaPendente = await banco.semContexto((db) => deveTrocarSenha(db, identidade.usuarioId));
+      if (rota === '/api/senha' && metodo === 'POST') {
+        const d = EsquemaTrocaDeSenha.safeParse(await req.json().catch(() => null));
+        if (!d.success) return erro('A nova senha precisa ter ao menos 12 caracteres.', 400);
+        await banco.semContexto((db) => trocarSenha(db, identidade, tokenDaRequisicao(req)!, d.data.atual, d.data.nova));
+        return json({ ok: true });
+      }
+      if (ctx.exigirTrocaDeSenha && trocaPendente && rota !== '/api/eu') return erro('troque a senha temporária para continuar', 403);
+
+      // Fronteira do portal: o cliente não chama rota de trabalho interno, ainda que o RLS devolvesse vazio.
+      if (ehCliente && ROTAS_SO_DO_ESCRITORIO.some((r) => r.test(rota))) return erro('acesso negado', 403);
+
       if (rota === '/api/eu' && metodo === 'GET') {
         return json({
+          deveTrocarSenha: trocaPendente,
+          podeVerEntregas: !ehCliente && gestao.podeVerEntregas(identidade.email),
           usuario: { id: identidade.usuarioId, nome: identidade.nome, email: identidade.email },
           papeis: identidade.papeis,
           organizacoes: identidade.organizacoes,
@@ -369,7 +411,9 @@ export function criarApp(ctx: Contexto) {
       }
       const mVisao=/^\/api\/projetos\/([0-9a-f-]{36})\/(visao|marcos)$/.exec(rota);
       if(mVisao && metodo==='GET' && mVisao[2]==='visao') {
-        exigir(identidade.papeis,'projeto.ler');return json(await banco.comoUsuario(identidade.usuarioId,db=>equipeAdmin.visao(db,mVisao[1]!)));
+        exigir(identidade.papeis,'projeto.ler');const v=await banco.comoUsuario(identidade.usuarioId,db=>equipeAdmin.visao(db,mVisao[1]!));
+        // Ao cliente, só o marco publicado: auditoria, agenda e tarefas são internas.
+        return json(ehCliente?{marcos:v.marcos.filter((m:{visivelCliente:boolean})=>m.visivelCliente),atividades:[],agenda:[],burnup:[],tarefas:{tarefas:[],resumo:{abertas:0}}}:v);
       }
       if(mVisao && metodo==='POST' && mVisao[2]==='marcos') {
         exigir(identidade.papeis,'projeto.escrever');const d=equipeAdmin.EsquemaMarco.safeParse(await req.json().catch(()=>null));if(!d.success)return erro('dados inválidos',400,d.error.issues);
@@ -407,42 +451,6 @@ export function criarApp(ctx: Contexto) {
           integracoes.revogar(db, mIntegracao[1]!, identidade)));
       }
 
-      // ------------------------------------------ customizable office/project playbooks ---
-      if ((rota === '/api/playbooks' || rota === '/api/admin/playbooks') && metodo === 'GET') {
-        exigir(identidade.papeis, rota.includes('/admin/') ? 'admin.gerir' : 'tarefa.ler');
-        return json(await banco.comoUsuario(identidade.usuarioId, playbookConfig.listarModelos));
-      }
-      if (rota === '/api/admin/playbooks/importar-padroes' && metodo === 'POST') {
-        exigir(identidade.papeis, 'admin.gerir');
-        return json(await banco.comoUsuario(identidade.usuarioId,db=>playbookConfig.importarPadroes(db,identidade)),201);
-      }
-      if (rota === '/api/admin/playbooks' && metodo === 'POST') {
-        exigir(identidade.papeis,'admin.gerir');
-        const v=playbookConfig.EsquemaModelo.safeParse(await req.json().catch(()=>null));if(!v.success)return erro('dados inválidos',400,v.error.issues);
-        return json(await banco.comoUsuario(identidade.usuarioId,db=>playbookConfig.criarModelo(db,v.data,identidade)),201);
-      }
-      const mModeloConfig=/^\/api\/admin\/playbooks\/([0-9a-f-]{36})(\/nos)?$/.exec(rota);
-      if(mModeloConfig){
-        exigir(identidade.papeis,'admin.gerir');const id=mModeloConfig[1]!;
-        if(metodo==='GET'&&!mModeloConfig[2])return json(await banco.comoUsuario(identidade.usuarioId,db=>playbookConfig.lerModelo(db,id)));
-        if(metodo==='PATCH'&&!mModeloConfig[2]){const v=playbookConfig.EsquemaModeloPatch.safeParse(await req.json().catch(()=>null));if(!v.success)return erro('dados inválidos',400,v.error.issues);return json(await banco.comoUsuario(identidade.usuarioId,db=>playbookConfig.editarModelo(db,id,v.data,identidade)));}
-        if(metodo==='POST'&&mModeloConfig[2]){const v=playbookConfig.EsquemaNo.safeParse(await req.json().catch(()=>null));if(!v.success)return erro('dados inválidos',400,v.error.issues);return json(await banco.comoUsuario(identidade.usuarioId,db=>playbookConfig.criarNo(db,'modelo',id,v.data,identidade)),201);}
-      }
-      const mNoConfig=/^\/api\/playbook-nos\/([0-9a-f-]{36})$/.exec(rota);
-      if(mNoConfig&&['PATCH','DELETE'].includes(metodo)){
-        exigir(identidade.papeis,'projeto.escrever');const id=mNoConfig[1]!;
-        return json(await banco.comoUsuario(identidade.usuarioId,async db=>{const r=await db.query('SELECT modelo_id FROM playbook_nos WHERE id=$1',[id]);if(!r.rows[0])throw new NaoEncontrado('nó não encontrado');if(r.rows[0].modelo_id)exigir(identidade.papeis,'admin.gerir');if(metodo==='DELETE')return playbookConfig.arquivarNo(db,id,identidade);const v=playbookConfig.EsquemaNoPatch.safeParse(await req.json().catch(()=>null));if(!v.success)throw new PedidoInvalido('dados do nó inválidos');return playbookConfig.editarNo(db,id,v.data,identidade);}));
-      }
-      const mFluxoConfig=/^\/api\/projetos\/([0-9a-f-]{36})\/fluxo(?:\/(aplicar|nos|fase|gerar))?$/.exec(rota);
-      if(mFluxoConfig){
-        exigir(identidade.papeis,metodo==='GET'?'tarefa.ler':'projeto.escrever');const id=mFluxoConfig[1]!,acao=mFluxoConfig[2];
-        if(metodo==='GET'&&!acao)return json(await banco.comoUsuario(identidade.usuarioId,db=>playbookConfig.lerFluxo(db,id)));
-        if(metodo==='POST'&&acao==='aplicar'){const v=playbookConfig.EsquemaAplicar.safeParse(await req.json().catch(()=>null));if(!v.success)return erro('dados inválidos',400,v.error.issues);return json(await banco.comoUsuario(identidade.usuarioId,db=>playbookConfig.aplicarModelo(db,id,v.data.modeloId,identidade,v.data.gerarTarefas)));}
-        if(metodo==='POST'&&acao==='nos'){const v=playbookConfig.EsquemaNo.safeParse(await req.json().catch(()=>null));if(!v.success)return erro('dados inválidos',400,v.error.issues);return json(await banco.comoUsuario(identidade.usuarioId,db=>playbookConfig.criarNo(db,'projeto',id,v.data,identidade)),201);}
-        if(metodo==='POST'&&acao==='fase'){const v=playbookConfig.EsquemaMoverFase.safeParse(await req.json().catch(()=>null));if(!v.success)return erro('dados inválidos',400,v.error.issues);return json(await banco.comoUsuario(identidade.usuarioId,db=>playbookConfig.moverFase(db,id,v.data.noId,identidade)));}
-        if(metodo==='POST'&&acao==='gerar')return json(await banco.comoUsuario(identidade.usuarioId,async db=>({criadas:await playbookConfig.gerarTarefas(db,id,'manual',id,identidade)})));
-      }
-
       // --------------------------------------------------------- tarefas ---
 
       if (rota === '/api/tarefas' && metodo === 'GET') {
@@ -464,7 +472,7 @@ export function criarApp(ctx: Contexto) {
           tarefas.criar(db, mTarefasDoProjeto[1]!, corpo.data, identidade)), 201);
       }
 
-      const mConfig = /^\/api\/projetos\/([0-9a-f-]{36})\/(automacoes|playbook\/notas|pesquisa)$/.exec(rota);
+      const mConfig = /^\/api\/projetos\/([0-9a-f-]{36})\/(automacoes|notas|pesquisa)$/.exec(rota);
       if (mConfig) {
         exigir(identidade.papeis, metodo === 'GET' ? 'tarefa.ler' : 'projeto.escrever');
         const pid = mConfig[1]!; const recurso = mConfig[2]!;
@@ -475,7 +483,7 @@ export function criarApp(ctx: Contexto) {
           if (!corpo.success) return erro('dados inválidos',400,corpo.error.issues);
           return json(await banco.comoUsuario(identidade.usuarioId,(db)=>projetoConfig.criarAutomacao(db,pid,corpo.data,identidade)),201);
         }
-        if (recurso === 'playbook/notas' && metodo === 'PUT') {
+        if (recurso === 'notas' && metodo === 'PUT') {
           const corpo = projetoConfig.EsquemaNota.safeParse(await req.json().catch(() => null));
           if (!corpo.success) return erro('dados inválidos',400,corpo.error.issues);
           return json(await banco.comoUsuario(identidade.usuarioId,(db)=>projetoConfig.salvarNota(db,pid,corpo.data,identidade)));
@@ -710,7 +718,7 @@ export function criarApp(ctx: Contexto) {
         exigir(identidade.papeis, 'projeto.ler');
         const lista = await banco.comoUsuario(identidade.usuarioId, projetos.listar);
         // A prioridade é decisão de gestão do escritório; o cliente não a recebe.
-        return json(ehCliente ? lista.map(({ prioridade: _p, ...resto }) => resto) : lista);
+        return json(ehCliente ? lista.map((p: Record<string, unknown>) => projetoParaCliente(p)) : lista);
       }
 
       if (rota === '/api/projetos' && metodo === 'POST') {
@@ -726,7 +734,7 @@ export function criarApp(ctx: Contexto) {
         exigir(identidade.papeis, 'projeto.ler');
         const hub = await banco.comoUsuario(identidade.usuarioId, (db) =>
           projetos.hub(db, mProjeto[1]!));
-        return json(ehCliente ? (({ prioridade: _p, ...resto }) => resto)(hub) : hub);
+        return json(ehCliente ? projetoParaCliente(hub as unknown as Record<string, unknown>) : hub);
       }
 
       const mFase = /^\/api\/projetos\/([0-9a-f-]{36})\/fase$/.exec(rota);
@@ -756,19 +764,6 @@ export function criarApp(ctx: Contexto) {
           if (corpo.data.publicar) await portal.publicarDocumento(db, r.documentoId, identidade);
           return { ...r, publicado: !!corpo.data.publicar };
         }), 201);
-      }
-
-      const mPlaybook = /^\/api\/projetos\/([0-9a-f-]{36})\/playbook$/.exec(rota);
-      if (mPlaybook && metodo === 'POST') {
-        // Aplica o playbook da fase atual (e o de abertura) num projeto que já existe. Idempotente.
-        exigir(identidade.papeis, 'projeto.escrever');
-        exigir(identidade.papeis, 'tarefa.escrever');
-        return json(await banco.comoUsuario(identidade.usuarioId, async (db) => {
-          const { rows } = await db.query<{ organizacao_id: string; tipo: TipoDeProjeto; fase: string | null }>(
-            'SELECT organizacao_id, tipo, fase FROM projetos WHERE id = $1', [mPlaybook[1]!]);
-          const p = rows[0]; if (!p) throw new NaoEncontrado('projeto não encontrado');
-          return projetos.aplicarPlaybook(db, mPlaybook[1]!, p.organizacao_id, p.tipo, p.fase ?? faseInicial(p.tipo).id, identidade, true);
-        }));
       }
 
       const mEncerrar = /^\/api\/projetos\/([0-9a-f-]{36})\/encerramento$/.exec(rota);
@@ -941,6 +936,63 @@ export function criarApp(ctx: Contexto) {
           metodo === 'POST'
             ? portal.publicarDocumento(db, mPublicar[1]!, identidade)
             : portal.despublicarDocumento(db, mPublicar[1]!, identidade)));
+      }
+
+      // ------------------------------------------------- gestão e PRJ Studio ---
+      const corpoDe = async <T>(esq: z.ZodType<T>): Promise<T> => { const d = esq.safeParse(await req.json().catch(() => null)); if (!d.success) throw new PedidoInvalido(d.error.issues[0]?.message ?? 'dados inválidos'); return d.data; };
+      const como = <T>(f: (db: PoolClient) => Promise<T>) => banco.comoUsuario(identidade.usuarioId, f);
+      const mGestao = /^\/api\/projetos\/([0-9a-f-]{36})\/(gestao|titulos|lancamento-texto|importacoes\/previa|importacoes|prj\/base|prj\/simular|prj\/otimizar|prj\/cenarios|pmts|atas|mensagens\/lidas)$/.exec(rota);
+      if (mGestao) {
+        const pid = mGestao[1]!; const acao = mGestao[2]!;
+        if (acao === 'gestao' && metodo === 'GET') { exigir(identidade.papeis, 'financeiro_cliente.ler'); const g = url.searchParams.get('g') ?? 'mes'; if (!['dia', 'semana', 'mes', 'trimestre', 'ano'].includes(g)) return erro('granularidade inválida', 400); return json(await como((db) => gestao.painelFinanceiro(db, pid, g as 'mes'))); }
+        if (acao === 'titulos' && metodo === 'POST') { exigir(identidade.papeis, 'financeiro_cliente.escrever'); const d = await corpoDe(gestao.EsquemaTitulo); return json(await como((db) => gestao.criarTitulo(db, pid, d, identidade)), 201); }
+        if (acao === 'lancamento-texto' && metodo === 'POST') { exigir(identidade.papeis, 'financeiro_cliente.escrever'); const d = await corpoDe(z.object({ frase: z.string().trim().min(3).max(500) })); return json(interpretar(d.frase, new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' }))); }
+        if (acao === 'importacoes/previa' && metodo === 'POST') {
+          exigir(identidade.papeis, 'financeiro_cliente.escrever');
+          const f = await req.formData().catch(() => null); const a = f?.get('arquivo'); if (!(a instanceof File)) return erro('envie o arquivo', 400);
+          if (a.size > 15 * 1024 * 1024) return erro('arquivo acima de 15 MB', 413);
+          try { reconhecerTipoFinanceiro(a.name, new Uint8Array(await a.arrayBuffer())); return json(interpretarArquivo(a.name, new Uint8Array(await a.arrayBuffer()))); }
+          catch (x) { if (x instanceof TipoRecusado) throw x; throw new PedidoInvalido((x as Error).message); }
+        }
+        if (acao === 'importacoes' && metodo === 'POST') { exigir(identidade.papeis, 'financeiro_cliente.escrever'); const d = await corpoDe(gestao.EsquemaConfirmacaoImportacao); return json(await como((db) => gestao.confirmarImportacao(db, pid, d, identidade)), 201); }
+        if (ehCliente && (acao.startsWith('prj/') || acao === 'pmts')) return erro('acesso negado', 403);
+        if (acao === 'prj/base' && metodo === 'GET') { exigir(identidade.papeis, 'plano.ler'); return json(await como((db) => gestao.baseDoEstudio(db, pid))); }
+        if (acao === 'prj/simular' && metodo === 'POST') { exigir(identidade.papeis, 'plano.escrever'); const d = await corpoDe(gestao.EsquemaEstudio); await como(async (db) => { if (!(await db.query('SELECT 1 FROM projetos WHERE id=$1', [pid])).rowCount) throw new NaoEncontrado('projeto não encontrado'); }); return json(gestao.simularEstudio(d)); }
+        if (acao === 'prj/otimizar' && metodo === 'POST') { exigir(identidade.papeis, 'plano.escrever'); const d = await corpoDe(gestao.EsquemaOtimizacao); await como(async (db) => { if (!(await db.query('SELECT 1 FROM projetos WHERE id=$1', [pid])).rowCount) throw new NaoEncontrado('projeto não encontrado'); }); return json(gestao.otimizarEstudio(d)); }
+        if (acao === 'prj/cenarios' && metodo === 'GET') { exigir(identidade.papeis, 'plano.ler'); return json(await como((db) => gestao.listarCenarios(db, pid))); }
+        if (acao === 'prj/cenarios' && metodo === 'POST') { exigir(identidade.papeis, 'plano.escrever'); const d = await corpoDe(gestao.EsquemaCenario); return json(await como((db) => gestao.salvarCenario(db, pid, d, identidade)), 201); }
+        if (acao === 'pmts' && metodo === 'GET') { exigir(identidade.papeis, 'negociacao.ler'); return json(await como((db) => gestao.painelPmt(db, pid))); }
+        if (acao === 'atas' && metodo === 'GET') { exigir(identidade.papeis, 'projeto.ler'); return json(await como((db) => gestao.listarAtas(db, pid))); }
+        if (acao === 'atas' && metodo === 'POST') { exigir(identidade.papeis, 'projeto.escrever'); const d = await corpoDe(gestao.EsquemaAta); if (d.publicada) exigir(identidade.papeis, 'portal.publicar'); return json(await como((db) => gestao.criarAta(db, pid, d, identidade)), 201); }
+        if (acao === 'mensagens/lidas' && metodo === 'POST') { exigir(identidade.papeis, 'projeto.ler'); return json(await como((db) => gestao.marcarLidas(db, pid, ehCliente ? 'cliente' : 'nga'))); }
+        return erro('método não permitido', 405);
+      }
+      if (rota === '/api/conversas' && metodo === 'GET') { if (ehCliente) return erro('acesso negado', 403); exigir(identidade.papeis, 'projeto.ler'); return json(await como((db) => gestao.conversas(db))); }
+      if (rota === '/api/lab/entregas' && metodo === 'GET') {
+        if (ehCliente || !gestao.podeVerEntregas(identidade.email)) return erro('rota não encontrada', 404);
+        return json({ modulos: CATALOGO_LAB.map((m) => ({ id: m.id, nome: m.nome, descricao: m.descricao, estado: m.estado, pendencia: m.pendencia ?? null })) });
+      }
+      const mTit = /^\/api\/titulos\/([0-9a-f-]{36})\/baixa$/.exec(rota);
+      if (mTit && metodo === 'POST') { exigir(identidade.papeis, 'financeiro_cliente.escrever'); const d = await corpoDe(gestao.EsquemaBaixa); return json(await como((db) => gestao.baixarTitulo(db, mTit[1]!, d, identidade))); }
+      const mCen = /^\/api\/prj-cenarios\/([0-9a-f-]{36})$/.exec(rota);
+      if (mCen && metodo === 'DELETE') { if (ehCliente) return erro('acesso negado', 403); exigir(identidade.papeis, 'plano.escrever'); return json(await como((db) => gestao.excluirCenario(db, mCen[1]!))); }
+      const mPmtNeg = /^\/api\/negociacoes\/([0-9a-f-]{36})\/pmts$/.exec(rota);
+      if (mPmtNeg && metodo === 'POST') { if (ehCliente) return erro('acesso negado', 403); exigir(identidade.papeis, 'negociacao.escrever'); const d = await corpoDe(gestao.EsquemaGerarPmt); return json(await como((db) => gestao.gerarPmts(db, mPmtNeg[1]!, d, identidade)), 201); }
+      const mPmt = /^\/api\/pmts\/([0-9a-f-]{36})$/.exec(rota);
+      if (mPmt && metodo === 'PATCH') { if (ehCliente) return erro('acesso negado', 403); exigir(identidade.papeis, 'negociacao.escrever'); const d = await corpoDe(gestao.EsquemaBaixaPmt); return json(await como((db) => gestao.baixarPmt(db, mPmt[1]!, d, identidade))); }
+      const mAta = /^\/api\/atas\/([0-9a-f-]{36})(\/tarefas)?$/.exec(rota);
+      if (mAta) {
+        if (ehCliente) return erro('acesso negado', 403);
+        if (!mAta[2] && metodo === 'PATCH') { exigir(identidade.papeis, 'projeto.escrever'); const d = await corpoDe(gestao.EsquemaAta); if (d.publicada) exigir(identidade.papeis, 'portal.publicar'); return json(await como((db) => gestao.atualizarAta(db, mAta[1]!, d, identidade))); }
+        if (mAta[2] && metodo === 'POST') {
+          exigir(identidade.papeis, 'tarefa.escrever'); const d = await corpoDe(gestao.EsquemaTarefasDaAta);
+          return json(await como(async (db) => {
+            const a = (await db.query<{ projeto_id: string; titulo: string }>('SELECT projeto_id,titulo FROM atas WHERE id=$1', [mAta[1]!])).rows[0]; if (!a) throw new NaoEncontrado('ata não encontrada');
+            const ids = []; for (const t of d.tarefas) ids.push(await tarefas.criar(db, a.projeto_id, { titulo: t.titulo, descricao: `Encaminhamento da ata: ${a.titulo}`, status: 'a_fazer', prioridade: 'media', origem: 'manual', responsavelId: t.responsavelId ?? null, prazo: t.prazo ?? null }, identidade));
+            return { criadas: ids.length };
+          }), 201);
+        }
+        return erro('método não permitido', 405);
       }
 
       const mSimulacaoPrj = /^\/api\/projetos\/([0-9a-f-]{36})\/prj\/simulacao$/.exec(rota);
@@ -1207,6 +1259,12 @@ export function criarApp(ctx: Contexto) {
         exigir(identidade.papeis, 'analise.executar');
         return json(await banco.comoUsuario(identidade.usuarioId, (db) => diagnostico(db, mDiagnostico[1]!)));
       }
+      const mRaioX = /^\/api\/projetos\/([0-9a-f-]{36})\/raio-x$/.exec(rota);
+      if (mRaioX && metodo === 'GET') {
+        if (ehCliente) return erro('acesso negado', 403);
+        exigir(identidade.papeis, 'analise.executar');
+        return json(await banco.comoUsuario(identidade.usuarioId, (db) => gestao.raioXDoProjeto(db, mRaioX[1]!, deposito)));
+      }
       const mReprocessar = /^\/api\/documentos\/([0-9a-f-]{36})\/reprocessamento$/.exec(rota);
       if (mReprocessar && metodo === 'POST') {
         exigir(identidade.papeis, 'analise.executar');
@@ -1278,6 +1336,7 @@ export function criarApp(ctx: Contexto) {
       if (e instanceof PedidoInvalido) return erro(e.message, 400);
       if (e instanceof TransicaoInvalida) return erro(e.message, 409);
       if (e instanceof TransicaoDeFaseInvalida) return erro(e.message, 409);
+      if (e instanceof LoginBloqueado) return erro(e.message, 429);
       if (e instanceof ErroDeAutenticacao) return erro(e.message, 401);
       // Indisponibilidade de IA é impedimento de infraestrutura, com motivo
       // nomeado — não "erro interno" (§22).

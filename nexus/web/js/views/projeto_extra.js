@@ -8,6 +8,8 @@
  * decide; a tela mostra o motivo da recusa em vez de esconder o botão e
  * deixar o usuário sem saber por quê.
  */
+import { painelPrjStudio } from './projeto_prj.js';
+import { painelFinanceiroProjeto } from './projeto_financeiro.js';
 import { api } from '../api.js';
 import { estado, pode } from '../estado.js';
 import { anel } from '../fx.js';
@@ -344,7 +346,7 @@ export async function abaPortal(ctx) {
         <section class="card glass up"><header class="card__head"><div><h2 class="card__title">Checklist de documentos</h2>
           <p class="card__sub">${pr.total ? `${pr.aprovados} de ${pr.obrigatorios} obrigatórios aprovados · ${pr.aguardandoOCliente} aguardando o cliente · ${pr.aguardandoANGA} aguardando você` : 'O que o cliente precisa enviar, com o fundamento de cada item.'}</p></div>
           ${!pr.total && escreve ? html`<button type="button" class="btn btn--accent" data-modelo>Gerar do modelo</button>` : ''}</header>
-          ${pr.total ? html`<div class="fase-card__bar" style="height:10px"><i data-w="${pr.percentualAprovado}" style="width:0;transition:width 1.1s var(--ease)"></i></div><p class="mono-sm" style="margin:8px 0 14px">${pr.percentualAprovado}% aprovado · ${pr.percentualEnviado}% enviado</p>` : ''}
+          ${pr.total ? html`<details class="mt"><summary class="check-resumo"><span class="pct">${pr.percentualEnviado}%</span><span class="barra-m" aria-hidden="true"><i style="width:${pr.percentualEnviado}%"></i></span><small>entregue · ${pr.percentualAprovado}% aprovado</small></summary>` : ''}
           ${pr.total ? [...porCat].map(([cat, itens]) => html`<h3 class="mini-h">${cat}</h3>${itens.map((i) => html`<div class="check-row${i.situacao === 'nao_aplicavel' ? ' na' : ''}"><span class="sit-dot ${i.situacao}"></span>
             <div><b>${i.titulo}${i.obrigatorio ? '' : html` <span class="muted">(opcional)</span>`}</b><small>${i.fundamento ?? ''}</small>${atribuicao(i.atribuicao)}${i.observacao ? html`<small class="obs">${i.observacao}</small>` : ''}</div>
             <span class="selo ${SIT[i.situacao]?.[0] ?? ''}">${i.rotuloDaSituacao ?? SIT[i.situacao]?.[1]}</span>
@@ -352,6 +354,7 @@ export async function abaPortal(ctx) {
             ${analisa && (i.situacao === 'enviado' || i.situacao === 'em_analise') ? html`<button type="button" class="btn btn--accent" data-analisar-req="${i.id}" data-t="${i.titulo}">Analisar</button>` : ''}
             ${analisa && ['pendente', 'rejeitado', 'complementacao'].includes(i.situacao) ? html`<button type="button" class="btn btn--ghost" data-na="${i.id}" title="Marcar como não se aplica a este caso">N/A</button>` : ''}
             ${analisa && i.situacao === 'nao_aplicavel' ? html`<button type="button" class="btn btn--ghost" data-reativar="${i.id}">Reativar</button>` : ''}</div>`)}`) : vazio('check', 'Checklist ainda não gerado', 'Gerar do modelo cria a lista de documentos do procedimento deste projeto, cada item com o seu fundamento legal.')}
+          ${pr.total ? raw('</details>') : ''}
         </section>
         <section class="card glass up"><header class="card__head"><div><h2 class="card__title">Conversa com o cliente</h2><p class="card__sub">O cliente vê estas mensagens no portal.</p></div></header>
           <div class="chat" id="chat">${cron.length ? cron.map((m) => html`<div class="msg ${m.lado === 'nga' ? 'meu' : ''}">${m.texto}<small>${m.autor ?? (m.lado === 'nga' ? 'NGA' : 'Cliente')} · ${relativo(m.criado_em)}</small></div>`) : html`<p class="dica">Sem mensagens ainda.</p>`}</div>
@@ -426,63 +429,6 @@ async function convidar(ctx, portal) {
 
 // ============================================================ PLANO E CAIXA ===
 
-function painelPrj() {
-  return html`<section class="card glass up mt"><header class="card__head"><div><h2 class="card__title">PRJ Studio</h2>
-    <p class="card__sub">Simule as condições de uma classe sobre os créditos sujeitos e validados no QGC. O cálculo preserva o cronograma oficial.</p></div></header>
-    <div class="grid-hub">
-      <form data-simular-prj>
-        <div class="row2">
-          <label class="field"><span>Classe do QGC</span><select class="select" name="classe"><option value="I">I · Trabalhista</option><option value="II">II · Garantia real</option><option value="III" selected>III · Quirografários e afins</option><option value="IV">IV · ME e EPP</option></select></label>
-          <label class="field"><span>Marco inicial do plano</span><input class="input" name="dataBase" type="date" value="${hojeISO()}" required></label>
-          <label class="field"><span>Deságio (%)</span><input class="input" name="desagio" type="number" min="0" max="99.999" step="0.001" value="0" required></label>
-          <label class="field"><span>Carência (meses)</span><input class="input" name="carenciaMeses" type="number" min="0" max="120" value="0" required></label>
-          <label class="field"><span>Parcelas</span><input class="input" name="parcelas" type="number" min="1" max="360" value="12" required></label>
-          <label class="field"><span>Periodicidade</span><select class="select" name="periodicidade"><option>mensal</option><option>bimestral</option><option>trimestral</option><option>semestral</option><option>anual</option></select></label>
-          <label class="field"><span>Amortização</span><select class="select" name="sistema"><option value="sem_juros">Sem juros</option><option value="sac">SAC</option><option value="price">Price (PMT)</option></select></label>
-          <label class="field"><span>Juros ao ano (%)</span><input class="input" name="jurosAoAno" type="number" min="0" max="100" step="0.001" value="0" required></label>
-          <label class="field"><span>Regime da taxa</span><select class="select" name="regimeDeJuros"><option value="nominal">Nominal</option><option value="efetiva">Efetiva</option></select></label>
-        </div>
-        <label class="field mt"><span><input type="checkbox" name="capitalizarNaCarencia"> Capitalizar juros durante a carência</span></label>
-        <button class="btn btn--accent mt" type="submit">Calcular cenário</button>
-      </form>
-      <div data-resultado-prj aria-live="polite"><p class="dica">Defina os parâmetros para conferir o desembolso e os vencimentos da classe.</p></div>
-    </div></section>`;
-}
-
-function ligarPrj(el, projetoId) {
-  const form = $('[data-simular-prj]', el);
-  if (!form) return;
-  const resultado = $('[data-resultado-prj]', el);
-  form.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const v = form.elements;
-    const botao = $('button[type=submit]', form);
-    botao.disabled = true;
-    resultado.textContent = 'Calculando cenário…';
-    try {
-      const r = await api.post(`/api/projetos/${projetoId}/prj/simulacao`, {
-        classe: v.classe.value, dataBase: v.dataBase.value, desagio: v.desagio.valueAsNumber / 100,
-        carenciaMeses: v.carenciaMeses.valueAsNumber, parcelas: v.parcelas.valueAsNumber,
-        periodicidade: v.periodicidade.value, jurosAoAno: v.jurosAoAno.valueAsNumber / 100,
-        sistema: v.sistema.value, regimeDeJuros: v.regimeDeJuros.value,
-        capitalizarNaCarencia: v.capitalizarNaCarencia.checked,
-      });
-      resultado.innerHTML = String(html`<h3 class="card__title">Resultado da classe ${r.classe}</h3>
-        <p class="dica">${r.creditos} crédito(s) sujeito(s) e validado(s) nesta classe · ${r.pendentesNoQgc} pendente(s) de validação no QGC</p>
-        ${r.creditos ? html`<dl class="overview-details">
-          <div><dt>Passivo original</dt><dd>R$ ${reais(r.totais.original)}</dd></div>
-          <div><dt>Após deságio</dt><dd>R$ ${reais(r.totais.novado)}</dd></div>
-          <div><dt>Desembolso total</dt><dd>R$ ${reais(r.totais.total)}</dd></div>
-        </dl>
-        <details class="mt"><summary class="checklist-summary">Ver cronograma e memória de cálculo</summary><p class="dica">${r.memoria}</p>
-        <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Vencimento</th><th>Juros</th><th>Amortização</th><th>Pagamento</th><th>Saldo</th></tr></thead>
-          <tbody>${r.cronograma.map(p=>html`<tr><td>${dataBR(p.vencimento)}</td><td>${reais(p.juros)}</td><td>${reais(p.amortizacao)}</td><td>${reais(p.valor)}</td><td>${reais(p.saldo)}</td></tr>`)}</tbody>
-        </table></div></details>`:html`<p class="dica">Valide os créditos sujeitos dessa classe no QGC para calcular o cronograma.</p>`}`);
-    } catch (erro) { resultado.textContent = erro.message; }
-    finally { botao.disabled = false; }
-  });
-}
-
 export async function abaPlano(ctx) {
   const [ob, fin] = await Promise.allSettled([api.get(`/api/projetos/${ctx.id}/obrigacoes`), pode('financeiro_cliente.ler') ? api.get(`/api/projetos/${ctx.id}/financeiro`) : Promise.reject(new Error('sem permissão'))]);
   const o = ob.status === 'fulfilled' ? ob.value : null; const f = fin.status === 'fulfilled' ? fin.value : null;
@@ -510,9 +456,11 @@ export async function abaPlano(ctx) {
           <div class="barras">${f.fluxo.periodos.map((p) => { const v = Number(p.saldoProjetado); return html`<div class="barra"><b>${p.saldoProjetadoFormatado}</b><div class="barra__col"><i data-h="${Math.max(6, (Math.abs(v) / maxSaldo) * 100)}" ${v < 0 ? raw('style="background:linear-gradient(180deg,#ff9b9b,var(--lab-red))"') : ''}></i></div><small>${p.rotulo}</small></div>`; })}</div>`
           : vazio('chart', 'Sem fluxo de caixa', 'O fluxo aparece quando houver lançamentos do cliente neste projeto.')}
       </section>
-      ${pode('plano.escrever') ? painelPrj() : ''}`,
+      <div class="pilulas mt" data-sub-plano><button type="button" data-v="fin" aria-pressed="true">Gestão financeira</button>${pode('plano.ler') ? html`<button type="button" data-v="prj" aria-pressed="false">PRJ Studio</button>` : ''}</div><div class="mt" data-sub-corpo></div>`,
     depois(el) {
-      ligarPrj(el, ctx.id);
+      const corpo = $('[data-sub-corpo]', el);
+      const abrir = async (v) => { corpo.textContent = 'Carregando…'; try { const r = v === 'prj' ? await painelPrjStudio(ctx) : pode('financeiro_cliente.ler') ? await painelFinanceiroProjeto(ctx.id, () => ctx.recarregar()) : { html: '' }; corpo.innerHTML = String(r.html); r.depois?.(corpo); } catch (e) { corpo.textContent = e.message; } };
+      ouvir(el, 'click', '[data-sub-plano] button', (b) => { $$('[data-sub-plano] button', el).forEach((x) => x.setAttribute('aria-pressed', x === b)); abrir(b.dataset.v); }); abrir('fin');
       ouvir(el, 'click', '[data-lancar]', async () => {
         const ok = await formulario({
           titulo: 'Novo lançamento', rotulo: 'Lançar',

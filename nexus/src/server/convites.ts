@@ -55,6 +55,7 @@ export async function convidar(
   try {
     await db.query('SELECT convidar_cliente($1,$2,$3,$4,$5)',
       [projetoId, dados.organizacao ?? '(portal existente)', dados.email, dados.nome, hash]);
+    await db.query('SELECT auth_exigir_troca_senha($1)', [dados.email]);
   } catch (e) {
     const m = (e as Error).message;
     if (m.includes('e-mail já cadastrado')) throw new PedidoInvalido('este e-mail já tem cadastro na plataforma');

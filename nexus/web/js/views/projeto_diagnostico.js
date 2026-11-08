@@ -13,14 +13,14 @@ import { dataHoraBR, html, icone, ouvir, raw, relativo } from '../util.js';
 import { erroDe, formulario, toast, vazio } from '../ui.js';
 import { aoSair } from '../shell.js';
 import { abrirAnalises } from './projeto_extra.js';
+import { secaoRaioX } from './projeto_raiox.js';
 
 const ESTADO = { na_fila: 'Na fila', lendo: 'Lendo agora', analisado: 'Lido e organizado', sem_texto: 'Sem texto legível', erro: 'Falhou', sem_registro: 'Não lido' };
 const TOM = { erro: 'erro', aviso: 'aviso', info: 'info' };
 const ICONE_PONTO = { erro: 'alert', aviso: 'flag', info: 'sparkle' };
-const GRAV = { critico: ['erro', 'Crítico'], atencao: ['aviso', 'Atenção'], informacao: ['info', 'Informação'] };
 
 export async function abaDiagnostico(ctx) {
-  const [d, ia] = await Promise.all([api.get(`/api/projetos/${ctx.id}/diagnostico`), api.get('/api/ia/estado').catch(() => null)]);
+  const [d, ia, rx] = await Promise.all([api.get(`/api/projetos/${ctx.id}/diagnostico`), api.get('/api/ia/estado').catch(() => null), secaoRaioX(ctx).catch((e) => html`<p class="selo erro">Raio X indisponível: ${e.message}</p>`)]);
   const c = d.cobertura; const total = d.documentos.length;
   const andamento = d.documentos.filter((x) => x.estado === 'na_fila' || x.estado === 'lendo').length;
   const pctEnviado = c.obrigatorios ? Math.round((c.enviados / c.obrigatorios) * 100) : 0;
@@ -28,7 +28,7 @@ export async function abaDiagnostico(ctx) {
   const escreve = pode('analise.executar');
 
   return {
-    html: html`
+    html: html`${rx}<div class="mt"></div>
       <section class="card glass up"><header class="card__head"><div><h2 class="card__title">Diagnóstico inicial</h2>
         <p class="card__sub">Gerado a partir do que o cliente enviou · ${dataHoraBR(d.geradoEm)}</p></div>
         ${andamento ? html`<span class="leitura lendo"><i class="vivo ambar"></i>Lendo ${andamento} documento(s)…</span>` : html`<span class="leitura analisado">${icone('check')}Leitura em dia</span>`}
@@ -61,8 +61,6 @@ export async function abaDiagnostico(ctx) {
                   ${escreve && ['sem_texto', 'erro', 'sem_registro'].includes(x.estado) ? html`<button type="button" class="ibtn ibtn--sm" data-reler="${x.id}" title="Ler de novo" aria-label="Ler de novo">${icone('refresh')}</button>` : ''}</div></td></tr>`)}</tbody></table></div>`
               : html`<p class="dica">Nenhum documento recebido ainda.</p>`}</section>
 
-          ${d.achados.length ? html`<section class="card glass up"><header class="card__head"><div><h2 class="card__title">Achados em aberto</h2><p class="card__sub">Cada um traz a natureza da afirmação (§7.7)</p></div></header>
-            <ul class="lista">${d.achados.map((a) => { const [tom, rot] = GRAV[a.gravidade] ?? ['info', a.gravidade]; return html`<li style="align-items:flex-start"><div><b>${a.titulo}</b><small>${a.documento} · ${a.categoria} · ${a.natureza}${a.origem === 'ia' ? ' · leitura por IA' : ''}</small>${a.descricao ? html`<p class="dica" style="margin:4px 0 0">${a.descricao}</p>` : ''}</div><div class="fim"><span class="selo ${tom}">${rot}</span></div></li>`; })}</ul></section>` : ''}
         </div>
 
         <div style="display:grid;gap:var(--gap)">

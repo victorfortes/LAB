@@ -38,7 +38,7 @@ export async function salvarNota(db: PoolClient, projetoId: string, dados: z.inf
  const r = await db.query(`INSERT INTO projeto_playbook_notas(projeto_id,organizacao_id,chave,resumo,pontos_atencao,atualizado_por)
  VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(projeto_id,chave) DO UPDATE SET resumo=EXCLUDED.resumo,pontos_atencao=EXCLUDED.pontos_atencao,atualizado_por=EXCLUDED.atualizado_por,atualizado_em=now()
  RETURNING chave,resumo,pontos_atencao AS "pontosAtencao",atualizado_em AS "atualizadoEm"`, [projetoId,p.organizacao_id,dados.chave,dados.resumo,dados.pontosAtencao,identidade.usuarioId]);
- await auditar(db,{organizacaoId:p.organizacao_id,usuarioId:identidade.usuarioId,acao:'playbook.nota_salva',entidade:'projeto',entidadeId:projetoId,depois:{chave:dados.chave}});
+ await auditar(db,{organizacaoId:p.organizacao_id,usuarioId:identidade.usuarioId,acao:'projeto.nota_salva',entidade:'projeto',entidadeId:projetoId,depois:{chave:dados.chave}});
  return r.rows[0];
 }
 const selecionar = `id,nome,gatilho,titulo_tarefa AS "tituloTarefa",dias_uteis AS "diasUteis",prioridade,ativo,CASE WHEN projeto_id IS NULL THEN 'escritorio' ELSE 'projeto' END AS escopo`;

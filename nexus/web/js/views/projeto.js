@@ -19,16 +19,17 @@ import * as extra from './projeto_extra.js';
 import { abaCreditos } from './projeto_creditos.js';
 import { abaDiagnostico } from './projeto_diagnostico.js';
 import { abaNegociacoes } from './projeto_negociacoes.js';
-import { estruturaDoProcedimento } from './projeto_playbook.js';
 import { abaPesquisa } from './projeto_pesquisa.js';
 import { cardsVisao, ligarVisao } from './projeto_visao_cards.js';
+import { ligarArvore } from './projeto_arvore.js';
+import { abaAtas } from './projeto_atas.js';
 
 export { novoProcessoSolto } from './projeto_extra.js';
 
 const ABAS = [
   { id: 'visao', rotulo: 'Visão geral', icone: 'home' },
   { id: 'pesquisa', rotulo: 'Pesquisa', icone: 'search', perm: 'documento.ler' },
-  { id: 'diagnostico', rotulo: 'Diagnóstico', icone: 'sparkle', perm: 'analise.executar', alerta: (c) => c.achados_criticos },
+  { id: 'diagnostico', rotulo: 'Diagnóstico', icone: 'sparkle', perm: 'analise.executar' },
   { id: 'tarefas', rotulo: 'Tarefas', icone: 'check', perm: 'tarefa.ler', n: (c) => c.tarefas_abertas },
   { id: 'negociacoes', rotulo: 'Negociações', icone: 'target', perm: 'negociacao.ler' },
   { id: 'creditos', rotulo: 'QGC', icone: 'scale', perm: 'credito.ler', n: (c) => c.creditos, alerta: (c) => c.creditos_a_validar },
@@ -37,13 +38,14 @@ const ABAS = [
   { id: 'portal', rotulo: 'Portal do cliente', icone: 'eye', perm: 'documento.ler' },
   { id: 'plano', rotulo: 'Plano e caixa', icone: 'money', perm: 'plano.ler' },
   { id: 'relatorios', rotulo: 'Relatórios', icone: 'chart', perm: 'relatorio.gerar' },
+  { id: 'atas', rotulo: 'Atas', icone: 'doc' },
   { id: 'equipe', rotulo: 'Equipe', icone: 'users', n: (c, h) => h.equipe.length },
 ];
 
 const MODULOS = {
   visao: abaVisao, pesquisa: abaPesquisa, diagnostico: abaDiagnostico, negociacoes: abaNegociacoes, tarefas: abaTarefas, creditos: abaCreditos, processos: extra.abaProcessos,
   documentos: extra.abaDocumentos, portal: extra.abaPortal, plano: extra.abaPlano,
-  relatorios: extra.abaRelatorios, equipe: abaEquipe,
+  relatorios: extra.abaRelatorios, equipe: abaEquipe, atas: abaAtas,
 };
 
 export default async function projeto({ id, aba }) {
@@ -75,18 +77,15 @@ export default async function projeto({ id, aba }) {
           { rotulo: 'Avanço', valor: pr ? pr.percentual : '—', sufixo: pr ? '%' : '' },
           { rotulo: 'Tarefas abertas', valor: h.contagens.tarefas_abertas },
           { rotulo: 'Prazos abertos', valor: Number(h.contagens.prazos_abertos), tom: Number(h.contagens.prazos_abertos) ? 'warn' : '' },
-          { rotulo: 'Pendências', valor: Number(h.contagens.creditos_a_validar) + Number(h.contagens.requisitos_a_analisar) + Number(h.contagens.achados_criticos), tom: 'warn' },
+          { rotulo: 'Pendências', valor: Number(h.contagens.creditos_a_validar) + Number(h.contagens.requisitos_a_analisar), tom: 'warn' },
         ],
       })}
       <section class="card glass up mt" aria-label="Fase do processo">
         <header class="card__head"><div><h2 class="card__title">Fase do procedimento</h2>
-          <p class="card__sub">${encerrado ? 'Projeto encerrado.' : pode('projeto.escrever') ? (h.playbook_modelo_id ? 'Fases personalizadas do projeto. Abra a estrutura abaixo para ver as etapas e tarefas de cada fase.' : 'Clique numa fase para movimentar o projeto. O sistema só permite o passo seguinte — voltar é livre.') : 'Marcos legais do procedimento.'}</p></div>
+          <p class="card__sub">${encerrado ? 'Projeto encerrado.' : pode('projeto.escrever') ? 'Clique numa fase para movimentar o projeto. Avance um passo por vez ou volte para uma fase anterior.' : 'Marcos legais do procedimento.'}</p></div>
           ${pr ? html`<span class="selo ok">${pr.indice} de ${pr.total}</span>` : ''}</header>
         ${trilha(ctx)}
-        ${pode('tarefa.ler') ? html`<details class="mt" data-fluxo-painel ${aba === 'playbook' ? raw('open') : ''}>
-          <summary class="checklist-summary"><b>Etapas e tarefas do procedimento</b></summary>
-          <div class="mt" data-fluxo-projeto aria-live="polite"></div>
-        </details>` : ''}
+        <div id="arvore-fase"></div>
       </section>
       <div class="tabs glass glass--chrome mt up" role="tablist" id="abas"><span class="tabs__pill" aria-hidden="true"></span>
         ${abasVisiveis().map((a) => html`<button type="button" role="tab" data-aba="${a.id}" aria-selected="${a.id === inicial}">${icone(a.icone)}<span>${a.rotulo}</span>${badge(a, h)}</button>`)}</div>
@@ -105,35 +104,8 @@ export default async function projeto({ id, aba }) {
       ouvir(raiz, 'click', '[data-fase]', (b) => mudarFase(ctx, b.dataset.fase));
       ctx.recarregar = async () => { await atualizarBadges(ctx); await desenhar(ctx); };
       ctx.irParaAba = (a) => abrirAba(ctx, a);
-      const fluxoPainel = $('[data-fluxo-painel]', raiz);
-      if (fluxoPainel) {
-        let carregado = false;
-        let revisao = 0;
-        const conteudo = $('[data-fluxo-projeto]', fluxoPainel);
-        ctx.recarregarFluxo = async () => {
-          const tentativa = ++revisao;
-          if (!carregado) conteudo.textContent = 'Carregando estrutura…';
-          try {
-            const fluxo = await estruturaDoProcedimento(ctx);
-            if (!ctx.ativo || tentativa !== revisao) return;
-            const vista = document.createElement('div');
-            vista.innerHTML = String(fluxo.html);
-            conteudo.replaceChildren(vista);
-            fluxo.depois(vista);
-            carregado = true;
-          } catch (e) {
-            if (ctx.ativo && tentativa === revisao) {
-              carregado = false;
-              conteudo.innerHTML = String(vazio('alert', 'Não foi possível abrir a estrutura', e.message));
-            }
-          }
-        };
-        fluxoPainel.addEventListener('toggle', () => {
-          if (fluxoPainel.open && !carregado) ctx.recarregarFluxo();
-        });
-        if (fluxoPainel.open) ctx.recarregarFluxo();
-      }
       abrirAba(ctx, inicial, true);
+      ligarArvore(ctx, $('#arvore-fase', raiz)).catch(console.error);
     },
   };
 }
@@ -147,7 +119,7 @@ function trilha(ctx) {
   const { h, catalogo } = ctx;
   const fases = h.fasesDisponiveis ?? catalogo.find((c) => c.tipo === h.tipo)?.fases ?? [];
   if (!fases.length) return html`<p class="dica">Este tipo de projeto não tem fases fixas.</p>`;
-  const atual = fases.findIndex((f) => f.id === (h.fase_no_id ?? h.fase));
+  const atual = fases.findIndex((f) => f.id === h.fase);
   const editavel = pode('projeto.escrever') && h.situacao !== 'encerrado';
   return html`<ol class="trilha" style="list-style:none;margin:0">${fases.map((f, i) => {
     const estado = i < atual ? 'feito' : i === atual ? 'atual' : 'futuro';
@@ -170,7 +142,6 @@ function menuMais(ancora, ctx) {
   const { h } = ctx;
   menu(ancora, [
     h.situacao !== 'encerrado' && { rotulo: 'Encerrar projeto', icone: 'inbox', perigo: true, acao: () => encerrar(ctx) },
-    pode('tarefa.escrever') && h.situacao !== 'encerrado' && { rotulo: 'Aplicar playbook (tarefas desta fase)', icone: 'list', acao: async () => { try { const r = await api.post(`/api/projetos/${ctx.id}/playbook`, {}); toast(r.criadas ? `${r.criadas} tarefa(s) criada(s)` : 'Nada novo: as tarefas do playbook já existem'); atualizarLateral(); ctx.recarregar(); } catch (e) { erroDe(e); } } },
     { rotulo: 'Copiar link desta aba', icone: 'link', acao: () => navigator.clipboard?.writeText(location.href).then(() => toast('Link copiado')) },
   ].filter(Boolean));
 }
@@ -290,8 +261,8 @@ async function abaVisao(ctx) {
           <div class="chat project-chat" data-chat-projeto>${[...mensagens].reverse().map((m) => html`<div class="msg ${m.lado === 'nga' ? 'meu' : ''}">${m.texto}<small>${m.autor ?? (m.lado === 'nga' ? 'NGA' : 'Cliente')} · ${relativo(m.criado_em)}</small></div>`)}</div>
           <form class="chat-in" data-enviar-chat><input class="input" name="texto" placeholder="Escreva para este cliente…" aria-label="Mensagem ao cliente deste projeto" autocomplete="off" required><button class="btn btn--accent" type="submit">${icone('send')}Enviar</button></form>
         </section>
-        <section class="card glass up"><header class="card__head"><div><h2 class="card__title">Google Drive do projeto</h2><p class="card__sub">Pastas por cliente e projeto; documentos organizados por origem.</p></div></header>
-          <div class="project-tools"><button class="btn btn--ghost" data-drive>Preparar pastas</button><button class="btn btn--ghost" data-drive-sync>Sincronizar documentos</button></div><p class="dica" data-drive-estado></p>
+        <section class="card glass up"><header class="card__head"><div><h2 class="card__title">Onboarding e Drive</h2><p class="card__sub">Kickoff com Meet e pastas em CLIENTES REESTRUTURAÇÃO ou CLIENTES CIVEL.</p></div></header>
+          <div class="project-tools">${pode('tarefa.escrever') ? html`<button class="btn btn--accent" data-kickoff>Agendar kickoff</button>` : ''}<button class="btn btn--ghost" data-drive>Preparar pastas</button><button class="btn btn--ghost" data-drive-sync>Sincronizar documentos</button></div><p class="dica" data-drive-estado></p>
         </section>
         <section class="card glass up">
           <header class="card__head"><div><h2 class="card__title">Equipe</h2></div><button class="link" data-aba-ir="equipe">Gerenciar →</button></header>
@@ -308,6 +279,7 @@ async function abaVisao(ctx) {
         const b = f.querySelector('button'); b.disabled = true;
         try { await api.post(`/api/projetos/${ctx.id}/mensagens`, { texto }); f.reset(); ctx.recarregar(); } catch (er) { erroDe(er); b.disabled = false; }
       });
+      ouvir(el, 'click', '[data-kickoff]', () => formulario({ titulo: 'Agendar reunião de kickoff', subtitulo: h.nome, rotulo: 'Agendar', campos: [{ nome: 'data', rotulo: 'Data', tipo: 'date', obrigatorio: true, metade: true }, { nome: 'hora', rotulo: 'Início', tipo: 'time', obrigatorio: true, metade: true, valor: '10:00' }], async enviar(v) { const inicio = new Date(`${v.data}T${v.hora}:00-03:00`); const r = await api.post('/api/google/eventos', { projetoId: ctx.id, titulo: `Kickoff · ${h.nome}`, inicio: inicio.toISOString(), fim: new Date(inicio.getTime() + 3600000).toISOString(), descricao: 'Reunião inicial do projeto.', marcador: 'cliente', criarMeet: true }); if (r.pendente) throw new Error(r.erro ?? 'Google indisponível: confira a conexão em Ajustes.'); toast('Kickoff agendado'); } }).then((ok) => ok && ctx.recarregar()));
       ouvir(el, 'click', '[data-drive], [data-drive-sync]', async (b) => {
         b.disabled = true;
         try { const r = await api.post(`/api/google/projetos/${ctx.id}/${b.hasAttribute('data-drive-sync') ? 'documentos' : 'drive'}`); $('[data-drive-estado]', el).textContent = r.url ? `Pastas preparadas: ${r.url}` : (r.sincronizados !== undefined ? `${r.sincronizados} documento(s) sincronizado(s)` : 'Pastas do projeto preparadas no Drive.'); toast('Google Drive atualizado'); }

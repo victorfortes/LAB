@@ -408,7 +408,7 @@ export async function lancar(
 /** Mensagens do projeto (§6.5). */
 export async function mensagens(db: PoolClient, projetoId: string) {
   const { rows } = await db.query(
-    `SELECT m.id, m.lado, m.texto, m.criado_em, m.requisito_id, u.nome AS autor
+    `SELECT m.id, m.lado, m.texto, m.criado_em, m.lida_em, m.requisito_id, u.nome AS autor
        FROM mensagens m LEFT JOIN usuarios u ON u.id = m.autor_id
       WHERE m.projeto_id = $1 ORDER BY m.criado_em DESC LIMIT 200`, [projetoId]);
   return rows;

@@ -6,7 +6,7 @@ import { formulario, toast, vazio } from '../ui.js';
 
 export async function abaPesquisa(ctx) {
   const base = `/api/projetos/${ctx.id}`;
-  const [notas, docs] = await Promise.all([api.get(`${base}/playbook/notas`), api.get(`${base}/documentos`)]);
+  const [notas, docs] = await Promise.all([api.get(`${base}/notas`), api.get(`${base}/documentos`)]);
   const pesquisa = notas.find((n) => n.chave === 'pesquisa.caderno') ?? {};
   const documentos = Array.isArray(docs) ? docs : docs.documentos ?? [];
   return {
@@ -23,7 +23,7 @@ export async function abaPesquisa(ctx) {
         const ok = await formulario({ titulo: 'Caderno de pesquisa', subtitulo: ctx.h.nome, campos: [
           { nome:'resumo',rotulo:'Questão, fundamentos e conclusões',tipo:'textarea',valor:pesquisa.resumo },
           { nome:'pontosAtencao',rotulo:'Pontos de atenção e links das fontes',tipo:'textarea',valor:pesquisa.pontosAtencao }],
-          enviar: async (v) => { await api.put(`${base}/playbook/notas`, { chave:'pesquisa.caderno',resumo:v.resumo ?? '',pontosAtencao:v.pontosAtencao ?? '' }); toast('Pesquisa salva neste projeto'); },
+          enviar: async (v) => { await api.put(`${base}/notas`, { chave:'pesquisa.caderno',resumo:v.resumo ?? '',pontosAtencao:v.pontosAtencao ?? '' }); toast('Pesquisa salva neste projeto'); },
         }); if (ok) ctx.recarregar();
       });
       el.querySelector('[data-busca-pesquisa]').addEventListener('submit', async (e) => {

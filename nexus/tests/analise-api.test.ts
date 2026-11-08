@@ -112,15 +112,11 @@ describe('texto do documento', () => {
   });
 
   test('o cliente não registra texto em documento interno da NGA', async () => {
-    // 404, não 403 — e é a resposta certa: o cliente TEM `documento.escrever`
-    // (envia documento pelo portal), então o RBAC passa. O que o barra é o
-    // RLS, que não lhe deixa ver documento interno. Responder 403 confirmaria
-    // que o documento existe; 404 não conta nada (§13).
+    // Fronteira por rota, igual para qualquer id: o 403 não confirma que o documento existe.
     const t = await entrar('dir@grupox.com');
     const r = await req(t, `/api/documentos/${documento}/texto`, {
       method: 'POST', body: JSON.stringify({ texto: 'qualquer coisa', origem: 'texto_enviado' }) });
-    expect(r.status).toBe(404);
-    expect((await r.json()).erro).toBe('documento não encontrado');
+    expect(r.status).toBe(403);
   });
 });
 
@@ -281,9 +277,8 @@ describe('§13 — a análise nunca alcança o cliente', () => {
   test('o cliente não lista análises', async () => {
     const t = await entrar('dir@grupox.com');
     const r = await req(t, `/api/documentos/${documentoCliente}/analises`);
-    // Sem política de portal nessas tabelas, a lista vem vazia pelo RLS.
-    expect(r.status).toBe(200);
-    expect(await r.json()).toEqual([]);
+    // Fronteira por rota: vale para qualquer id, então o 403 não confirma que o documento existe.
+    expect(r.status).toBe(403);
   });
 
   test('o cliente não roda análise', async () => {

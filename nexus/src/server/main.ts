@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { Banco } from '../store/conexao.ts';
 import { servidorDoGerador, servirEstatico } from './estaticos.ts';
 import { criarApp } from './app.ts';
+import { aplicarCabecalhos } from './cabecalhos.ts';
 import { sincronizarAgendado } from './controladoria.ts';
 import {processarFilaAnalise} from './analise_fila.ts';
 import {provedorDoAmbiente} from '../ai/provedor.ts';
@@ -47,7 +48,7 @@ const armazenamento = new ArmazenamentoLocal(
 await armazenamento.iniciar();
 
 const deposito=montarDeposito(armazenamento);
-const api = criarApp({ banco, deposito, analiseAutomatica: true });
+const api = criarApp({ banco, deposito, analiseAutomatica: true, exigirTrocaDeSenha: true });
 let analiseRodando=false;
 const lerFila=async()=>{if(analiseRodando)return;analiseRodando=true;try{await processarFilaAnalise(banco,deposito,provedorDoAmbiente());}catch{console.error('Análise: fila pendente; verifique o worker local.');}finally{analiseRodando=false;}};
 setTimeout(lerFila,15_000);setInterval(lerFila,60_000);
@@ -75,6 +76,14 @@ if (process.env.NGA_DJEN_AUTO !== '0') {
 let googleRodando=false;
 setInterval(async()=>{if(googleRodando)return;googleRodando=true;try{await processarGoogleAgendado(banco,armazenamento);}catch{console.error('Google: sincronização pendente; confira Integrações.');}finally{googleRodando=false;}},60_000);
 
+const emHttps = (req: Request, url: URL) => url.protocol === 'https:' || req.headers.get('x-forwarded-proto') === 'https';
+/** Toda página própria sai com os cabeçalhos; o Gerador já traz os dele, lidos do arquivo. */
+const comSeguranca = async (r: Response | Promise<Response>, req: Request, url: URL) => {
+  const resposta = await r; const h = new Headers(resposta.headers);
+  aplicarCabecalhos(h, { https: emHttps(req, url), pagina: true });
+  return new Response(resposta.body, { status: resposta.status, headers: h });
+};
+
 const servidor = Bun.serve({
   port: porta,
   hostname: process.env.NGA_HOST ?? '127.0.0.1',
@@ -87,8 +96,7 @@ const servidor = Bun.serve({
     if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/arquivos/') || url.pathname === '/definir-senha') {
       const resposta = await api(req);
       // Cabeçalhos de segurança em toda resposta da API.
-      resposta.headers.set('x-content-type-options', 'nosniff');
-      resposta.headers.set('referrer-policy', 'no-referrer');
+      aplicarCabecalhos(resposta.headers, { https: emHttps(req, url), pagina: false });
       return resposta;
     }
 
@@ -110,13 +118,13 @@ const servidor = Bun.serve({
     const arquivo = Bun.file(destino);
     if (await arquivo.exists()) {
       const ext = pedido.slice(pedido.lastIndexOf('.'));
-      return servirEstatico(arquivo, TIPOS[pedido.slice(pedido.lastIndexOf('.'))] ?? 'application/octet-stream', req);
+      return comSeguranca(servirEstatico(arquivo, TIPOS[pedido.slice(pedido.lastIndexOf('.'))] ?? 'application/octet-stream', req), req, url);
     }
 
     // SPA: qualquer rota desconhecida devolve a aplicação.
-    return new Response(Bun.file(join(RAIZ, 'web/index.html')), {
+    return comSeguranca(new Response(Bun.file(join(RAIZ, 'web/index.html')), {
       headers: { 'content-type': TIPOS['.html']! },
-    });
+    }), req, url);
   },
 });
 

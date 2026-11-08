@@ -16,7 +16,8 @@ describe('o tipo vem dos bytes, não do que o cliente declara', () => {
 
   test('contêiner OOXML é reconhecido como ZIP real', () => {
     expect(reconhecerTipo(docxDeTeste(), 'contrato.docx').extensao).toBe('docx');
-    expect(reconhecerTipo(docxDeTeste(), 'planilha.xlsx').extensao).toBe('xlsx');
+    // O conteúdo manda: pacote Word renomeado para .xlsx continua sendo Word.
+    expect(reconhecerTipo(docxDeTeste(), 'planilha.xlsx').extensao).toBe('docx');
   });
 
   test('ODF se identifica pela entrada mimetype', () => {
@@ -48,8 +49,8 @@ describe('o tipo vem dos bytes, não do que o cliente declara', () => {
     expect(() => reconhecerTipo(zip, 'acervo.zip')).toThrow('ZIP não é aceito');
   });
 
-  test('contêiner Office sem extensão que resolva é recusado, não adivinhado', () => {
-    expect(() => reconhecerTipo(docxDeTeste(), 'documento')).toThrow('renomeie para .docx ou .xlsx');
+  test('contêiner Office sem as partes usuais e sem extensão é recusado, não adivinhado', () => {
+    expect(() => reconhecerTipo(montarZip([{ nome: '[Content_Types].xml', conteudo: 'x' }]), 'documento')).toThrow('renomeie para .docx ou .xlsx');
   });
 
   test('arquivo vazio é recusado', () => {
