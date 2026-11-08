@@ -236,6 +236,14 @@ describe('financeiro da recuperanda', () => {
     await db.query(`UPDATE portais SET mostra_financeiro=true WHERE projeto_id=$1`, [projetoA]);
   });
 
+  test('o banco rejeita vínculo de lançamento com projeto ou conta alheios', async () => {
+    const inserir = (projetoId: string, contaId?: string) => app.query(
+      `INSERT INTO lancamentos (organizacao_id,projeto_id,conta_id,data,tipo,situacao,valor,categoria)
+       VALUES ($1,$2,$3,'2026-11-20','despesa','previsto',100,'Teste')`, [CLIENTE_B, projetoId, contaId ?? null]);
+    await expect(como(USUARIO_B, () => inserir(projetoA))).rejects.toThrow(/row-level security/i);
+    await expect(como(USUARIO_B, () => inserir(projetoB, conta))).rejects.toThrow(/foreign key/i);
+  });
+
   test('a NGA não lança no caixa do cliente', async () => {
     await expect(como(ADVOGADO, async () =>
       app.query(`INSERT INTO lancamentos (organizacao_id,projeto_id,data,tipo,situacao,valor,categoria)

@@ -134,7 +134,7 @@ async function baixarRelatorio(token: string, projetoId: string, corpo: unknown)
   const gerado = await r.json();
   const link = await (await req(token, `/api/documentos/${gerado.documentoId}/link`,
     { method: 'POST' })).json();
-  const baixado = await tratar(new Request(`http://x${link.url}`));
+  const baixado = await req(token, link.url);
   expect(baixado.status).toBe(200);
   return { gerado, pdf: new Uint8Array(await baixado.arrayBuffer()) };
 }
@@ -269,7 +269,7 @@ describe('o relatório entra no acervo como qualquer documento', () => {
 
     await req(nga, `/api/documentos/${doc}/publicacao`, { method: 'POST' });
     const link = await (await req(cliente, `/api/documentos/${doc}/link`, { method: 'POST' })).json();
-    const baixado = await tratar(new Request(`http://x${link.url}`));
+    const baixado = await req(cliente, link.url);
     expect(baixado.status).toBe(200);
     expect(baixado.headers.get('content-type')).toBe('application/pdf');
     expect(ehPdf(new Uint8Array(await baixado.arrayBuffer()))).toBe(true);

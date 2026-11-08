@@ -157,7 +157,7 @@ function quadro(lista, catalogo, grupoId) {
         ${GRUPOS_DO_QUADRO.map((g) => html`<button type="button" role="tab" data-grupo="${g.id}" aria-selected="${g.id === grupo.id}">${g.rotulo}<b>${conta(g)}</b></button>`)}</div>
       <span class="dica">As colunas são os marcos legais do procedimento. Avançar é passo a passo; voltar é permitido.</span>
     </div>
-    ${personalizados.length?html`<section class="card glass mb"><header class="card__head"><div><h2 class="card__title">Procedimentos personalizados</h2><p class="card__sub">Cada projeto tem suas próprias fases e etapas. Abra o playbook para movimentá-lo.</p></div></header><ul class="lista">${personalizados.map(p=>html`<li><div><b>${p.nome}</b><small>${p.faseAtual?.nome??'Sem fase'}</small></div><a class="btn btn--ghost" href="#/projetos/${p.id}/playbook">Abrir playbook →</a></li>`)}</ul></section>`:''}
+    ${personalizados.length?html`<section class="card glass mb"><header class="card__head"><div><h2 class="card__title">Procedimentos personalizados</h2><p class="card__sub">Cada projeto tem suas próprias fases e etapas. Veja as etapas na fase do procedimento.</p></div></header><ul class="lista">${personalizados.map(p=>html`<li><div><b>${p.nome}</b><small>${p.faseAtual?.nome??'Sem fase'}</small></div><a class="btn btn--ghost" href="#/projetos/${p.id}/playbook">Abrir procedimento →</a></li>`)}</ul></section>`:''}
     <div class="fases up">
       ${fases.map((f, i) => {
         const cards = porFase.get(f.id) ?? [];

@@ -52,7 +52,11 @@ beforeAll(async () => {
   tS = await entrar('s@nga.adv.br', SENHA);
   projA = (await (await req(tS, '/api/projetos', { method: 'POST', body: JSON.stringify({ nome: 'Caso A', tipo: 'recuperacao_judicial', semPlaybook: true }) })).json()).id;
   projB = (await (await req(tS, '/api/projetos', { method: 'POST', body: JSON.stringify({ nome: 'Caso B', tipo: 'recuperacao_judicial', semPlaybook: true }) })).json()).id;
-  const c = await (await req(tS, `/api/projetos/${projA}/portal/convites`, { method: 'POST', body: JSON.stringify({ nome: 'Dir', email: 'd@c.com', organizacao: 'Cliente A' }) })).json();
+  const c = await (await req(tS, `/api/projetos/${projA}/portal/convites`, { method: 'POST', body: JSON.stringify({ nome: 'Dir', email: 'd@c.com', organizacao: 'Empresa Exemplo Ltda' }) })).json();
+  await d.query(`INSERT INTO nga_lab.organizacoes (tipo,nome) VALUES ('cliente','Outra')`);
+  await d.query(`INSERT INTO nga_lab.portais (projeto_id,organizacao_cliente_id) SELECT $1,id FROM nga_lab.organizacoes WHERE tipo='cliente' AND nome='Outra'`, [projB]);
+  await ins('emissoes', 'em_publicar', { nome: 'relatorio_nov.pdf', cliente: 'Empresa Exemplo Ltda', clienteId: 'c1', periodo: '2026-11', tamanho: pdfBytes.length, partes: 1, status: 'gerado' });
+  await ins('pdfs', 'em_publicar__0', { n: 0, emissao: 'em_publicar', total: 1, dados: pdfBytes.toString('base64') });
   tCli = await entrar('d@c.com', c.senhaTemporaria);
 }, 180_000);
 afterAll(async () => { await banco?.encerrar(); await dono?.end(); await pgx?.stop(); await rm(dirpg, { recursive: true, force: true }); });
@@ -60,7 +64,7 @@ afterAll(async () => { await banco?.encerrar(); await dono?.end(); await pgx?.st
 describe('Gerador de Relatórios integrado ao projeto', () => {
   test('lista só emissões válidas (não removidas), sem expor outras coleções', async () => {
     const r = await (await req(tS, `/api/projetos/${projA}/gerador/emissoes`)).json();
-    expect(r.emissoes.map((e: { id: string }) => e.id).sort()).toEqual(['em_ok', 'em_trunc']);
+    expect(r.emissoes.map((e: { id: string }) => e.id).sort()).toEqual(['em_ok', 'em_publicar']);
     expect(JSON.stringify(r)).not.toContain('SENSÍVEL');
     expect(r.emissoes.find((e: { id: string }) => e.id === 'em_ok')).toMatchObject({ cliente: 'Empresa Exemplo Ltda', periodo: '2026-10', modelo: 'executivo', documentoId: null });
   });
@@ -73,7 +77,7 @@ describe('Gerador de Relatórios integrado ao projeto', () => {
     expect(d).toMatchObject({ categoria: 'relatorio_gerador', visibilidade: 'interno' });
     expect(Number(d.tamanho_bytes)).toBe(pdfBytes.length);
     const link = await (await req(tS, `/api/documentos/${documentoId}/link`, { method: 'POST', body: '{}' })).json();
-    const baixado = Buffer.from(await (await app(new Request(`http://x${link.url}`))).arrayBuffer());
+    const baixado = Buffer.from(await (await req(tS, link.url)).arrayBuffer());
     expect(baixado.equals(pdfBytes)).toBe(true);                       // idêntico, byte a byte
     expect((await req(tS, `/api/projetos/${projA}/gerador/importacoes`, { method: 'POST', body: JSON.stringify({ emissaoId: 'em_ok' }) })).status).toBe(400);
     const lista = await (await req(tS, `/api/projetos/${projA}/gerador/emissoes`)).json();
@@ -83,7 +87,8 @@ describe('Gerador de Relatórios integrado ao projeto', () => {
   test('o que foi importado no projeto A NÃO aparece no projeto B', async () => {
     expect((await (await req(tS, `/api/projetos/${projB}/documentos`)).json())).toEqual([]);
     const lista = await (await req(tS, `/api/projetos/${projB}/gerador/emissoes`)).json();
-    expect(lista.emissoes.find((e: { id: string }) => e.id === 'em_ok').documentoId).toBeNull();
+    expect(lista.emissoes.map((e: { id: string }) => e.id)).toEqual(['em_trunc']);
+    expect((await req(tS, `/api/projetos/${projB}/gerador/importacoes`, { method: 'POST', body: JSON.stringify({ emissaoId: 'em_ok', publicar: true }) })).status).toBe(404);
   });
 
   test('PDF com tamanho diferente do declarado não entra (truncado ou corrompido)', async () => {
@@ -92,12 +97,13 @@ describe('Gerador de Relatórios integrado ao projeto', () => {
     expect((await req(tS, `/api/projetos/${projB}/gerador/importacoes`, { method: 'POST', body: JSON.stringify({ emissaoId: 'em_removida' }) })).status).toBe(404);
   });
 
-  test('importar e publicar numa só ação; o cliente do projeto passa a ver, e só ele', async () => {
-    const r = await req(tS, `/api/projetos/${projB}/gerador/importacoes`, { method: 'POST', body: JSON.stringify({ emissaoId: 'em_ok', publicar: true }) });
+  test('importar e publicar entrega o relatório ao cliente correspondente', async () => {
+    const r = await req(tS, `/api/projetos/${projA}/gerador/importacoes`, { method: 'POST', body: JSON.stringify({ emissaoId: 'em_publicar', publicar: true }) });
     expect(r.status).toBe(201); expect((await r.json()).publicado).toBe(true);
-    expect((await (await req(tS, `/api/projetos/${projB}/documentos`)).json()).filter((d: { visibilidade: string }) => d.visibilidade === 'publicado')).toHaveLength(1);
-    // o cliente A (projeto A) não ganhou nada do projeto B
-    expect((await (await req(tCli, `/api/projetos/${projA}/documentos`)).json())).toEqual([]);
+    const publicados = await (await req(tCli, `/api/projetos/${projA}/documentos`)).json();
+    expect(publicados).toHaveLength(1);
+    expect(publicados[0].titulo).toContain('2026-11');
+    expect(await (await req(tCli, `/api/projetos/${projB}/documentos`)).json()).toEqual([]);
   });
 
   test('o cliente não alcança a integração', async () => {

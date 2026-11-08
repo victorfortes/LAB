@@ -266,6 +266,13 @@ describe('financeiro da recuperanda', () => {
     expect(f.totalDeLancamentos).toBe(0);
   });
 
+  test('cliente não injeta lançamento em projeto de outro cliente', async () => {
+    const t = await entrar('dir@grupoy.com');
+    const r = await req(t, `/api/projetos/${projeto}/financeiro`, { method: 'POST',
+      body: JSON.stringify({ data: '2026-11-01', tipo: 'receita', situacao: 'previsto', valor: '10050', categoria: 'X' }) });
+    expect(r.status).toBe(404);
+  });
+
   test('valor com vírgula é recusado', async () => {
     const t = await entrar('dir@grupox.com');
     const r = await req(t, `/api/projetos/${projeto}/financeiro`, { method: 'POST',

@@ -379,9 +379,19 @@ export async function lancar(
   db: PoolClient, projetoId: string,
   dados: z.infer<typeof EsquemaLancamento>, identidade: Identidade,
 ) {
-  // A organização é a do CLIENTE: o caixa é dele, não da NGA.
-  const organizacaoCliente = identidade.organizacoes.find((o) => o.tipo === 'cliente')?.id;
-  if (!organizacaoCliente) throw new PedidoInvalido('usuário não pertence a uma organização cliente');
+  const idsCliente = identidade.organizacoes.filter((o) => o.tipo === 'cliente').map((o) => o.id);
+  const { rows } = await db.query<{ organizacao_cliente_id: string }>(
+    `SELECT organizacao_cliente_id FROM portais
+      WHERE projeto_id = $1 AND ativo AND mostra_financeiro AND organizacao_cliente_id = ANY($2::uuid[])`,
+    [projetoId, idsCliente]);
+  if (rows.length !== 1) throw new NaoEncontrado('financeiro não disponível para este vínculo com o projeto');
+  const organizacaoCliente = rows[0]!.organizacao_cliente_id;
+  if (dados.contaId) {
+    const conta = await db.query(
+      'SELECT id FROM contas_financeiras WHERE id=$1 AND projeto_id=$2 AND organizacao_id=$3',
+      [dados.contaId, projetoId, organizacaoCliente]);
+    if (!conta.rowCount) throw new NaoEncontrado('conta não encontrada neste projeto');
+  }
 
   const id = crypto.randomUUID();
   await db.query(

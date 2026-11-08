@@ -11,7 +11,7 @@
 import { api } from '../api.js';
 import { estado, pode } from '../estado.js';
 import { anel } from '../fx.js';
-import { $, $$, avatar, dataBR, dataCurta, dataHoraBR, guardado, hojeISO, html, icone, ouvir, paraCentavos, raw, reais, relativo, tamanho } from '../util.js';
+import { $, $$, avatar, dataBR, dataCurta, dataHoraBR, hojeISO, html, icone, ouvir, paraCentavos, raw, reais, relativo, tamanho } from '../util.js';
 import { confirmar, erroDe, formulario, modal, toast, vazio } from '../ui.js';
 import { ir, navegar } from '../shell.js';
 
@@ -28,8 +28,7 @@ const botaoFechar = [{ id: 'ok', rotulo: 'Fechar', tipo: 'primario' }];
 const SITUACAO_PROC = { ativo: ['ok', 'Ativo'], suspenso: ['aviso', 'Suspenso'], baixado: ['info', 'Baixado'], arquivado: ['info', 'Arquivado'], extinto: ['erro', 'Extinto'] };
 
 export async function abaProcessos(ctx) {
-  const todos = await api.get('/api/processos');
-  const lista = todos.filter((p) => p.projeto_id === ctx.id);
+  const lista = await api.get(`/api/processos?projeto=${ctx.id}`);
   const escreve = pode('processo.escrever') && ctx.h.situacao !== 'encerrado';
   return {
     html: html`<div class="flex up" style="margin-bottom:12px"><span class="dica">Prazos contados em dias úteis forenses (CPC, art. 219 e 224), com feriados nacionais. A conferência final de feriado local é sua.</span>
@@ -38,15 +37,34 @@ export async function abaProcessos(ctx) {
         <tbody>${lista.map((p) => {
           const [tom, rot] = SITUACAO_PROC[p.situacao] ?? ['info', p.situacao];
           const venc = p.diasUteisAteOProximo;
-          return html`<tr class="${p.proximo_vencimento && venc < 0 ? 'vencido' : ''}" data-abrir="${p.id}" style="cursor:pointer">
-            <td><b class="mono-sm" style="color:var(--text)">${p.numero}</b><small>${p.classe ?? ''}</small></td>
+          return html`<tr class="${p.proximo_vencimento && venc < 0 ? 'vencido' : ''}" >
+            <td><button type="button" class="link mono-sm" data-prazos-processo="${p.id}" aria-expanded="false" aria-controls="prazos-${p.id}">${p.numero}</button><small>${p.classe ?? ''}</small></td>
             <td>${p.tribunal ?? '—'}<small>${[p.comarca, p.uf].filter(Boolean).join(' / ')}</small></td>
             <td><span class="selo ${tom}"><i></i>${rot}</span></td><td class="num">${p.movimentacoes}</td>
-            <td>${p.proximo_vencimento ? html`${dataBR(p.proximo_vencimento)}<small>${venc < 0 ? `vencido há ${-venc} dia(s) útil(eis)` : venc === 0 ? 'vence hoje' : `em ${venc} dia(s) útil(eis)`}</small>` : html`<span class="muted">sem prazo aberto</span>`}</td></tr>`;
+            <td>${p.proximo_vencimento ? html`${dataBR(p.proximo_vencimento)}<small>${venc < 0 ? `vencido há ${-venc} dia(s) útil(eis)` : venc === 0 ? 'vence hoje' : `em ${venc} dia(s) útil(eis)`}</small>` : html`<span class="muted">sem prazo aberto</span>`}</td></tr><tr id="prazos-${p.id}" hidden><td colspan="5">
+            <div data-prazos-conteudo aria-live="polite"></div><button type="button" class="btn btn--ghost mt" data-abrir="${p.id}">Abrir detalhes do processo</button>
+          </td></tr>`;
         })}</tbody></table></div></section>`
         : html`<section class="card glass up">${vazio('file', 'Nenhum processo neste projeto', 'Cadastre o processo para acompanhar movimentações e calcular prazos com o fundamento à vista.', escreve ? '<button class="btn btn--accent" data-novo>Cadastrar processo</button>' : '')}</section>`}`,
     depois(el) {
       ouvir(el, 'click', '[data-novo]', () => novoProcesso(ctx.id).then((ok) => ok && ctx.recarregar()));
+      ouvir(el, 'click', '[data-prazos-processo]', async b => {
+        const id=b.dataset.prazosProcesso, linha=$(`#prazos-${id}`,el);
+        const abrir=linha.hidden;
+        linha.hidden=!abrir;
+        b.setAttribute('aria-expanded',String(abrir));
+        if(!abrir)return;
+        const slot=$('[data-prazos-conteudo]',linha);
+        slot.textContent='Carregando prazos…';
+        try{
+          const proc=await api.get(`/api/processos/${id}`);
+          const abertos=proc.prazos.filter(p=>p.situacao==='aberto');
+          slot.innerHTML=String(abertos.length?html`<ul class="lista">${abertos.map(p=>html`<li>
+            <span class="selo ${p.diasUteisRestantes<0?'erro':'aviso'}">${icone('flag')}Prazo processual</span>
+            <div><b>${p.titulo}</b><small>Vencimento ${dataBR(p.vencimento)}${p.calculo?.vencimentoAstrea?' · confirmado no Astrea':''}</small></div>
+          </li>`)}</ul>`:html`<p class="dica">Nenhum prazo em aberto neste processo.</p>`);
+        }catch(e){slot.textContent=e.message;}
+      });
       ouvir(el, 'click', '[data-abrir]', (tr) => abrirProcesso(tr.dataset.abrir, ctx));
     },
   };
@@ -453,60 +471,76 @@ export async function abaPlano(ctx) {
 
 // ============================================================== RELATÓRIOS ===
 
-const ROTULO_RELATORIO = { acompanhamento: ['Acompanhamento mensal', 'Andamento, prazos, documentos e caixa do período. Feito para o cliente ler.'], credores: ['Quadro de credores', 'Créditos por classe, com o que ainda não foi validado em destaque.'] };
-
-const norm = (t) => String(t ?? '').normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
-const SEM_VALOR = new Set(['ltda', 'eireli', 'comercio', 'servicos', 'industria', 'grupo', 'empresa', 'holding', 'participacoes', 'sociedade', 'anonima']);
-const palavras = (t) => norm(t).split(/[^a-z0-9]+/).filter((w) => w.length >= 4 && !SEM_VALOR.has(w));
-/** Sugere as emissões do gerador cujo cliente se parece com a empresa do projeto (ou com o nome dele). */
-const parecidas = (ctx, e) => {
-  const alvo = new Set([...ctx.h.empresas.flatMap((x) => palavras(x.razao_social)), ...palavras(ctx.h.nome)]);
-  return palavras(e.cliente).some((w) => alvo.has(w));
-};
+const mesRelatorio = (periodo) => /^\d{4}-(0[1-9]|1[0-2])$/.test(periodo ?? '') ? periodo : '';
+const rotuloMesRelatorio = (mes) => mes
+  ? new Intl.DateTimeFormat('pt-BR', { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(mes + '-01T00:00:00Z'))
+  : 'Sem competência informada';
 
 export async function abaRelatorios(ctx) {
-  const [docs, ger] = await Promise.all([api.get(`/api/projetos/${ctx.id}/documentos`), api.get(`/api/projetos/${ctx.id}/gerador/emissoes`).catch(() => ({ emissoes: [] }))]);
-  const relatorios = docs.filter((d) => d.categoria === 'relatorio_gerador');
+  const base = `/api/projetos/${ctx.id}`;
+  const [docs, ger] = await Promise.all([api.get(`${base}/documentos`), api.get(`${base}/gerador/emissoes`)]);
   const escreve = pode('documento.escrever') && ctx.h.situacao !== 'encerrado';
   const publica = pode('portal.publicar');
-  const todos = ger.emissoes;
-  const sugeridas = todos.filter((e) => parecidas(ctx, e));
-  const mostrarTodos = guardado.ler('geradorTodos', false) || !sugeridas.length;
-  const lista = (mostrarTodos ? todos : sugeridas).slice(0, 80);
+  const relatorios = docs.filter((d) => d.categoria === 'relatorio_gerador');
+  const porId = new Map(relatorios.map((d) => [d.id, d]));
+  const vinculados = new Set(ger.emissoes.map((e) => e.documentoId));
+  const porMes = new Map();
+  const hoje = hojeISO();
+  const competenciaAtual = hoje.slice(0, 7);
+  const mesInicial = new Date(competenciaAtual + '-01T00:00:00Z');
+  for (let i = 0; i < 6; i++) {
+    const data = new Date(mesInicial);
+    data.setUTCMonth(data.getUTCMonth() - i);
+    porMes.set(data.toISOString().slice(0, 7), []);
+  }
+  const incluir = (mes, item) => {
+    if (!porMes.has(mes)) porMes.set(mes, []);
+    porMes.get(mes).push(item);
+  };
+  for (const e of ger.emissoes) incluir(mesRelatorio(e.periodo), { e, d: porId.get(e.documentoId) });
+  for (const d of relatorios) if (!vinculados.has(d.id)) incluir('', { d });
+
   return {
-    html: html`<section class="card glass up"><header class="card__head"><div><h2 class="card__title">Relatórios do Gerador NGA</h2>
-      <p class="card__sub">Os relatórios nascem no Gerador. Aqui você escolhe o que já foi emitido, ele entra no acervo deste projeto como interno e só vai ao cliente quando você publicar.</p></div><a class="btn btn--ghost" href="/gerador/" target="_blank" rel="noopener">Abrir o gerador ↗</a></header>
-      ${todos.length ? html`<div class="flex" style="margin-bottom:10px"><span class="dica">${mostrarTodos ? `Todas as emissões do gerador (${todos.length})` : `${sugeridas.length} emissão(ões) com cliente parecido com este projeto`}</span><span class="grow"></span>
-        ${sugeridas.length ? html`<button type="button" class="link" data-alternar>${mostrarTodos ? 'Mostrar só os sugeridos' : `Mostrar todas (${todos.length})`}</button>` : ''}</div>
-        <ul class="lista">${lista.map((e) => html`<li><div><b>${e.cliente ?? e.nome}</b><small>${[e.periodo, e.modelo, e.paginas ? `${e.paginas} pág.` : null, e.geradoEm ? `emitido ${relativo(e.geradoEm)}` : null].filter(Boolean).join(' · ')}</small></div>
-          <div class="fim flex" style="justify-content:flex-end">${e.documentoId ? html`<span class="selo ok">neste projeto</span>`
-            : escreve ? html`<button type="button" class="btn btn--ghost" data-importar="${e.id}">Importar</button>${publica ? html`<button type="button" class="btn btn--accent" data-importar="${e.id}" data-publicar="1">Importar e publicar</button>` : ''}` : ''}</div></li>`)}</ul>`
-        : vazio('chart', 'Nenhuma emissão no gerador', 'Quando alguém emitir um relatório no Gerador, ele aparece aqui para ser importado.')}</section>
-      <section class="card glass up mt"><header class="card__head"><div><h2 class="card__title">Neste projeto</h2><p class="card__sub">PDFs do gerador já vinculados. A publicação libera o arquivo no portal deste cliente.</p></div></header>
-      ${relatorios.length ? html`<ul class="lista">${relatorios.map((d) => html`<li><div><b>${d.titulo}</b><small>${d.nome_original ?? ''} · ${relativo(d.criado_em)}</small></div><span class="selo ${d.visibilidade === 'publicado' ? 'ok' : ''}">${d.visibilidade === 'publicado' ? 'No portal' : 'Interno'}</span><button class="btn btn--ghost" data-baixar="${d.id}">Baixar</button>${publica ? html`<button class="btn btn--ghost" data-relatorio-publicar="${d.id}" data-titulo="${d.titulo}" data-publicado="${d.visibilidade === 'publicado'}">${d.visibilidade === 'publicado' ? 'Retirar do portal' : 'Publicar ao cliente'}</button>` : ''}</li>`)}</ul>`
-        : html`<p class="dica">Nenhum relatório do gerador neste projeto ainda.</p>`}
-      ${escreve ? html`<label class="drop mt"><input type="file" accept="application/pdf,.pdf" data-relatorio-arquivo hidden>${icone('upload')}<b>Ou vincule um PDF exportado à mão</b><small>Para o que foi emitido fora do gerador. Fica interno até você publicar.</small></label>` : ''}</section>`,
+    html: html`<section class="card glass up"><header class="card__head"><div><h2 class="card__title">Entregas mensais de relatórios</h2>
+      <p class="card__sub">Relatórios do Gerador vinculados aos nomes cadastrados para este cliente. Confira a competência e publique o PDF no portal.</p></div>
+      <a class="btn btn--ghost" href="/gerador/" target="_blank" rel="noopener">Abrir o gerador ↗</a></header>
+      ${[...porMes.keys()].sort().reverse().map(mes => {
+        const itens = porMes.get(mes);
+        const publicados = itens.filter(({d}) => d?.visibilidade === 'publicado').length;
+        return html`<details class="mt" ${mes === competenciaAtual ? raw('open') : ''}>
+          <summary class="checklist-summary"><b>${rotuloMesRelatorio(mes)}</b>
+            <span class="selo ${publicados ? 'ok' : ''}">${itens.length ? `${publicados}/${itens.length} no portal` : 'Sem relatório'}</span>
+          </summary>
+          ${itens.length ? html`<ul class="lista">${itens.map(({e,d}) => html`<li><div><b>${d?.titulo ?? e.cliente ?? e.nome}</b><small>${e?.modelo ?? d?.nome_original ?? ''}${e?.geradoEm ? ` · emitido ${relativo(e.geradoEm)}` : ''}</small></div>
+            ${d ? html`<span class="selo ${d.visibilidade === 'publicado' ? 'ok' : ''}">${d.visibilidade === 'publicado' ? 'Publicado' : 'Importado'}</span>
+              <button type="button" class="btn btn--ghost" data-baixar="${d.id}">Baixar</button>
+              ${publica ? html`<button type="button" class="btn btn--ghost" data-relatorio-publicar="${d.id}" data-titulo="${d.titulo}" data-publicado="${d.visibilidade === 'publicado'}">${d.visibilidade === 'publicado' ? 'Retirar do portal' : 'Publicar'}</button>` : ''}`
+              : html`<span class="selo info">Emitido</span>
+                ${escreve ? html`<button type="button" class="btn btn--ghost" data-importar="${e.id}">Importar</button>
+                ${publica ? html`<button type="button" class="btn btn--accent" data-importar="${e.id}" data-publicar="1">Importar e publicar</button>` : ''}` : ''}`}</li>`)}</ul>`
+              : html`<p class="dica">Nenhuma emissão correspondente nesta competência.</p>`}
+        </details>`;
+      })}
+    </section>`,
     depois(el) {
       ouvir(el, 'click', '[data-baixar]', (b) => baixar(b.dataset.baixar));
-      ouvir(el, 'click', '[data-alternar]', () => { guardado.gravar('geradorTodos', !mostrarTodos); ctx.recarregar(); });
       ouvir(el, 'click', '[data-importar]', async (b) => {
-        const publicar = !!b.dataset.publicar; const e = todos.find((x) => x.id === b.dataset.importar);
-        if (publicar && !(await confirmar('Importar e publicar ao cliente?', `“${e.cliente ?? e.nome}” (${e.periodo ?? 'sem período'}) ficará disponível no portal de ${ctx.h.nome}. Confira que é o cliente certo.`, { rotulo: 'Importar e publicar' }))) return;
-        b.disabled = true; b.textContent = 'Importando…';
-        try { await api.post(`/api/projetos/${ctx.id}/gerador/importacoes`, { emissaoId: e.id, publicar: publicar || undefined }); toast(publicar ? 'Importado e publicado no portal' : 'Importado como interno'); ctx.recarregar(); }
+        const publicar = !!b.dataset.publicar;
+        const e = ger.emissoes.find((item) => item.id === b.dataset.importar);
+        if (publicar && !(await confirmar('Importar e publicar ao cliente?', `O relatório de ${e.cliente ?? e.nome} ficará disponível no portal de ${ctx.h.nome}.`, { rotulo: 'Importar e publicar' }))) return;
+        b.disabled = true;
+        try { await api.post(`${base}/gerador/importacoes`, { emissaoId: e.id, publicar }); toast(publicar ? 'Relatório publicado no portal' : 'Relatório importado'); ctx.recarregar(); }
         catch (er) { b.disabled = false; erroDe(er); }
-      });
-      el.querySelector('[data-relatorio-arquivo]')?.addEventListener('change', async (e) => {
-        const f = e.target.files?.[0]; if (!f) return;
-        if (!f.name.toLowerCase().endsWith('.pdf')) return toast('Selecione um PDF.', 'erro');
-        const ok = await formulario({ titulo: 'Vincular relatório', subtitulo: ctx.h.nome, rotulo: 'Vincular PDF', campos: [{ nome: 'titulo', rotulo: 'Título do relatório', obrigatorio: true, valor: f.name.replace(/\.pdf$/i, '') }],
-          enviar: async (v) => { const fd = new FormData(); fd.append('arquivo', f); fd.append('titulo', v.titulo); fd.append('categoria', 'relatorio_gerador'); await api.enviar(`/api/projetos/${ctx.id}/documentos`, fd); toast('Relatório vinculado a este projeto'); } });
-        if (ok) ctx.recarregar(); else e.target.value = '';
       });
       ouvir(el, 'click', '[data-relatorio-publicar]', async (b) => {
         const publicado = b.dataset.publicado === 'true';
         if (!publicado && !(await confirmar('Publicar relatório ao cliente?', `“${b.dataset.titulo}” ficará disponível no portal de ${ctx.h.nome}.`, { rotulo: 'Publicar' }))) return;
-        try { if (publicado) await api.del(`/api/documentos/${b.dataset.relatorioPublicar}/publicacao`); else await api.post(`/api/documentos/${b.dataset.relatorioPublicar}/publicacao`); toast(publicado ? 'Relatório retirado do portal' : 'Relatório publicado'); ctx.recarregar(); } catch (er) { erroDe(er); }
+        try {
+          const rota = `/api/documentos/${b.dataset.relatorioPublicar}/publicacao`;
+          if (publicado) await api.del(rota); else await api.post(rota);
+          toast(publicado ? 'Relatório retirado do portal' : 'Relatório publicado');
+          ctx.recarregar();
+        } catch (er) { erroDe(er); }
       });
     },
   };

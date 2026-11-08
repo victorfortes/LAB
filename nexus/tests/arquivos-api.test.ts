@@ -160,7 +160,7 @@ describe('envio de arquivo', () => {
 });
 
 describe('download por URL assinada', () => {
-  let link: string;
+  let link: string, emissor: string;
 
   test('o link é emitido com prazo curto', async () => {
     const t = await entrar('adv@nga.adv.br');
@@ -168,19 +168,21 @@ describe('download por URL assinada', () => {
     expect(r.status).toBe(200);
     const corpo = await r.json();
     link = corpo.url;
+    emissor = t;
     expect(link).toStartWith('/arquivos/v1.');
     expect(corpo.validadeSegundos).toBeLessThanOrEqual(300);
     expect(corpo.nome).toBe('petição inicial.pdf');
   });
 
-  test('o download funciona SEM cookie e devolve os bytes originais', async () => {
-    const r = await tratar(new Request(`http://x${link}`));
+  test('o download exige a sessão do emissor e devolve os bytes originais', async () => {
+    expect((await tratar(new Request(`http://x${link}`))).status).toBe(401);
+    const r = await req(emissor, link);
     expect(r.status).toBe(200);
     expect(mesmosBytes(new Uint8Array(await r.arrayBuffer()), pdfDeTeste())).toBe(true);
   });
 
   test('a resposta força download e proíbe interpretação pelo navegador', async () => {
-    const r = await tratar(new Request(`http://x${link}`));
+    const r = await req(emissor, link);
     expect(r.headers.get('content-disposition')).toStartWith('attachment;');
     expect(r.headers.get('content-type')).toBe('application/pdf');
     expect(r.headers.get('x-content-type-options')).toBe('nosniff');
@@ -192,7 +194,7 @@ describe('download por URL assinada', () => {
 
   test('link adulterado é 403', async () => {
     const forjado = link.replace(/.$/, (c) => (c === 'A' ? 'B' : 'A'));
-    expect((await tratar(new Request(`http://x${forjado}`))).status).toBe(403);
+    expect((await req(emissor, forjado)).status).toBe(403);
   });
 
   test('link vencido é 410 — resposta diferente da de link forjado', async () => {
@@ -209,9 +211,10 @@ describe('download por URL assinada', () => {
     }));
     const url: string = (await r.json()).url;
 
-    expect((await curto(new Request(`http://x${url}`))).status).toBe(200);
+    const download = () => curto(new Request(`http://x${url}`, { headers: { cookie: `nga_sessao=${t}` } }));
+    expect((await download()).status).toBe(200);
     await Bun.sleep(1100);
-    const vencido = await curto(new Request(`http://x${url}`));
+    const vencido = await download();
     expect(vencido.status).toBe(410);
     expect((await vencido.json()).erro).toContain('expirou');
   });
@@ -257,7 +260,7 @@ describe('§13 — o acervo respeita o isolamento', () => {
     const t = await entrar('adv@nga.adv.br');
     const r = await jsonReq(t, `/api/documentos/${documentoCliente}/link`, { method: 'POST' });
     expect(r.status).toBe(200);
-    const baixado = await tratar(new Request(`http://x${(await r.json()).url}`));
+    const baixado = await req(t, (await r.json()).url);
     expect(mesmosBytes(new Uint8Array(await baixado.arrayBuffer()), pngDeTeste())).toBe(true);
   });
 
@@ -267,14 +270,15 @@ describe('§13 — o acervo respeita o isolamento', () => {
       .toBe(404);
   });
 
-  test('link de um usuário não serve a outro', async () => {
-    // A concessão carrega o id do usuário; trocá-lo quebra a assinatura, e
-    // mesmo que não quebrasse, o RLS do outro não alcançaria o documento.
+  test('link não funciona para outro usuário nem após revogar a sessão do emissor', async () => {
     const nga = await entrar('adv@nga.adv.br');
+    const outro = await entrar('dir@grupoy.com');
     const url: string = (await (await jsonReq(nga, `/api/documentos/${documentoNga}/link`,
       { method: 'POST' })).json()).url;
-    const trocado = url.replace(ADVOGADO, OUTRO_USR);
-    expect((await tratar(new Request(`http://x${trocado}`))).status).toBe(403);
+    expect((await req(outro, url)).status).toBe(403);
+    expect((await req(nga, url, { method: 'HEAD' })).status).toBe(200);
+    expect((await req(nga, '/api/sessao', { method: 'DELETE' })).status).toBe(204);
+    expect((await req(nga, url)).status).toBe(401);
   });
 });
 
@@ -290,11 +294,11 @@ describe('a autorização é refeita a cada download, não congelada no link', (
     const cliente = await entrar('dir@grupox.com');
     const link: string = (await (await jsonReq(cliente, `/api/documentos/${doc}/link`,
       { method: 'POST' })).json()).url;
-    expect((await tratar(new Request(`http://x${link}`))).status).toBe(200);
+    expect((await req(cliente, link)).status).toBe(200);
 
     // Despublicar. O link ainda está no prazo — e mesmo assim para de servir.
     await jsonReq(nga, `/api/documentos/${doc}/publicacao`, { method: 'DELETE' });
-    expect((await tratar(new Request(`http://x${link}`))).status).toBe(404);
+    expect((await req(cliente, link)).status).toBe(404);
   });
 
   test('desligar o portal também mata o link no mesmo instante', async () => {
@@ -308,10 +312,10 @@ describe('a autorização é refeita a cada download, não congelada no link', (
     const cliente = await entrar('dir@grupox.com');
     const link: string = (await (await jsonReq(cliente, `/api/documentos/${doc}/link`,
       { method: 'POST' })).json()).url;
-    expect((await tratar(new Request(`http://x${link}`))).status).toBe(200);
+    expect((await req(cliente, link)).status).toBe(200);
 
     await pg.dono.query('UPDATE portais SET ativo = FALSE WHERE id = $1', [portalId]);
-    expect((await tratar(new Request(`http://x${link}`))).status).toBe(404);
+    expect((await req(cliente, link)).status).toBe(404);
     await pg.dono.query('UPDATE portais SET ativo = TRUE WHERE id = $1', [portalId]);
   });
 });
@@ -328,13 +332,13 @@ describe('integridade na entrega', () => {
 
     const hash = hashDoConteudo(conteudo);
     await Bun.write(join(raiz, hash.slice(0, 2), hash.slice(2, 4), hash), 'conteúdo trocado');
-    const baixado = await tratar(new Request(`http://x${link}`));
+    const baixado = await req(t, link);
     expect(baixado.status).toBe(200);
     expect(new Uint8Array(await baixado.arrayBuffer())).toEqual(conteudo);
     // Mesmo um conteúdo alterado com seu próprio hash deve falhar contra o hash do documento.
     const adulterado = Buffer.from('conteúdo remoto trocado');
     await pg.dono.query('UPDATE documento_conteudos SET conteudo=$1, hash_sha256=$2 WHERE documento_id=$3', [adulterado, hashDoConteudo(adulterado), doc]);
-    const recusado = await tratar(new Request(`http://x${link}`));
+    const recusado = await req(t, link);
     expect(recusado.status).toBe(500);
     expect((await recusado.json()).erro).toContain('não confere com o hash registrado');
   });

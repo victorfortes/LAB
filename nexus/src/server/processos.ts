@@ -134,7 +134,7 @@ function segmentoDe(numero: string): string | undefined {
   return p ? SEGMENTOS[p.segmento] : undefined;
 }
 
-export async function listar(db: PoolClient, hoje: string) {
+export async function listar(db: PoolClient, hoje: string, projetoId?: string) {
   const { rows } = await db.query(
     `SELECT p.id, p.numero, p.classe, p.assunto, p.tribunal, p.comarca, p.uf,
             p.situacao, p.suspenso_motivo, p.suspenso_ate, p.segredo_justica,
@@ -145,7 +145,8 @@ export async function listar(db: PoolClient, hoje: string) {
             (SELECT min(z.vencimento) FROM prazos z
               WHERE z.processo_id = p.id AND z.situacao = 'aberto') AS proximo_vencimento
        FROM processos p LEFT JOIN projetos pr ON pr.id = p.projeto_id
-      ORDER BY p.situacao, p.numero`);
+      WHERE ($1::uuid IS NULL OR p.projeto_id = $1)
+      ORDER BY p.situacao, p.numero`, [projetoId ?? null]);
 
   return rows.map((r) => {
     const linha = r as {

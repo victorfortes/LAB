@@ -115,12 +115,18 @@ async function documentos(p) {
       ${recentes(p).length ? html`<section class="card glass up mt"><header class="card__head"><div><h2 class="card__title">Enviados agora</h2><p class="card__sub">Recebidos e em leitura pela NGA</p></div></header>
         <ul class="lista">${recentes(p).map((r) => html`<li><span class="empty__ico" style="width:36px;height:36px;border-radius:11px">${icone('doc')}</span><div><b>${r.nome}</b><small>${relativo(r.quando)} · ${tamanho(r.tamanho)}</small></div>
           <div class="fim"><span class="leitura lendo"><i class="vivo ambar"></i>Em leitura</span></div></li>`)}</ul></section>` : ''}
-      <section class="card glass up mt"><header class="card__head"><div><h2 class="card__title">Lista de documentos</h2><p class="card__sub">Envie cada arquivo no item correspondente. O escritório confere e responde aqui.</p></div></header>
+      <details class="card glass up mt">
+      <summary class="checklist-summary"><b>Checklist de documentos</b>
+        ${check.progresso.obrigatorios ? html`<span class="selo info">${check.progresso.percentualEnviado}% entregue</span>
+          <small>${check.progresso.enviados} de ${check.progresso.obrigatorios} obrigatórios enviados · ${check.progresso.percentualAprovado}% aprovado</small>`
+          : html`<small>${check.itens.length ? 'Sem itens obrigatórios' : 'Aguardando a lista do escritório'}</small>`}
+      </summary>
+      <p class="dica mt">Envie cada arquivo no item correspondente. O escritório confere e responde aqui.</p>
       ${check.itens.length ? [...porCat].map(([cat, itens]) => html`<h3 class="mini-h">${cat}</h3>${itens.map((i) => html`<div class="check-row${i.situacao === 'nao_aplicavel' ? ' na' : ''}"><span class="sit-dot ${i.situacao}"></span>
         <div><b>${i.titulo}${i.obrigatorio ? '' : html` <span class="muted">(opcional)</span>`}</b><small>${i.fundamento ?? ''}</small>${i.atribuicao ? html`<span class="atrib">${String(i.atribuicao).split('/').map((x) => html`<i>${x.trim()}</i>`)}</span>` : ''}${i.observacao ? html`<small class="obs">${i.observacao}</small>` : ''}</div>
         <span class="selo ${SIT[i.situacao]?.[0] ?? ''}">${i.rotuloDaSituacao}</span>
         ${['pendente', 'rejeitado', 'complementacao'].includes(i.situacao) ? html`<label class="btn btn--accent" style="cursor:pointer">${icone('upload')}Enviar<input type="file" hidden data-req="${i.id}" data-t="${i.titulo}" data-c="${i.categoria}"></label>` : ''}</div>`)}`)
-        : vazio('doc', 'A lista ainda não foi montada', 'Assim que o escritório definir o que precisa, os itens aparecem aqui.')}</section>
+        : vazio('doc', 'A lista ainda não foi montada', 'Assim que o escritório definir o que precisa, os itens aparecem aqui.')}</details>
       <section class="card glass up mt"><header class="card__head"><div><h2 class="card__title">Documentos do escritório para você</h2></div></header>
         ${docs.filter((d) => d.visibilidade === 'publicado').length ? html`<ul class="lista">${docs.filter((d) => d.visibilidade === 'publicado').map((d) => html`<li>${icone('doc')}<div><b>${d.titulo}</b><small>${d.categoria ?? ''} · ${tamanho(d.tamanho_bytes)} · publicado ${relativo(d.publicado_em)}</small></div>
           ${d.tem_arquivo ? html`<div class="fim"><button type="button" class="btn btn--ghost" data-baixar="${d.id}">${icone('download')}Baixar</button></div>` : ''}</li>`)}</ul>` : html`<p class="dica">Nenhum documento publicado para você ainda.</p>`}</section>`,

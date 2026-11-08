@@ -19,7 +19,7 @@ import * as extra from './projeto_extra.js';
 import { abaCreditos } from './projeto_creditos.js';
 import { abaDiagnostico } from './projeto_diagnostico.js';
 import { abaNegociacoes } from './projeto_negociacoes.js';
-import { abaPlaybook } from './projeto_playbook.js';
+import { estruturaDoProcedimento } from './projeto_playbook.js';
 import { abaPesquisa } from './projeto_pesquisa.js';
 import { cardsVisao, ligarVisao } from './projeto_visao_cards.js';
 
@@ -27,12 +27,11 @@ export { novoProcessoSolto } from './projeto_extra.js';
 
 const ABAS = [
   { id: 'visao', rotulo: 'Visão geral', icone: 'home' },
-  { id: 'playbook', rotulo: 'Playbook', icone: 'list', perm: 'tarefa.ler' },
   { id: 'pesquisa', rotulo: 'Pesquisa', icone: 'search', perm: 'documento.ler' },
   { id: 'diagnostico', rotulo: 'Diagnóstico', icone: 'sparkle', perm: 'analise.executar', alerta: (c) => c.achados_criticos },
   { id: 'tarefas', rotulo: 'Tarefas', icone: 'check', perm: 'tarefa.ler', n: (c) => c.tarefas_abertas },
   { id: 'negociacoes', rotulo: 'Negociações', icone: 'target', perm: 'negociacao.ler' },
-  { id: 'creditos', rotulo: 'Créditos', icone: 'scale', perm: 'credito.ler', n: (c) => c.creditos, alerta: (c) => c.creditos_a_validar },
+  { id: 'creditos', rotulo: 'QGC', icone: 'scale', perm: 'credito.ler', n: (c) => c.creditos, alerta: (c) => c.creditos_a_validar },
   { id: 'processos', rotulo: 'Processos e prazos', icone: 'file', perm: 'processo.ler', n: (c) => c.processos, alerta: (c) => c.prazos_abertos },
   { id: 'documentos', rotulo: 'Documentos', icone: 'doc', perm: 'documento.ler', n: (c) => c.documentos, alerta: (c) => c.requisitos_a_analisar },
   { id: 'portal', rotulo: 'Portal do cliente', icone: 'eye', perm: 'documento.ler' },
@@ -42,7 +41,7 @@ const ABAS = [
 ];
 
 const MODULOS = {
-  visao: abaVisao, playbook: abaPlaybook, pesquisa: abaPesquisa, diagnostico: abaDiagnostico, negociacoes: abaNegociacoes, tarefas: abaTarefas, creditos: abaCreditos, processos: extra.abaProcessos,
+  visao: abaVisao, pesquisa: abaPesquisa, diagnostico: abaDiagnostico, negociacoes: abaNegociacoes, tarefas: abaTarefas, creditos: abaCreditos, processos: extra.abaProcessos,
   documentos: extra.abaDocumentos, portal: extra.abaPortal, plano: extra.abaPlano,
   relatorios: extra.abaRelatorios, equipe: abaEquipe,
 };
@@ -81,9 +80,13 @@ export default async function projeto({ id, aba }) {
       })}
       <section class="card glass up mt" aria-label="Fase do processo">
         <header class="card__head"><div><h2 class="card__title">Fase do procedimento</h2>
-          <p class="card__sub">${encerrado ? 'Projeto encerrado.' : pode('projeto.escrever') ? (h.playbook_modelo_id ? 'Fases personalizadas do projeto. Abra o Playbook para configurar etapas e tarefas.' : 'Clique numa fase para movimentar o projeto. O sistema só permite o passo seguinte — voltar é livre.') : 'Marcos legais do procedimento.'}</p></div>
+          <p class="card__sub">${encerrado ? 'Projeto encerrado.' : pode('projeto.escrever') ? (h.playbook_modelo_id ? 'Fases personalizadas do projeto. Abra a estrutura abaixo para ver as etapas e tarefas de cada fase.' : 'Clique numa fase para movimentar o projeto. O sistema só permite o passo seguinte — voltar é livre.') : 'Marcos legais do procedimento.'}</p></div>
           ${pr ? html`<span class="selo ok">${pr.indice} de ${pr.total}</span>` : ''}</header>
         ${trilha(ctx)}
+        ${pode('tarefa.ler') ? html`<details class="mt" data-fluxo-painel ${aba === 'playbook' ? raw('open') : ''}>
+          <summary class="checklist-summary"><b>Etapas e tarefas do procedimento</b></summary>
+          <div class="mt" data-fluxo-projeto aria-live="polite"></div>
+        </details>` : ''}
       </section>
       <div class="tabs glass glass--chrome mt up" role="tablist" id="abas"><span class="tabs__pill" aria-hidden="true"></span>
         ${abasVisiveis().map((a) => html`<button type="button" role="tab" data-aba="${a.id}" aria-selected="${a.id === inicial}">${icone(a.icone)}<span>${a.rotulo}</span>${badge(a, h)}</button>`)}</div>
@@ -94,7 +97,7 @@ export default async function projeto({ id, aba }) {
       aoSair(() => { ctx.ativo = false; ctx.ficha++; });
       ouvir(raiz, 'click', '[data-aba]', (b) => abrirAba(ctx, b.dataset.aba));
       // Ao pousar o mouse numa aba, as leituras dela já vão sendo buscadas.
-      const quente = { tarefas: [`/api/tarefas?projeto=${id}`], creditos: [`/api/projetos/${id}/creditos`, `/api/projetos/${id}/credores`], processos: ['/api/processos'],
+      const quente = { tarefas: [`/api/tarefas?projeto=${id}`], creditos: [`/api/projetos/${id}/creditos`, `/api/projetos/${id}/credores`], processos: [`/api/processos?projeto=${id}`],
         documentos: [`/api/projetos/${id}/documentos`], portal: [`/api/projetos/${id}/portal`, `/api/projetos/${id}/checklist`], plano: [`/api/projetos/${id}/obrigacoes`], relatorios: ['/api/relatorios/tipos'] };
       ouvir(raiz, 'pointerover', '[data-aba]', (b) => (quente[b.dataset.aba] ?? []).forEach((u) => api.aquecer(u)));
       ouvir(raiz, 'click', '[data-act=tarefa]', () => novaTarefa(() => (ctx.aba === 'tarefas' ? ctx.recarregar() : atualizarBadges(ctx)), id));
@@ -102,6 +105,34 @@ export default async function projeto({ id, aba }) {
       ouvir(raiz, 'click', '[data-fase]', (b) => mudarFase(ctx, b.dataset.fase));
       ctx.recarregar = async () => { await atualizarBadges(ctx); await desenhar(ctx); };
       ctx.irParaAba = (a) => abrirAba(ctx, a);
+      const fluxoPainel = $('[data-fluxo-painel]', raiz);
+      if (fluxoPainel) {
+        let carregado = false;
+        let revisao = 0;
+        const conteudo = $('[data-fluxo-projeto]', fluxoPainel);
+        ctx.recarregarFluxo = async () => {
+          const tentativa = ++revisao;
+          if (!carregado) conteudo.textContent = 'Carregando estrutura…';
+          try {
+            const fluxo = await estruturaDoProcedimento(ctx);
+            if (!ctx.ativo || tentativa !== revisao) return;
+            const vista = document.createElement('div');
+            vista.innerHTML = String(fluxo.html);
+            conteudo.replaceChildren(vista);
+            fluxo.depois(vista);
+            carregado = true;
+          } catch (e) {
+            if (ctx.ativo && tentativa === revisao) {
+              carregado = false;
+              conteudo.innerHTML = String(vazio('alert', 'Não foi possível abrir a estrutura', e.message));
+            }
+          }
+        };
+        fluxoPainel.addEventListener('toggle', () => {
+          if (fluxoPainel.open && !carregado) ctx.recarregarFluxo();
+        });
+        if (fluxoPainel.open) ctx.recarregarFluxo();
+      }
       abrirAba(ctx, inicial, true);
     },
   };
@@ -227,7 +258,7 @@ async function abaVisao(ctx) {
               ${(pr?.proxima?.fundamento ?? h.faseAtual?.fundamento) ? html`<span class="mono-sm">${pr?.proxima?.fundamento ?? h.faseAtual?.fundamento}</span>` : ''}</div>
           </div>
           <div class="grid3 mt" style="grid-template-columns:repeat(3,minmax(0,1fr))">
-            ${mini('Créditos', c.creditos, 'creditos')}${mini('Processos', c.processos, 'processos')}${mini('Documentos', c.documentos, 'documentos')}
+            ${mini('QGC', c.creditos, 'creditos')}${mini('Processos', c.processos, 'processos')}${mini('Documentos', c.documentos, 'documentos')}
           </div>
         </section>
         ${neg ? html`<section class="card glass up"><header class="card__head"><div><h2 class="card__title">Negociações</h2><p class="card__sub">${neg.resumo.acordos ? `${neg.resumo.acordos} acordo(s) fechado(s)` : 'Frentes com credores'}</p></div><button class="link" data-aba-ir="negociacoes">Abrir quadro →</button></header>

@@ -101,7 +101,9 @@ function erro(mensagem: string, status: number, detalhe?: unknown): Response {
 function tokenDaRequisicao(req: Request): string | null {
   const cookie = req.headers.get('cookie') ?? '';
   const m = new RegExp(`(?:^|;\\s*)${COOKIE}=([^;]+)`).exec(cookie);
-  if (m?.[1]) return decodeURIComponent(m[1]);
+  if (m?.[1]) {
+    try { return decodeURIComponent(m[1]); } catch { return null; }
+  }
   const auth = req.headers.get('authorization');
   return auth?.startsWith('Bearer ') ? auth.slice(7) : null;
 }
@@ -137,15 +139,19 @@ export function criarApp(ctx: Contexto) {
 
     try {
       // ---------------------------------------------------------- download ---
-      // Fora de /api/ e antes do cookie: o token assinado é a credencial, para
-      // que o link funcione em nova aba e expire sozinho. Isso NÃO dispensa
-      // autorização — a leitura roda sob o RLS do usuário do token (§12.3).
+      // A concessão curta é válida apenas para a conta que emitiu o link,
+      // com sessão ativa. A leitura continua sujeita às permissões atuais.
       if (rota.startsWith('/arquivos/')) {
         if (metodo !== 'GET' && metodo !== 'HEAD') return erro('método não permitido', 405);
+        const identidade = await autenticado(req);
+        if (identidade instanceof Response) return identidade;
+        exigir(identidade.papeis, 'documento.ler');
         const concessao = verificar(rota.slice('/arquivos/'.length), deposito.segredo.valor);
-        const conteudo = await banco.comoUsuario(concessao.usuarioId, (db) =>
-          arquivos.entregar(db, concessao.documentoId, concessao.usuarioId, deposito));
-        return arquivos.respostaDeDownload(conteudo);
+        if (concessao.usuarioId !== identidade.usuarioId) return erro('link pertence a outra conta', 403);
+        const conteudo = await banco.comoUsuario(identidade.usuarioId, (db) =>
+          arquivos.entregar(db, concessao.documentoId, identidade.usuarioId, deposito));
+        const resposta = arquivos.respostaDeDownload(conteudo);
+        return metodo === 'HEAD' ? new Response(null, { headers: resposta.headers }) : resposta;
       }
 
       // --------------------------------------------------- integração ---
@@ -992,8 +998,10 @@ export function criarApp(ctx: Contexto) {
 
       if (rota === '/api/processos' && metodo === 'GET') {
         exigir(identidade.papeis, 'processo.ler');
+        const projetoId = url.searchParams.get('projeto');
+        if (projetoId !== null && !z.string().uuid().safeParse(projetoId).success) return erro('projeto inválido', 400);
         return json(await banco.comoUsuario(identidade.usuarioId, (db) =>
-          processos.listar(db, hojeISO)));
+          processos.listar(db, hojeISO, projetoId ?? undefined)));
       }
       if (rota === '/api/processos' && metodo === 'POST') {
         exigir(identidade.papeis, 'processo.escrever');
