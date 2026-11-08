@@ -245,7 +245,7 @@ export const podeVerEntregas = (email: string): boolean => (process.env.NGA_EMAI
  * Usa o texto já extraído; sem ele, extrai na hora. O que não dá para ler sai como não lido.
  */
 const LIMITE_DE_EXTRACAO = 20;
-export async function raioXDoProjeto(db: PoolClient, projetoId: string, dep: Deposito) {
+export async function raioXDoProjeto(db: PoolClient, projetoId: string, dep: Deposito, extrairAgora = true) {
   const p = await db.query('SELECT id FROM projetos WHERE id=$1', [projetoId]); if (!p.rowCount) throw new NaoEncontrado('projeto não encontrado');
   const { rows } = await db.query<{ id: string; titulo: string; tipo_mime: string | null; hash_sha256: string | null; tem_arquivo: boolean; texto: string | null }>(
     `SELECT d.id,d.titulo,d.tipo_mime,d.hash_sha256,d.tem_arquivo,t.texto FROM documentos d LEFT JOIN documento_textos t ON t.documento_id=d.id
@@ -255,6 +255,8 @@ export async function raioXDoProjeto(db: PoolClient, projetoId: string, dep: Dep
   let extraidosAgora = 0;
   for (const d of rows) {
     if (d.texto) { documentos.push({ id: d.id, titulo: d.titulo, texto: d.texto }); continue; }
+    // Na função Edge o limite de CPU não comporta abrir PDF: quem lê é o worker da fila.
+    if (!extrairAgora) { naoLidos.push({ titulo: d.titulo, motivo: 'aguardando leitura automática' }); continue; }
     if (extraidosAgora >= LIMITE_DE_EXTRACAO) { naoLidos.push({ titulo: d.titulo, motivo: 'aguardando leitura automática: limite desta consulta atingido' }); continue; }
     extraidosAgora++;
     if (!d.tem_arquivo || !d.hash_sha256) { naoLidos.push({ titulo: d.titulo, motivo: 'sem arquivo guardado' }); continue; }

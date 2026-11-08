@@ -1263,7 +1263,7 @@ export function criarApp(ctx: Contexto) {
       if (mRaioX && metodo === 'GET') {
         if (ehCliente) return erro('acesso negado', 403);
         exigir(identidade.papeis, 'analise.executar');
-        return json(await banco.comoUsuario(identidade.usuarioId, (db) => gestao.raioXDoProjeto(db, mRaioX[1]!, deposito)));
+        return json(await banco.comoUsuario(identidade.usuarioId, (db) => gestao.raioXDoProjeto(db, mRaioX[1]!, deposito, !ctx.analiseEmWorker)));
       }
       const mReprocessar = /^\/api\/documentos\/([0-9a-f-]{36})\/reprocessamento$/.exec(rota);
       if (mReprocessar && metodo === 'POST') {
