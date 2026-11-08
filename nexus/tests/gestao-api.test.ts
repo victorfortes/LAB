@@ -104,3 +104,30 @@ describe('árvore, atas e chat', () => {
 test('entregas do LAB: só para o dono', async () => { expect((await req(s, '/api/lab/entregas')).status).toBe(404); process.env.NGA_EMAILS_DONO = 'socio@nga.adv.br'; expect((await req(s, '/api/lab/entregas')).status).toBe(200); expect((await req(a, '/api/lab/entregas')).status).toBe(404); delete process.env.NGA_EMAILS_DONO; });
 
 test('relatórios abrem mesmo sem o Gerador neste banco', async () => { await post(s, `/api/projetos/${pB}/portal`, {}); expect((await req(s, `/api/projetos/${pB}/gerador/emissoes`)).status).toBe(200); });
+
+describe('rotinas na nuvem', () => {
+  test('a fila inclui documento do escritório e deixa relatório de fora', async () => {
+    const doc = async (titulo: string, categoria: string) => { const f = new FormData(); f.append('arquivo', new File([titulo], `${titulo}.txt`, { type: 'text/plain' })); f.append('titulo', titulo); f.append('categoria', categoria); return (await (await app(new Request(`http://x/api/projetos/${pB}/documentos`, { method: 'POST', body: f, headers: { cookie: `nga_sessao=${s}` } }))).json()).documentoId as string; };
+    const interno = await doc('escritorio-x', 'Contábil'); const rel = await doc('relatorio-x', 'relatorio_gerador');
+    const fila = (await pg.dono.query('SELECT * FROM documentos_de_analise_pendentes(5)')).rows.map((r) => r.documento_id);
+    expect(fila).toContain(interno); expect(fila).not.toContain(rel);
+  });
+  test('PDF que derrubou a execução para após 3 tentativas e informa o motivo', async () => {
+    const id = (await pg.dono.query(`SELECT d.id, d.organizacao_id, d.projeto_id FROM documentos d WHERE d.titulo='escritorio-x'`)).rows[0];
+    await pg.dono.query(`INSERT INTO documento_processamento(documento_id,organizacao_id,projeto_id,estado,tentativas,atualizado_em) VALUES($1,$2,$3,'lendo',3,now()-interval '1 hour')`, [id.id, id.organizacao_id, id.projeto_id]);
+    expect((await pg.dono.query('SELECT * FROM documentos_de_analise_pendentes(5)')).rows.map((r) => r.documento_id)).not.toContain(id.id);
+    await pg.dono.query('SELECT encerrar_leituras_travadas()');
+    expect((await pg.dono.query('SELECT estado FROM documento_processamento WHERE documento_id=$1', [id.id])).rows[0].estado).toBe('erro');
+  });
+  test('a aplicação confere a chave, mas não consegue lê-la', async () => {
+    const { token } = (await pg.dono.query('SELECT token FROM rotina_chave')).rows[0]; const h = new Bun.CryptoHasher('sha256').update(token).digest('hex');
+    expect(await banco.semContexto(async (db) => (await db.query('SELECT rotina_autorizada($1) ok', [h])).rows[0].ok)).toBe(true);
+    expect(await banco.semContexto(async (db) => (await db.query('SELECT rotina_autorizada($1) ok', ['0'.repeat(64)])).rows[0].ok)).toBe(false);
+    await expect(banco.semContexto((db) => db.query('SELECT token FROM rotina_chave'))).rejects.toThrow();
+  });
+});
+
+test('PDF acima do limite da nuvem sai com motivo, sem abrir o arquivo', async () => {
+  const { extrair } = await import('../src/server/analise_auto.ts');
+  expect(await extrair(new Uint8Array(4 * 1024 * 1024), 'application/pdf', { limitePdfBytes: 3 * 1024 * 1024 })).toMatchObject({ vazio: expect.stringContaining('limite') });
+});

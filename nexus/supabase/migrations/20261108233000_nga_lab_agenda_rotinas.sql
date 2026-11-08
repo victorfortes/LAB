@@ -1,0 +1,6 @@
+-- Agenda as rotinas de fundo na própria nuvem. Registro do que foi aplicado em produção.
+CREATE EXTENSION IF NOT EXISTS pg_cron;
+CREATE EXTENSION IF NOT EXISTS pg_net;
+SELECT cron.schedule('nga-lab-analise', '* * * * *', $job$SELECT net.http_post(url := 'https://ndwgzqkbxnjkkkbguytm.supabase.co/functions/v1/nga-lab-api/interno/rotina/analise', headers := jsonb_build_object('x-nga-rotina', (SELECT token FROM nga_lab.rotina_chave), 'content-type', 'application/json'), body := '{}'::jsonb, timeout_milliseconds := 120000)$job$);
+SELECT cron.schedule('nga-lab-google', '*/2 * * * *', $job$SELECT net.http_post(url := 'https://ndwgzqkbxnjkkkbguytm.supabase.co/functions/v1/nga-lab-api/interno/rotina/google', headers := jsonb_build_object('x-nga-rotina', (SELECT token FROM nga_lab.rotina_chave), 'content-type', 'application/json'), body := '{}'::jsonb, timeout_milliseconds := 120000)$job$);
+SELECT cron.schedule('nga-lab-djen', '13 * * * *', $job$SELECT net.http_post(url := 'https://ndwgzqkbxnjkkkbguytm.supabase.co/functions/v1/nga-lab-api/interno/rotina/djen', headers := jsonb_build_object('x-nga-rotina', (SELECT token FROM nga_lab.rotina_chave), 'content-type', 'application/json'), body := '{}'::jsonb, timeout_milliseconds := 120000)$job$);

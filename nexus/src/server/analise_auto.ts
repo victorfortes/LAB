@@ -25,7 +25,9 @@ export type EstadoDoProcessamento = 'na_fila' | 'lendo' | 'analisado' | 'sem_tex
 
 interface Extraido { readonly texto: string; readonly origem: 'texto_enviado' | 'pdf_nativo'; readonly paginas?: number }
 
-export async function extrair(bytes: Uint8Array, mime: string): Promise<Extraido | { vazio: string }> {
+export interface OpcoesDeLeitura { readonly limitePdfBytes?: number }
+
+export async function extrair(bytes: Uint8Array, mime: string, opcoes: OpcoesDeLeitura = {}): Promise<Extraido | { vazio: string }> {
   if (mime.startsWith('text/plain') || mime.startsWith('text/csv')) {
     try {
       const texto = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
@@ -33,6 +35,9 @@ export async function extrair(bytes: Uint8Array, mime: string): Promise<Extraido
     } catch { return { vazio: 'o arquivo não é UTF-8 válido' }; }
   }
   if (mime === 'application/pdf') {
+    if (opcoes.limitePdfBytes && bytes.length > opcoes.limitePdfBytes) {
+      return { vazio: `PDF de ${Math.ceil(bytes.length / 1048576)} MB, acima do limite de leitura automática na nuvem: confira manualmente ou envie em partes.` };
+    }
     const pdf = await getDocumentProxy(new Uint8Array(bytes));
     const { text, totalPages } = await extractText(pdf, { mergePages: true });
     const texto = (Array.isArray(text) ? text.join('\n') : text).trim();
@@ -54,9 +59,10 @@ async function marcar(
   estado: EstadoDoProcessamento, detalhe: string | null,
 ) {
   const r = await db.query(
-    `INSERT INTO documento_processamento (documento_id, organizacao_id, projeto_id, estado, detalhe)
-     VALUES ($1,$2,$3,$4,$5)
-     ON CONFLICT (documento_id) DO UPDATE SET estado = EXCLUDED.estado, detalhe = EXCLUDED.detalhe, atualizado_em = now()
+    `INSERT INTO documento_processamento (documento_id, organizacao_id, projeto_id, estado, detalhe, tentativas)
+     VALUES ($1,$2,$3,$4,$5,CASE WHEN $4::text = 'lendo' THEN 1 ELSE 0 END)
+     ON CONFLICT (documento_id) DO UPDATE SET estado = EXCLUDED.estado, detalhe = EXCLUDED.detalhe, atualizado_em = now(),
+       tentativas = documento_processamento.tentativas + (EXCLUDED.estado = 'lendo')::int
      WHERE EXCLUDED.estado <> 'lendo' OR documento_processamento.estado <> 'lendo'
         OR documento_processamento.atualizado_em < now() - interval '30 minutes'
      RETURNING documento_id`,
@@ -66,7 +72,7 @@ async function marcar(
 
 /** Processa um documento. Nunca lança: o resultado é o estado gravado. */
 export async function processar(
-  banco: Banco, dep: Deposito, provedor: Provedor, documentoId: string,
+  banco: Banco, dep: Deposito, provedor: Provedor, documentoId: string, opcoes: OpcoesDeLeitura = {},
 ): Promise<EstadoDoProcessamento> {
   let servico: Identidade | null = null;
   try {
@@ -95,7 +101,7 @@ export async function processar(
 
     if (!doc.tem_arquivo || !doc.hash_sha256) { await fim('sem_texto', 'o documento não tem arquivo guardado'); return 'sem_texto'; }
     const bytes = await banco.comoUsuario(usuarioId, (db) => lerConteudoDocumento(db, documentoId, dep, chaveDoHash(doc.hash_sha256!), doc.hash_sha256!));
-    const extraido = await extrair(bytes, (doc.tipo_mime ?? '').split(';')[0]!.trim());
+    const extraido = await extrair(bytes, (doc.tipo_mime ?? '').split(';')[0]!.trim(), opcoes);
     if ('vazio' in extraido) { await fim('sem_texto', extraido.vazio); return 'sem_texto'; }
 
     await banco.comoUsuario(usuarioId, (db) => analise.registrarTexto(

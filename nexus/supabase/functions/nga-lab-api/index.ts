@@ -5,6 +5,10 @@ import {criarApp} from '../../../src/server/app.ts';
 import {aplicarCabecalhos} from '../../../src/server/cabecalhos.ts';
 import {deposito} from '../../../src/server/arquivos.ts';
 import {AcervoNaNuvem} from './acervo.ts';
+import {processarFilaAnalise} from '../../../src/server/analise_fila.ts';
+import {sincronizarAgendado} from '../../../src/server/controladoria.ts';
+import {processarGoogleAgendado} from '../../../src/server/google.ts';
+import {provedorDoAmbiente} from '../../../src/ai/provedor.ts';
 import {createHash} from 'node:crypto';
 instalarCompatibilidade();
 const e=Deno.env.toObject();
@@ -25,6 +29,27 @@ async function prepararGoogle(){
  await googleConfig;
 }
 
+// Acima disto o PDF não cabe no limite de CPU da função: sai com motivo na tela, em vez de travar.
+const LIMITE_PDF=3*1024*1024;
+const acervo=new AcervoNaNuvem();
+const ROTINAS:Record<string,()=>Promise<unknown>>={
+ analise:()=>processarFilaAnalise(banco,dep,provedorDoAmbiente(e),{limitePdfBytes:LIMITE_PDF}),
+ djen:async()=>(await sincronizarAgendado(banco)).length,
+ google:async()=>{await prepararGoogle();await processarGoogleAgendado(banco,acervo);return 'ok'},
+};
+async function executarRotina(req:Request,nome:string):Promise<Response>{
+ const negado=new Response('não encontrado',{status:404});
+ const chave=req.headers.get('x-nga-rotina');
+ if(req.method!=='POST'||!chave||!Object.hasOwn(ROTINAS,nome))return negado;
+ const hash=createHash('sha256').update(chave).digest('hex');
+ const {rows}=await banco.semContexto(db=>db.query<{ok:boolean}>('SELECT rotina_autorizada($1) AS ok',[hash]));
+ if(!rows[0]?.ok)return negado;
+ const t=Date.now();let ok=true;let detalhe='';
+ try{detalhe=String(await ROTINAS[nome]!())}catch(error){ok=false;detalhe=(error as Error).message;console.error('rotina',nome,detalhe)}
+ await banco.semContexto(db=>db.query('SELECT rotina_registrar($1,$2,$3,$4)',[nome,ok,detalhe,Date.now()-t]));
+ return Response.json({ok},{status:ok?200:500});
+}
+
 Deno.serve({port:Number(e.NGA_EDGE_PORT??8000)},async(req:Request)=>{
  // The Supabase gateway terminates TLS; internal requests may carry an http URL.
  const u=new URL(req.url);u.protocol='https:';const pos=u.pathname.indexOf(prefix);if(pos>=0)u.pathname=u.pathname.slice(pos+prefix.length)||'/';
@@ -32,6 +57,7 @@ Deno.serve({port:Number(e.NGA_EDGE_PORT??8000)},async(req:Request)=>{
   try{await banco.semContexto(db=>db.query('SELECT 1'));return Response.json({status:'ok',backend:'Supabase Edge',acervo:'PostgreSQL',autenticacao:'sessão NGA por rota',worker:'separado'})}
   catch(error){console.error('health',error);return Response.json({status:'indisponivel'},{status:503})}
  }
+ if(u.pathname.startsWith('/interno/rotina/'))return executarRotina(req,u.pathname.slice('/interno/rotina/'.length));
  if(u.pathname.startsWith('/api/google/'))await prepararGoogle();
  // Existing API authenticates every private route (cookie/Bearer), downloads use signed short-lived grants.
  const r=await app(new Request(u,req));r.headers.set('cache-control','no-store');aplicarCabecalhos(r.headers,{https:true,pagina:false});return r;

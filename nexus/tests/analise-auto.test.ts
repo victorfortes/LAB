@@ -88,13 +88,13 @@ describe('cliente envia → análise automática → diagnóstico para o advogad
   });
 });
 
-test('worker retoma upload da API hospedada, separa documento interno e recupera lease abandonado',async()=>{
+test('worker retoma upload da API hospedada, inclui documento interno e recupera lease abandonado',async()=>{
  const provider=new ProvedorAusente('teste sem modelo');
  const cloud=criarApp({banco,deposito:dep,provedor:provider,analiseAutomatica:false});
  const upload=async(token:string,titulo:string)=>{const fd=new FormData();fd.append('arquivo',new File(['Documento de teste fictício para o trabalhador da fila.'],titulo+'.txt',{type:'text/plain'}));fd.append('titulo',titulo);const r=await cloud(new Request('https://lab.test/api/projetos/'+projeto+'/documentos',{method:'POST',headers:{cookie:'nga_sessao='+token},body:fd}));expect(r.status).toBe(201);return(await r.json()).documentoId as string;};
  const cliente=await upload(tCliente,'Cliente pela nuvem');const interno=await upload(tSocio,'Escritório pela nuvem');
  const pending=await banco.semContexto(async db=>(await db.query('SELECT * FROM documentos_de_analise_pendentes(5)')).rows.map(r=>r.documento_id));
- expect(pending).toContain(cliente);expect(pending).not.toContain(interno);
+ expect(pending).toContain(cliente);expect(pending).toContain(interno);
  expect(await processarFilaAnalise(banco,dep,provider)).toBe(1);
  expect(await processarFilaAnalise(banco,dep,provider)).toBe(0);
  let state=(await pg.dono.query('SELECT estado FROM documento_processamento WHERE documento_id=$1',[cliente])).rows[0].estado;expect(state).toBe('analisado');
