@@ -9,6 +9,8 @@ import {processarFilaAnalise} from '../../../src/server/analise_fila.ts';
 import {sincronizarAgendado} from '../../../src/server/controladoria.ts';
 import {processarGoogleAgendado} from '../../../src/server/google.ts';
 import {provedorDoAmbiente} from '../../../src/ai/provedor.ts';
+import {rotinaSentinela} from '../../../src/server/sentinela.ts';
+import {rotinaRadar} from '../../../src/server/radar.ts';
 import {createHash} from 'node:crypto';
 instalarCompatibilidade();
 const e=Deno.env.toObject();
@@ -36,6 +38,8 @@ const ROTINAS:Record<string,()=>Promise<unknown>>={
  analise:()=>processarFilaAnalise(banco,dep,provedorDoAmbiente(e),{limitePdfBytes:LIMITE_PDF}),
  djen:async()=>(await sincronizarAgendado(banco)).length,
  google:async()=>{await prepararGoogle();await processarGoogleAgendado(banco,acervo);return 'ok'},
+ sentinela:async()=>JSON.stringify(await rotinaSentinela(banco)),
+ radar:()=>rotinaRadar(banco,e.DJEN_INGEST_SECRET),
 };
 async function executarRotina(req:Request,nome:string):Promise<Response>{
  const negado=new Response('não encontrado',{status:404});

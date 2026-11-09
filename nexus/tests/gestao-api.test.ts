@@ -138,3 +138,52 @@ test('carteira: escritório vê os clientes; o cliente não', async () => {
   expect((await j(req(s, '/api/clientes/sem-etiqueta'))).length).toBe(1);
   for (const u of ['/api/clientes', '/api/clientes/sem-etiqueta', `/api/projetos/${pA}/registros-astrea`]) expect((await req(a, u)).status).toBe(403);
 });
+
+describe('Sentinela na nuvem', () => {
+  const ITEM = (id: number, polo = 'P') => ({ id, numero_processo: '00429103320148160001', siglaTribunal: 'TJPR', tipoComunicacao: 'Intimação', data_disponibilizacao: '2026-11-05', nomeClasse: 'Execução', nomeOrgao: '1ª Vara', link: 'https://x', texto: 'Texto', destinatarios: [{ nome: 'ACME TRANSPORTES LTDA', polo }] });
+  let cid = ''; let org = NGA;
+  const fake = (itens: unknown[], count = itens.length, st = 200): typeof fetch => (async (u: string) => (String(u).includes('datajud') ? new Response(JSON.stringify({ hits: { hits: [{ _source: { numeroProcesso: '00429103320148160001', dataAjuizamento: '20261101000000', grau: 'G1', classe: { nome: 'Execução' }, assuntos: [{ nome: 'Crédito' }] } }] } })) : new Response(JSON.stringify({ status: 'success', count, items: itens }), { status: st }))) as unknown as typeof fetch;
+  const AGORA = new Date('2026-11-09T12:00:00Z');
+  test('cadastra e o cliente do portal não alcança', async () => {
+    const r = await post(s, '/api/sentinela/clientes', { razaoSocial: 'ACME TRANSPORTES LTDA', cnpj: '11.222.333/0001-81' }); expect(r.status).toBe(201); cid = (await r.json()).id;
+    expect((await post(s, '/api/sentinela/clientes', { razaoSocial: 'X X', cnpj: '11.222.333/0001-82' })).status).toBe(400);
+    expect((await req(a, '/api/sentinela')).status).toBe(403);
+  });
+  test('planeja, coleta, marca provável para conferência e enriquece no DataJud', async () => {
+    const { rotinaSentinela } = await import('../src/server/sentinela.ts');
+    const t = await rotinaSentinela(banco, { fetch: fake([ITEM(1)]), agora: AGORA, limites: { ms: 60_000, bytes: 5_000_000 } });
+    expect(t.planejadas).toBeGreaterThan(0); expect(t.novas).toBe(1); expect(t.enriquecidos).toBe(1);
+    const p = await j(req(s, '/api/sentinela')); expect(p.itens).toHaveLength(1); expect(p.itens[0]).toMatchObject({ classificacao: 'provavel', categoria_data: 'nova_distribuicao' });
+    expect((await rotinaSentinela(banco, { fetch: fake([ITEM(1)]), agora: AGORA })).planejadas).toBe(0);
+  });
+  test('decisão humana não é desfeita por coleta posterior', async () => {
+    const { rotinaSentinela } = await import('../src/server/sentinela.ts');
+    const id = (await j(req(s, '/api/sentinela'))).itens[0].id; expect((await post(s, `/api/sentinela/achados/${id}/decisao`, { decisao: 'descartada' })).status).toBe(200);
+    await pg.dono.query(`UPDATE sentinela_tarefas SET status='pendente'`);
+    await pg.dono.query(`UPDATE sentinela_nomes SET tipo='razao_social'`);
+    await rotinaSentinela(banco, { fetch: fake([{ ...ITEM(2), texto: 'CNPJ 11.222.333/0001-81' }]), agora: AGORA });
+    expect((await pg.dono.query('SELECT estado_validacao FROM sentinela_achados WHERE id=$1', [id])).rows[0].estado_validacao).toBe('descartado_manual');
+  });
+  test('quando o DJEN pede para aguardar, a tarefa volta para a fila sem gastar tentativa', async () => {
+    const { rotinaSentinela } = await import('../src/server/sentinela.ts');
+    await pg.dono.query(`UPDATE sentinela_tarefas SET status='pendente',tentativas=0`);
+    await rotinaSentinela(banco, { fetch: fake([], 0, 429), agora: AGORA });
+    const { rows } = await pg.dono.query(`SELECT count(*)::int n FROM sentinela_tarefas WHERE status='executando' OR tentativas>0`); expect(rows[0].n).toBe(0);
+    expect((await pg.dono.query(`SELECT estado FROM sentinela_saude WHERE fonte='djen'`)).rows[0].estado).toBe('degradado');
+  });
+  test('paginação é retomada: orçamento esgotado guarda a página', async () => {
+    const { rotinaSentinela } = await import('../src/server/sentinela.ts');
+    await pg.dono.query(`DELETE FROM sentinela_tarefas`); await pg.dono.query(`INSERT INTO sentinela_tarefas(organizacao_id,cliente_id,dia,chave,param,valor,inicio,fim) VALUES($1,$2,'2026-11-09','nomeParte:ACME','nomeParte','ACME','2026-11-01','2026-11-03')`, [org, cid]);
+    await rotinaSentinela(banco, { fetch: fake(Array.from({ length: 100 }, (_, i) => ITEM(100 + i)), 250), agora: AGORA, limites: { ms: 60_000, bytes: 1 } });
+    expect((await pg.dono.query('SELECT status,pagina,lidos FROM sentinela_tarefas')).rows[0]).toMatchObject({ status: 'pendente', pagina: 2, lidos: 100 });
+  });
+});
+
+test('Radar: uma página por execução, avança e conclui', async () => {
+  const { rotinaRadar } = await import('../src/server/radar.ts'); const { CONSULTAS_DESCOBERTA } = await import('../src/server/radar_djen.ts');
+  await expect(rotinaRadar(banco, undefined)).rejects.toThrow('DJEN_INGEST_SECRET');
+  const entregas: unknown[] = []; const f = (async (u: string, i: RequestInit) => { if (String(u).includes('ingest')) { expect((i.headers as Record<string, string>).authorization).toBe('Bearer s'); entregas.push(1); return new Response('{}'); } return new Response(JSON.stringify({ count: 1, items: [{ numero_processo: '00429103320148160001', texto: 'EDITAL recuperação judicial', tipoComunicacao: 'Edital', nomeClasse: 'Recuperação Judicial', id: 9, data_disponibilizacao: '2026-11-05', siglaTribunal: 'TJPR' }] })); }) as unknown as typeof fetch;
+  const agora = new Date('2026-11-09T12:00:00Z');
+  for (let i = 0; i < CONSULTAS_DESCOBERTA.length; i++) await rotinaRadar(banco, 's', { fetch: f, agora });
+  expect(entregas.length).toBe(CONSULTAS_DESCOBERTA.length); expect(await rotinaRadar(banco, 's', { fetch: f, agora })).toBe('concluído');
+});

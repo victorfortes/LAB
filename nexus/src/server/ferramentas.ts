@@ -43,10 +43,10 @@ export function catalogo(): readonly Ferramenta[] {
       url: url('NGA_URL_PRAZOS', 'http://127.0.0.1:8787'),
     },
     {
-      id: 'sentinela', aplicacao: 'sentinela', estado: 'em_uso',
+      id: 'sentinela', aplicacao: 'sentinela', estado: 'em_uso', independente: true, semIncorporar: true,
       nome: 'NGA Sentinela',
-      descricao: 'Monitora novas ações contra clientes no DJEN e no DataJud.',
-      url: url('NGA_URL_SENTINELA', 'http://127.0.0.1:8000'),
+      descricao: 'Monitora novas ações contra clientes no DJEN e no DataJud. Roda na nuvem, todo dia.',
+      url: url('NGA_URL_SENTINELA', 'https://nga-lab-launchpad.lovable.app/#/sentinela'),
     },
     {
       id: 'integra', aplicacao: 'integra', estado: 'em_uso',
@@ -65,7 +65,7 @@ export function catalogo(): readonly Ferramenta[] {
     {
       id: 'radar', aplicacao: 'radar', estado: 'em_uso', independente: true, semIncorporar: true,
       nome: 'Radar de RJs e Falências',
-      descricao: 'Radar Concursal: descobertas no DJEN, processos e credores. Coleta diária pelo serviço do Mac.',
+      descricao: 'Radar Concursal: descobertas no DJEN, processos e credores. Coleta diária na nuvem.',
       url: url('NGA_URL_RADAR', 'https://judy-track-pro.lovable.app'),
     },
   ];

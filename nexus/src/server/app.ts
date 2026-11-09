@@ -31,6 +31,7 @@ import * as relatorios from './relatorios.ts';
 import * as projetos from './projetos.ts';
 import * as tarefas from './tarefas.ts';
 import * as gestao from './gestao.ts';
+import * as sentinela from './sentinela.ts';
 import { interpretar } from '../domain/financeiro/linguagem.ts';
 import { interpretarArquivo } from '../domain/financeiro/importacao.ts';
 import { MODULOS as CATALOGO_LAB } from './modulos.ts';
@@ -967,6 +968,11 @@ export function criarApp(ctx: Contexto) {
         if (acao === 'mensagens/lidas' && metodo === 'POST') { exigir(identidade.papeis, 'projeto.ler'); return json(await como((db) => gestao.marcarLidas(db, pid, ehCliente ? 'cliente' : 'nga'))); }
         return erro('método não permitido', 405);
       }
+      if (rota.startsWith('/api/sentinela') && ehCliente) return erro('acesso negado', 403);
+      if (rota === '/api/sentinela' && metodo === 'GET') { exigir(identidade.papeis, 'processo.ler'); return json(await como((db) => sentinela.painel(db, url.searchParams.get('filtro') === 'novas' ? 'novas' : 'pendentes'))); }
+      if (rota === '/api/sentinela/clientes' && metodo === 'POST') { exigir(identidade.papeis, 'processo.escrever'); const d = await corpoDe(sentinela.EsquemaClienteSentinela); return json(await como((db) => sentinela.criarCliente(db, d, identidade)), 201); }
+      const mSent = /^\/api\/sentinela\/achados\/([0-9a-f-]{36})\/decisao$/.exec(rota);
+      if (mSent && metodo === 'POST') { exigir(identidade.papeis, 'processo.escrever'); const d = await corpoDe(sentinela.EsquemaDecisao); return json(await como((db) => sentinela.decidir(db, mSent[1]!, d, identidade))); }
       if (rota === '/api/clientes' && metodo === 'GET') { if (ehCliente) return erro('acesso negado', 403); exigir(identidade.papeis, 'cliente.ler'); return json(await como((db) => gestao.clientesDaCarteira(db))); }
       if (rota === '/api/clientes/sem-etiqueta' && metodo === 'GET') { if (ehCliente) return erro('acesso negado', 403); exigir(identidade.papeis, 'cliente.ler'); return json(await como((db) => gestao.semEtiqueta(db, url.searchParams.get('q') ?? ''))); }
       const mSemCnj = /^\/api\/projetos\/([0-9a-f-]{36})\/registros-astrea$/.exec(rota);
