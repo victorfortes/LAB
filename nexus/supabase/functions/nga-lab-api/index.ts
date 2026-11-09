@@ -7,7 +7,7 @@ import {deposito} from '../../../src/server/arquivos.ts';
 import {AcervoNaNuvem} from './acervo.ts';
 import {processarFilaAnalise} from '../../../src/server/analise_fila.ts';
 import {sincronizarAgendado} from '../../../src/server/controladoria.ts';
-import {processarGoogleAgendado} from '../../../src/server/google.ts';
+import {definirConfiguracaoGoogle,processarGoogleAgendado} from '../../../src/server/google.ts';
 import {provedorDoAmbiente} from '../../../src/ai/provedor.ts';
 import {rotinaSentinela} from '../../../src/server/sentinela.ts';
 import {rotinaRadar} from '../../../src/server/radar.ts';
@@ -26,8 +26,8 @@ async function prepararGoogle(){
  googleConfig??=banco.semContexto(async(db)=>{
   const {rows}=await db.query<{chave:string;valor:string}>('SELECT * FROM configuracao_google_servidor()');
   const permitidas=new Set(['NGA_GOOGLE_CLIENT_ID','NGA_GOOGLE_CLIENT_SECRET','NGA_GOOGLE_REDIRECT_URI','NGA_GOOGLE_TOKEN_KEY']);
-  for(const r of rows)if(permitidas.has(r.chave)&&r.valor)process.env[r.chave]=r.valor;
- }).catch(()=>{googleConfig=undefined;console.error('Google: configuração do servidor indisponível');});
+  definirConfiguracaoGoogle(Object.fromEntries(rows.filter(r=>permitidas.has(r.chave)&&r.valor).map(r=>[r.chave,r.valor])));
+ }).catch((error)=>{googleConfig=undefined;console.error('Google: configuração do servidor indisponível',(error as Error).message);});
  await googleConfig;
 }
 

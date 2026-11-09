@@ -3,6 +3,11 @@ import {corpoEventoGoogle,EsquemaEvento,cifrarGoogle,decifrarGoogle,criarEvento,
 import {publicacaoNoPeriodo,hojeSaoPaulo,sincronizarOab,type ItemDjen} from '../src/server/controladoria.ts';
 
 describe('Google Calendar e Drive: contratos reais',()=>{
+ test('credencial do cofre vale sem gravar no ambiente do processo',async()=>{
+  const g=await import('../src/server/google.ts');const antes=process.env.NGA_GOOGLE_TOKEN_KEY;delete process.env.NGA_GOOGLE_TOKEN_KEY;
+  try{expect(()=>g.cifrarGoogle({a:1})).toThrow();g.definirConfiguracaoGoogle({NGA_GOOGLE_CLIENT_ID:'c',NGA_GOOGLE_CLIENT_SECRET:'s',NGA_GOOGLE_REDIRECT_URI:'https://x/r',NGA_GOOGLE_TOKEN_KEY:'cd'.repeat(32)});expect(g.decifrarGoogle(g.cifrarGoogle({a:1}))).toEqual({a:1});expect(process.env.NGA_GOOGLE_TOKEN_KEY).toBeUndefined();}
+  finally{g.definirConfiguracaoGoogle({NGA_GOOGLE_CLIENT_ID:'',NGA_GOOGLE_CLIENT_SECRET:'',NGA_GOOGLE_REDIRECT_URI:'',NGA_GOOGLE_TOKEN_KEY:''});if(antes)process.env.NGA_GOOGLE_TOKEN_KEY=antes;}
+ });
  test('a função Edge ganha Buffer global, que o Deno não expõe',async()=>{
   const {instalarCompatibilidade}=await import('../supabase/functions/nga-lab-api/compat.ts');const g=globalThis as Record<string,unknown>;const original=g.Buffer;
   try{delete g.Buffer;expect(g.Buffer).toBeUndefined();instalarCompatibilidade();expect(typeof g.Buffer).toBe('function');}finally{g.Buffer=original;}

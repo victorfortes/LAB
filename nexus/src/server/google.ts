@@ -15,14 +15,19 @@ const TIPOS_REESTRUTURACAO = new Set(['recuperacao_judicial','recuperacao_extraj
 export const pastaDoTipo = (tipo: string) => (TIPOS_REESTRUTURACAO.has(tipo) ? PASTA_REESTRUTURACAO : PASTA_CIVEL);
 const REQUIRED = ['NGA_GOOGLE_CLIENT_ID','NGA_GOOGLE_CLIENT_SECRET','NGA_GOOGLE_REDIRECT_URI','NGA_GOOGLE_TOKEN_KEY'] as const;
 const hash = (v: string) => createHash('sha256').update(v).digest('hex');
+/** Valores vindos do cofre do banco. Ficam em memória: a função Edge não permite gravar no ambiente do processo. */
+const doCofre: Record<string,string> = {};
+export function definirConfiguracaoGoogle(valores: Record<string,string>) { Object.assign(doCofre, valores); }
+const env = (k: (typeof REQUIRED)[number]) => doCofre[k] || process.env[k];
 function config() {
-  const faltantes = REQUIRED.filter((k) => !process.env[k]);
-  if (process.env.NGA_GOOGLE_TOKEN_KEY && !/^[0-9a-f]{64}$/i.test(process.env.NGA_GOOGLE_TOKEN_KEY)) faltantes.push('NGA_GOOGLE_TOKEN_KEY');
+  const faltantes: string[] = REQUIRED.filter((k) => !env(k));
+  const chave = env('NGA_GOOGLE_TOKEN_KEY');
+  if (chave && !/^[0-9a-f]{64}$/i.test(chave)) faltantes.push('NGA_GOOGLE_TOKEN_KEY');
   return { configurado: faltantes.length === 0, faltantes };
 }
 function key() {
   if (!config().configurado) throw new PedidoInvalido('Configure a conexão Google em Integrações antes de continuar.');
-  return Buffer.from(process.env.NGA_GOOGLE_TOKEN_KEY!, 'hex');
+  return Buffer.from(env('NGA_GOOGLE_TOKEN_KEY')!, 'hex');
 }
 export function cifrarGoogle(valor: unknown): string {
   const nonce = randomBytes(12); const cipher = createCipheriv('aes-256-gcm', key(), nonce);
@@ -43,8 +48,8 @@ export async function status(db: PoolClient, i: Identidade) {
   const { rows } = await db.query<{credencial:string}>('SELECT credencial FROM google_conexoes WHERE organizacao_id=$1',[organizacaoId]);
   const { rows: fila } = await db.query<{pendentes:number;erro:string|null}>('SELECT count(*)::int AS pendentes,max(erro) AS erro FROM google_fila WHERE estado=\'pendente\'');
   const saude = rows[0] && c.configurado ? await saudeDaConexao(db,organizacaoId,rows[0].credencial) : { reconectar:false, motivo:null as string|null };
-  return { ...c, conectado: rows.length > 0 && !saude.reconectar, reconectar: saude.reconectar, motivo: saude.motivo, pendentes: fila[0]?.pendentes ?? 0, ultimoErroFila: fila[0]?.erro ?? null,
-    redirectUri: process.env.NGA_GOOGLE_REDIRECT_URI ?? 'http://localhost:8790/api/google/callback',
+  return { ...c, conectado: rows.length > 0 && c.configurado && !saude.reconectar, reconectar: saude.reconectar, motivo: saude.motivo, pendentes: fila[0]?.pendentes ?? 0, ultimoErroFila: fila[0]?.erro ?? null,
+    redirectUri: env('NGA_GOOGLE_REDIRECT_URI') ?? 'http://localhost:8790/api/google/callback',
     instrucoes: ['No Google Cloud, crie um projeto e habilite Google Calendar API e Google Drive API.',
       'Configure a tela de consentimento e um cliente OAuth do tipo Aplicativo da Web.',
       'Cadastre a URI de redirecionamento exibida nesta tela.',
@@ -56,7 +61,7 @@ export async function conectar(db: PoolClient, i: Identidade) {
   key(); const nonce = randomBytes(32).toString('base64url'); const verifier = randomBytes(48).toString('base64url');
   await db.query('DELETE FROM google_oauth_estados WHERE expira_em < now()');
   await db.query('INSERT INTO google_oauth_estados(hash,usuario_id,organizacao_id,verificador) VALUES($1,$2,$3,$4)',[hash(nonce),i.usuarioId,org(i),verifier]);
-  const p = new URLSearchParams({client_id:process.env.NGA_GOOGLE_CLIENT_ID!,redirect_uri:process.env.NGA_GOOGLE_REDIRECT_URI!,response_type:'code',scope:SCOPES.join(' '),access_type:'offline',prompt:'consent',state:nonce,code_challenge:createHash('sha256').update(verifier).digest('base64url'),code_challenge_method:'S256'});
+  const p = new URLSearchParams({client_id:env('NGA_GOOGLE_CLIENT_ID')!,redirect_uri:env('NGA_GOOGLE_REDIRECT_URI')!,response_type:'code',scope:SCOPES.join(' '),access_type:'offline',prompt:'consent',state:nonce,code_challenge:createHash('sha256').update(verifier).digest('base64url'),code_challenge_method:'S256'});
   return { url: 'https://accounts.google.com/o/oauth2/v2/auth?' + p };
 }
 interface Tokens { access_token: string; refresh_token?: string; expires_in?: number; expires_at?: number; scope?: string }
@@ -75,7 +80,7 @@ async function saudeDaConexao(db: PoolClient, organizacaoId: string, credencial:
   }
 }
 async function exchange(data: Record<string,string>): Promise<Tokens> {
-  const r = await fetch('https://oauth2.googleapis.com/token',{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},body:new URLSearchParams({...data,client_id:process.env.NGA_GOOGLE_CLIENT_ID!,client_secret:process.env.NGA_GOOGLE_CLIENT_SECRET!}),signal:AbortSignal.timeout(20000)});
+  const r = await fetch('https://oauth2.googleapis.com/token',{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},body:new URLSearchParams({...data,client_id:env('NGA_GOOGLE_CLIENT_ID')!,client_secret:env('NGA_GOOGLE_CLIENT_SECRET')!}),signal:AbortSignal.timeout(20000)});
   if (!r.ok) {
     const e = await r.json().catch(() => ({})) as { error?: string; error_description?: string };
     if (e.error === 'invalid_grant') throw new GoogleDesconectado('A autorização do Google expirou ou foi revogada. Renove a conexão em Ajustes.');
@@ -89,7 +94,7 @@ export async function callback(db: PoolClient, i: Identidade, code: string, stat
   key();
   const { rows } = await db.query<{verificador:string;organizacao_id:string}>('DELETE FROM google_oauth_estados WHERE hash=$1 AND usuario_id=$2 AND expira_em>now() RETURNING verificador,organizacao_id',[hash(state),i.usuarioId]);
   if (!rows[0]) throw new PedidoInvalido('Autorização expirada ou inválida. Inicie novamente.');
-  const t = await exchange({code,redirect_uri:process.env.NGA_GOOGLE_REDIRECT_URI!,grant_type:'authorization_code',code_verifier:rows[0].verificador});
+  const t = await exchange({code,redirect_uri:env('NGA_GOOGLE_REDIRECT_URI')!,grant_type:'authorization_code',code_verifier:rows[0].verificador});
   if (!t.refresh_token) throw new PedidoInvalido('O Google não forneceu autorização permanente. Revogue o acesso anterior e conecte novamente.');
   const faltam = escoposFaltantes(t.scope);
   if (faltam.length) throw new PedidoInvalido('Marque todas as permissões na tela do Google: sem elas o Calendar e o Drive não funcionam. Conecte novamente.');
