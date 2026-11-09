@@ -37,7 +37,7 @@ const acervo=new AcervoNaNuvem();
 const ROTINAS:Record<string,()=>Promise<unknown>>={
  analise:()=>processarFilaAnalise(banco,dep,provedorDoAmbiente(e),{limitePdfBytes:LIMITE_PDF}),
  djen:async()=>(await sincronizarAgendado(banco)).length,
- google:async()=>{await prepararGoogle();await processarGoogleAgendado(banco,acervo);return 'ok'},
+ google:async()=>{await prepararGoogle();return JSON.stringify(await processarGoogleAgendado(banco,acervo))},
  sentinela:async()=>JSON.stringify(await rotinaSentinela(banco)),
  radar:()=>rotinaRadar(banco,e.DJEN_INGEST_SECRET),
 };

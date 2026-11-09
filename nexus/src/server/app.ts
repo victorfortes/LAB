@@ -31,7 +31,7 @@ import * as relatorios from './relatorios.ts';
 import * as projetos from './projetos.ts';
 import * as tarefas from './tarefas.ts';
 import * as gestao from './gestao.ts';
-import * as sentinela from './sentinela.ts';
+import * as sentinelaGestao from './sentinela_gestao.ts';
 import { interpretar } from '../domain/financeiro/linguagem.ts';
 import { interpretarArquivo } from '../domain/financeiro/importacao.ts';
 import { MODULOS as CATALOGO_LAB } from './modulos.ts';
@@ -289,15 +289,15 @@ export function criarApp(ctx: Contexto) {
         });
       }
 
-      // Google returns cross-site: relay through a same-origin document so Strict session cookies
-      // remain strict and the actual token exchange still requires the initiating user's session.
+      // O retorno do Google é navegação cross-site, então o cookie Strict não vem junto. A função Edge
+      // também não pode servir HTML (o gateway troca por text/plain com sandbox). Por isso o código vai no
+      // fragmento para a tela, que conclui por POST na mesma origem, com a sessão de quem iniciou.
       if (rota === '/api/google/callback' && metodo === 'GET') {
         const code=url.searchParams.get('code'); const state=url.searchParams.get('state');
-        if(!code || !state || code.length>4096 || state.length>256) return erro('Autorização Google recusada ou incompleta.',400);
-        const next='/api/google/finalizar?'+new URLSearchParams({code,state});
-        const nonce=crypto.randomUUID();
-        const script='location.replace('+JSON.stringify(next).replaceAll('<','\\u003c')+')';
-        return new Response('<!doctype html><meta charset="utf-8"><title>Conectando Google</title><p>Concluindo conexão Google…</p><script nonce="'+nonce+'">'+script+'</script>',{headers:{'content-type':'text/html;charset=utf-8','cache-control':'no-store','referrer-policy':'no-referrer','content-security-policy':"default-src 'none'; script-src 'nonce-"+nonce+"'; base-uri 'none'; frame-ancestors 'none'"}});
+        const retorno=!code || !state || code.length>4096 || state.length>256
+          ? new URLSearchParams({googleErro:url.searchParams.get('error')==='access_denied'?'A autorização foi cancelada na tela do Google.':'O Google não concluiu a autorização. Tente novamente.'})
+          : new URLSearchParams({googleCode:code,googleState:state});
+        return new Response(null,{status:303,headers:{location:'/#/ajustes?'+retorno,'cache-control':'no-store','referrer-policy':'no-referrer'}});
       }
 
       if(rota==='/api/sso/consumir'&&metodo==='POST'){
@@ -369,11 +369,11 @@ export function criarApp(ctx: Contexto) {
           exigir(identidade.papeis, 'integracao.gerir');
           return json(await banco.comoUsuario(identidade.usuarioId, db => google.conectar(db, identidade)));
         }
-        if (rota === '/api/google/finalizar' && metodo === 'GET') {
+        if (rota === '/api/google/finalizar' && metodo === 'POST') {
           exigir(identidade.papeis, 'integracao.gerir');
-          if (!url.searchParams.get('code') || !url.searchParams.get('state')) return erro('Autorização Google recusada ou incompleta.', 400);
-          await banco.comoUsuario(identidade.usuarioId, db => google.callback(db, identidade, url.searchParams.get('code')!, url.searchParams.get('state')!));
-          return new Response(null,{status:303,headers:{location:'/#/ajustes'}});
+          const d = z.object({code:z.string().min(1).max(4096),state:z.string().min(1).max(256)}).safeParse(await req.json().catch(()=>null));
+          if (!d.success) return erro('Autorização Google recusada ou incompleta.', 400);
+          return json(await banco.comoUsuario(identidade.usuarioId, db => google.callback(db, identidade, d.data.code, d.data.state)));
         }
         if (rota === '/api/google/eventos' && metodo === 'GET') {
           const id=url.searchParams.get('projetoId');
@@ -968,11 +968,46 @@ export function criarApp(ctx: Contexto) {
         if (acao === 'mensagens/lidas' && metodo === 'POST') { exigir(identidade.papeis, 'projeto.ler'); return json(await como((db) => gestao.marcarLidas(db, pid, ehCliente ? 'cliente' : 'nga'))); }
         return erro('método não permitido', 405);
       }
-      if (rota.startsWith('/api/sentinela') && ehCliente) return erro('acesso negado', 403);
-      if (rota === '/api/sentinela' && metodo === 'GET') { exigir(identidade.papeis, 'processo.ler'); return json(await como((db) => sentinela.painel(db, url.searchParams.get('filtro') === 'novas' ? 'novas' : 'pendentes'))); }
-      if (rota === '/api/sentinela/clientes' && metodo === 'POST') { exigir(identidade.papeis, 'processo.escrever'); const d = await corpoDe(sentinela.EsquemaClienteSentinela); return json(await como((db) => sentinela.criarCliente(db, d, identidade)), 201); }
-      const mSent = /^\/api\/sentinela\/achados\/([0-9a-f-]{36})\/decisao$/.exec(rota);
-      if (mSent && metodo === 'POST') { exigir(identidade.papeis, 'processo.escrever'); const d = await corpoDe(sentinela.EsquemaDecisao); return json(await como((db) => sentinela.decidir(db, mSent[1]!, d, identidade))); }
+      if (rota.startsWith('/api/sentinela')) {
+        if (ehCliente) return erro('acesso negado', 403);
+        const ler = () => exigir(identidade.papeis, 'processo.ler'), escrever = () => exigir(identidade.papeis, 'processo.escrever'), gerir = () => exigir(identidade.papeis, 'integracao.gerir');
+        const q = url.searchParams, s = sentinelaGestao, sub = rota.slice('/api/sentinela'.length), ID = '([0-9a-f-]{36})';
+        const casa = (re: string) => new RegExp(`^${re}$`).exec(sub);
+        let m: RegExpExecArray | null;
+        if (metodo === 'GET') {
+          ler();
+          if (sub === '') return json(await como((db) => s.painel(db, q.get('filtro') === 'novas' ? 'novas' : 'pendentes')));
+          if (sub === '/dashboard') return json(await como(s.painelGeral));
+          if (sub === '/progresso') return json(await como(s.progresso));
+          if (sub === '/clientes') return json(await como(s.listarClientes));
+          if ((m = casa(`/clientes/${ID}`))) return json(await como((db) => s.verCliente(db, m![1]!)));
+          if (sub === '/processos') return json(await como((db) => s.listarProcessos(db, q)));
+          if ((m = casa(`/processos/${ID}`))) return json(await como((db) => s.detalheProcesso(db, m![1]!)));
+          if (sub === '/equipe') return json(await como((db) => s.equipeResponsavel(db, identidade)));
+          if (sub === '/cobertura') return json(await como((db) => s.cobertura(db, Number(q.get('dias') ?? 45))));
+          if (sub === '/fontes') return json(await como(s.fontes));
+          if (sub === '/alertas') return json(await como(s.listarAlertas));
+          if (sub === '/config') { gerir(); return json(await como((db) => s.verConfig(db, identidade))); }
+        }
+        if (metodo === 'POST') {
+          if (sub === '/clientes') { escrever(); const d = await corpoDe(s.EsquemaClienteSentinela); return json(await como((db) => s.criarCliente(db, d, identidade)), 201); }
+          if (sub === '/clientes/importar') { escrever(); const d = await corpoDe(s.EsquemaImportacao); return json(await como((db) => s.importarClientes(db, d.linhas, identidade))); }
+          if ((m = casa(`/achados/${ID}/decisao`))) { escrever(); const d = await corpoDe(s.EsquemaDecisao); return json(await como((db) => s.decidir(db, m![1]!, d, identidade))); }
+          if (sub === '/achados/lote') { escrever(); const d = await corpoDe(s.EsquemaLote); return json(await como((db) => s.decidirLote(db, d, identidade))); }
+          if ((m = casa(`/processos/${ID}/atribuir`))) { escrever(); const d = await corpoDe(s.EsquemaAtribuicao); return json(await como((db) => s.atribuir(db, m![1]!, d, identidade))); }
+          if ((m = casa(`/processos/${ID}/analisar`))) { escrever(); return json(await como((db) => s.analisar(db, m![1]!, identidade))); }
+          if (sub === '/pesquisa') { escrever(); const d = await corpoDe(s.EsquemaPesquisa); return json(await como((db) => s.comandarPesquisa(db, d, identidade)), 201); }
+          if (sub === '/controle') { escrever(); const d = await corpoDe(s.EsquemaControle); return json(await como((db) => s.adicionarControle(db, d, identidade)), 201); }
+          if (sub === '/controle/verificar') { escrever(); return json(await como(s.verificarControles)); }
+          if ((m = casa(`/alertas/${ID}/lido`))) { ler(); return json(await como((db) => s.marcarAlertaLido(db, m![1]!))); }
+        }
+        if (metodo === 'PUT') {
+          if ((m = casa(`/clientes/${ID}`))) { escrever(); const d = await corpoDe(s.EsquemaEdicaoCliente); return json(await como((db) => s.editarCliente(db, m![1]!, d, identidade))); }
+          if ((m = casa('/config/(prioridade|motor)'))) { gerir(); const c = await req.json().catch(() => null); return json(await como((db) => s.salvarConfig(db, m![1]!, c, identidade))); }
+        }
+        if (metodo === 'DELETE' && (m = casa(`/controle/${ID}`))) { escrever(); return json(await como((db) => s.removerControle(db, m![1]!))); }
+        return erro('não encontrado', 404);
+      }
       if (rota === '/api/clientes' && metodo === 'GET') { if (ehCliente) return erro('acesso negado', 403); exigir(identidade.papeis, 'cliente.ler'); return json(await como((db) => gestao.clientesDaCarteira(db))); }
       if (rota === '/api/clientes/sem-etiqueta' && metodo === 'GET') { if (ehCliente) return erro('acesso negado', 403); exigir(identidade.papeis, 'cliente.ler'); return json(await como((db) => gestao.semEtiqueta(db, url.searchParams.get('q') ?? ''))); }
       const mSemCnj = /^\/api\/projetos\/([0-9a-f-]{36})\/registros-astrea$/.exec(rota);

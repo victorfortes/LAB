@@ -152,7 +152,7 @@ describe('Sentinela na nuvem', () => {
   test('planeja, coleta, marca provável para conferência e enriquece no DataJud', async () => {
     const { rotinaSentinela } = await import('../src/server/sentinela.ts');
     const t = await rotinaSentinela(banco, { fetch: fake([ITEM(1)]), agora: AGORA, limites: { ms: 60_000, bytes: 5_000_000 } });
-    expect(t.planejadas).toBeGreaterThan(0); expect(t.novas).toBe(1); expect(t.enriquecidos).toBe(1);
+    expect(t.tarefas).toBeGreaterThan(0); expect(t.novas).toBe(1); expect(t.enriquecidos).toBe(1);
     const p = await j(req(s, '/api/sentinela')); expect(p.itens).toHaveLength(1); expect(p.itens[0]).toMatchObject({ classificacao: 'provavel', categoria_data: 'nova_distribuicao' });
     expect((await rotinaSentinela(banco, { fetch: fake([ITEM(1)]), agora: AGORA })).planejadas).toBe(0);
   });

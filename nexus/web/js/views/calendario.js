@@ -26,7 +26,7 @@ export default async function calendario() {
     api.get('/api/tarefas'),
     api.get(`/api/calendario/feriados?ano=${ano}`),
     api.get('/api/google/status').catch(() => null),
-    api.get('/api/google/eventos'),
+    api.get('/api/google/eventos').catch(() => []),
   ]);
 
   const feriados = new Map(fer.feriados.map((f) => [f.data, f]));
@@ -57,14 +57,14 @@ export default async function calendario() {
     titulo: 'Calendário',
     html: html`${cabecalho({
       titulo: 'Calendário', sub: `${MESES[mes]} de ${ano} · prazos contados em dias úteis forenses`,
-      acoes: html`${pode('tarefa.escrever') ? html`<button type="button" class="btn btn--accent" data-evento-novo="${hoje}">${icone('plus')}Novo evento</button>` : ''}<button type="button" class="btn btn--ghost" data-google>${google?.conectado ? 'Google conectado' : 'Conectar Google'}</button><div class="seg" role="group"><span class="seg__pill" aria-hidden="true"></span>
+      acoes: html`${pode('tarefa.escrever') ? html`<button type="button" class="btn btn--accent" data-evento-novo="${hoje}">${icone('plus')}Novo evento</button>` : ''}<button type="button" class="btn btn--ghost" data-google>${google?.conectado ? 'Google conectado' : google?.reconectar ? 'Renovar Google' : 'Conectar Google'}</button><div class="seg" role="group"><span class="seg__pill" aria-hidden="true"></span>
         <button type="button" class="seg__btn" data-nav="-1" aria-pressed="false">${icone('chevronLeft')}</button>
         <button type="button" class="seg__btn" data-nav="0" aria-pressed="false"><span>Hoje</span></button>
         <button type="button" class="seg__btn" data-nav="1" aria-pressed="false">${icone('chevron')}</button></div>`,
       resumo: [{ rotulo: 'Prazos no mês', valor: nPrazos }, { rotulo: 'Tarefas com prazo', valor: tarefas.length },
         { rotulo: 'Vencidos', valor: agenda.vencidos, tom: agenda.vencidos ? 'alert' : 'ok' }, { rotulo: 'Vencem hoje', valor: agenda.venceHoje, tom: agenda.venceHoje ? 'warn' : '' }],
     })}
-    ${!google?.conectado ? html`<p class="nota mt">Conecte sua conta Google para criar eventos no Calendar, gerar links do Meet e organizar os documentos no Drive.${google?.configurado === false ? ' A configuração OAuth do escritório ainda precisa ser concluída em Ajustes.' : ''}</p>` : ''}
+    ${google?.reconectar ? html`<p class="nota mt" style="color:var(--lab-red)">${google.motivo}</p>` : !google?.conectado ? html`<p class="nota mt">Conecte sua conta Google para criar eventos no Calendar, gerar links do Meet e organizar os documentos no Drive.${google?.configurado === false ? ' A configuração OAuth do escritório ainda precisa ser concluída em Ajustes.' : ''}</p>` : ''}
     ${vencidosAntes.length ? html`<div class="card glass up mt" style="border:1px solid #FF6B6B55"><header class="card__head"><div><h2 class="card__title" style="color:var(--lab-red)">${vencidosAntes.length} prazo(s) vencido(s) de meses anteriores</h2><p class="card__sub">Ainda abertos. Um prazo aberto com vencimento no passado é o achado mais importante desta tela.</p></div></header>
       <ul class="lista">${vencidosAntes.map((z) => html`<li style="cursor:pointer" data-ir="${z.projeto_id ? `projetos/${z.projeto_id}/processos` : 'projetos'}"><div><b>${z.titulo}</b><small>${z.numero} · venceu em ${dataBR(z.vencimento)}</small></div><div class="fim"><span class="selo erro">há ${-z.diasUteisRestantes} dia(s) útil(eis)</span></div></li>`)}</ul></div>` : ''}
     <section class="card glass up mt">
@@ -116,7 +116,7 @@ async function novoEvento(dia, google) {
     { nome:'marcador',rotulo:'Marcador',tipo:'select',opcoes:[{v:'reuniao',t:'Reunião'},{v:'audiencia',t:'Audiência'},{v:'prazo',t:'Prazo'},{v:'lembrete',t:'Lembrete'},{v:'cliente',t:'Cliente'},{v:'interno',t:'Interno'}] },
     { nome:'meet',rotulo:'Google Meet',tipo:'select',valor:google?.conectado ? 'sim' : 'nao',opcoes:[{v:'sim',t:'Criar link de reunião'},{v:'nao',t:'Sem videoconferência'}] },
     { nome:'descricao',rotulo:'Descrição',tipo:'textarea' }],
-    enviar:async (v) => { const inicio = new Date(v.inicio), fim = new Date(v.fim); if (fim <= inicio) throw new Error('O término deve ser depois do início.'); if (v.meet === 'sim' && !google?.conectado) throw new Error('Conecte o Google antes de solicitar um link Meet.'); await api.post('/api/google/eventos', { projetoId:v.projetoId,titulo:v.titulo,inicio:inicio.toISOString(),fim:fim.toISOString(),marcador:v.marcador,descricao:v.descricao,criarMeet:v.meet === 'sim' }); toast('Evento criado'); },
+    enviar:async (v) => { const inicio = new Date(v.inicio), fim = new Date(v.fim); if (fim <= inicio) throw new Error('O término deve ser depois do início.'); if (v.meet === 'sim' && !google?.conectado) throw new Error('Conecte o Google antes de solicitar um link Meet.'); const r = await api.post('/api/google/eventos', { projetoId:v.projetoId,titulo:v.titulo,inicio:inicio.toISOString(),fim:fim.toISOString(),marcador:v.marcador,descricao:v.descricao,criarMeet:v.meet === 'sim' }); if (r.pendente) toast(`Evento salvo no LAB, mas não foi para o Google: ${r.erro ?? 'tente de novo em instantes.'}`, 'aviso'); else if (v.meet === 'sim' && !r.meet_url) toast('Evento criado. O link do Meet aparece em instantes.'); else toast('Evento criado'); },
   }); if (ok) navegar();
 }
 

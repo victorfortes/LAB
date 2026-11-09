@@ -7,7 +7,18 @@ import { navegar } from '../shell.js';
 
 const ESCOPOS = { 'processos': ['processos'], 'prazos': ['prazos'], 'documentos': ['documentos'], 'processos+documentos': ['processos', 'documentos'], 'todos': ['processos', 'prazos', 'documentos'] };
 
+/** O Google volta para cá com o código no fragmento: conclui na mesma origem e tira o código do histórico. */
+async function concluirGoogle() {
+  const q = new URLSearchParams(location.hash.split('?')[1] ?? '');
+  if (!q.has('googleCode') && !q.has('googleErro')) return;
+  history.replaceState(null, '', '#/ajustes');
+  if (q.has('googleErro')) { toast(q.get('googleErro'), 'erro'); return; }
+  try { await api.post('/api/google/finalizar', { code: q.get('googleCode'), state: q.get('googleState') }); toast('Conta Google conectada'); }
+  catch (e) { erroDe(e); }
+}
+
 export default async function ajustes() {
+  await concluirGoogle();
   const eu = estado.eu;
   const gere = pode('integracao.gerir');
   const [int, ia, arq, google] = await Promise.all([
@@ -17,9 +28,10 @@ export default async function ajustes() {
     html: html`${cabecalho({ titulo: 'Ajustes', sub: 'Conta, integrações e o que está de fato funcionando' })}
       <div class="grid-hub mt">
         <div style="display:grid;gap:var(--gap)">
-          <section class="card glass up"><header class="card__head"><div><h2 class="card__title">Google Calendar, Meet e Drive</h2><p class="card__sub">Conexão da conta do escritório para os eventos e arquivos dos projetos.</p></div><span class="selo ${google?.conectado ? 'ok' : 'aviso'}">${google?.conectado ? 'Conectado' : 'Pendente'}</span></header>
+          <section class="card glass up"><header class="card__head"><div><h2 class="card__title">Google Calendar, Meet e Drive</h2><p class="card__sub">Conexão da conta do escritório para os eventos e arquivos dos projetos.</p></div><span class="selo ${google?.conectado ? 'ok' : google?.reconectar ? 'erro' : 'aviso'}">${google?.conectado ? 'Conectado' : google?.reconectar ? 'Renovar' : 'Pendente'}</span></header>
+            ${google?.motivo ? html`<p class="nota">${google.motivo}</p>` : ''}${google?.ultimoErroFila ? html`<p class="nota">Último erro na fila do Drive: ${google.ultimoErroFila}</p>` : ''}
             <p class="dica">Os eventos criados no calendário recebem o vínculo com o projeto. Os documentos do portal são organizados nas pastas do cliente e do projeto.</p>
-            ${google?.configurado ? html`<button class="btn btn--accent" data-google-conectar>${google.conectado ? 'Renovar autorização Google' : 'Conectar conta Google'}</button>` : html`<p class="dica">Para habilitar, conclua a configuração da aplicação Google do escritório:</p><ul class="lista">${(google?.instrucoes ?? []).map((i) => html`<li>${i}</li>`)}</ul><p class="mono-sm">Pendente: ${(google?.faltantes ?? []).join(', ') || 'Configuração indisponível'}</p>`}
+            ${google?.configurado ? html`<button class="btn btn--accent" data-google-conectar>${google.conectado || google.reconectar ? 'Renovar autorização Google' : 'Conectar conta Google'}</button>` : html`<p class="dica">Para habilitar, conclua a configuração da aplicação Google do escritório:</p><ul class="lista">${(google?.instrucoes ?? []).map((i) => html`<li>${i}</li>`)}</ul><p class="mono-sm">Pendente: ${(google?.faltantes ?? []).join(', ') || 'Configuração indisponível'}</p>`}
           </section>
           ${gere ? html`<section class="card glass up"><header class="card__head"><div><h2 class="card__title">Integrações</h2><p class="card__sub">Credenciais para as aplicações do Lab entregarem dados. O token aparece uma única vez.</p></div>
             <button type="button" class="btn btn--accent" data-nova>${icone('plus')}Nova credencial</button></header>

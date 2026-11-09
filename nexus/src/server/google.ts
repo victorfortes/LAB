@@ -40,9 +40,10 @@ function org(i: Identidade) {
 }
 export async function status(db: PoolClient, i: Identidade) {
   const c = config(); const organizacaoId = org(i);
-  const { rows } = await db.query('SELECT criado_em FROM google_conexoes WHERE organizacao_id=$1',[organizacaoId]);
-  const { rows: fila } = await db.query('SELECT count(*)::int AS pendentes FROM google_fila WHERE estado=\'pendente\'');
-  return { ...c, conectado: rows.length > 0, pendentes: fila[0]?.pendentes ?? 0,
+  const { rows } = await db.query<{credencial:string}>('SELECT credencial FROM google_conexoes WHERE organizacao_id=$1',[organizacaoId]);
+  const { rows: fila } = await db.query<{pendentes:number;erro:string|null}>('SELECT count(*)::int AS pendentes,max(erro) AS erro FROM google_fila WHERE estado=\'pendente\'');
+  const saude = rows[0] && c.configurado ? await saudeDaConexao(db,organizacaoId,rows[0].credencial) : { reconectar:false, motivo:null as string|null };
+  return { ...c, conectado: rows.length > 0 && !saude.reconectar, reconectar: saude.reconectar, motivo: saude.motivo, pendentes: fila[0]?.pendentes ?? 0, ultimoErroFila: fila[0]?.erro ?? null,
     redirectUri: process.env.NGA_GOOGLE_REDIRECT_URI ?? 'http://localhost:8790/api/google/callback',
     instrucoes: ['No Google Cloud, crie um projeto e habilite Google Calendar API e Google Drive API.',
       'Configure a tela de consentimento e um cliente OAuth do tipo Aplicativo da Web.',
@@ -58,10 +59,30 @@ export async function conectar(db: PoolClient, i: Identidade) {
   const p = new URLSearchParams({client_id:process.env.NGA_GOOGLE_CLIENT_ID!,redirect_uri:process.env.NGA_GOOGLE_REDIRECT_URI!,response_type:'code',scope:SCOPES.join(' '),access_type:'offline',prompt:'consent',state:nonce,code_challenge:createHash('sha256').update(verifier).digest('base64url'),code_challenge_method:'S256'});
   return { url: 'https://accounts.google.com/o/oauth2/v2/auth?' + p };
 }
-interface Tokens { access_token: string; refresh_token?: string; expires_in?: number; expires_at?: number }
+interface Tokens { access_token: string; refresh_token?: string; expires_in?: number; expires_at?: number; scope?: string }
+/** Autorização que só uma nova conexão resolve: refresh revogado, expirado ou escopo antigo. */
+export class GoogleDesconectado extends PedidoInvalido {}
+export const escoposFaltantes = (concedidos?: string) => concedidos === undefined ? [] : SCOPES.filter((s) => !concedidos.split(/\s+/).includes(s));
+async function saudeDaConexao(db: PoolClient, organizacaoId: string, credencial: string) {
+  let t: Tokens;
+  try { t = decifrarGoogle<Tokens>(credencial); }
+  catch { return { reconectar:true, motivo:'A credencial gravada não pode ser lida com a chave atual. Renove a autorização.' }; }
+  if (escoposFaltantes(t.scope).length) return { reconectar:true, motivo:'A conta foi conectada com permissões antigas. Renove a autorização para liberar Drive e Calendar.' };
+  try { await token(db, organizacaoId); return { reconectar:false, motivo:null as string|null }; }
+  catch (e) {
+    if (e instanceof GoogleDesconectado) return { reconectar:true, motivo:e.message };
+    return { reconectar:false, motivo:'Não foi possível falar com o Google agora. A conexão será testada de novo.' };
+  }
+}
 async function exchange(data: Record<string,string>): Promise<Tokens> {
   const r = await fetch('https://oauth2.googleapis.com/token',{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},body:new URLSearchParams({...data,client_id:process.env.NGA_GOOGLE_CLIENT_ID!,client_secret:process.env.NGA_GOOGLE_CLIENT_SECRET!}),signal:AbortSignal.timeout(20000)});
-  if (!r.ok) throw new PedidoInvalido('O Google recusou a autorização. Reconecte a conta nas Integrações.');
+  if (!r.ok) {
+    const e = await r.json().catch(() => ({})) as { error?: string; error_description?: string };
+    if (e.error === 'invalid_grant') throw new GoogleDesconectado('A autorização do Google expirou ou foi revogada. Renove a conexão em Ajustes.');
+    if (e.error === 'invalid_client' || e.error === 'unauthorized_client') throw new PedidoInvalido('O Google recusou a credencial OAuth do escritório. Confira o ID e o segredo do cliente no Google Cloud.');
+    if (e.error === 'redirect_uri_mismatch') throw new PedidoInvalido('A URI de redirecionamento não confere com a cadastrada no Google Cloud.');
+    throw new PedidoInvalido(`O Google recusou a autorização (${e.error ?? 'HTTP '+r.status}). Renove a conexão em Ajustes.`);
+  }
   return await r.json() as Tokens;
 }
 export async function callback(db: PoolClient, i: Identidade, code: string, state: string) {
@@ -70,6 +91,8 @@ export async function callback(db: PoolClient, i: Identidade, code: string, stat
   if (!rows[0]) throw new PedidoInvalido('Autorização expirada ou inválida. Inicie novamente.');
   const t = await exchange({code,redirect_uri:process.env.NGA_GOOGLE_REDIRECT_URI!,grant_type:'authorization_code',code_verifier:rows[0].verificador});
   if (!t.refresh_token) throw new PedidoInvalido('O Google não forneceu autorização permanente. Revogue o acesso anterior e conecte novamente.');
+  const faltam = escoposFaltantes(t.scope);
+  if (faltam.length) throw new PedidoInvalido('Marque todas as permissões na tela do Google: sem elas o Calendar e o Drive não funcionam. Conecte novamente.');
   await db.query('INSERT INTO google_conexoes(organizacao_id,usuario_id,credencial) VALUES($1,$2,$3) ON CONFLICT(organizacao_id) DO UPDATE SET usuario_id=EXCLUDED.usuario_id,credencial=EXCLUDED.credencial,criado_em=now()',[rows[0].organizacao_id,i.usuarioId,cifrarGoogle({...t,expires_at:Date.now()+(t.expires_in??3600)*1000})]);
   return { conectado:true };
 }
@@ -83,9 +106,22 @@ async function token(db: PoolClient, organizacaoId: string) {
     await db.query('UPDATE google_conexoes SET credencial=$2 WHERE organizacao_id=$1',[organizacaoId,cifrarGoogle(t)]);
   } return t.access_token;
 }
+/** Diz o motivo real: "HTTP 403" sozinho não permite corrigir nada. O código HTTP segue no texto. */
+export async function explicarErroGoogle(r: Response): Promise<string> {
+  const d = await r.json().catch(() => null) as { error?: { message?: string; errors?: { reason?: string }[]; details?: { reason?: string }[] } } | null;
+  const reason = d?.error?.errors?.[0]?.reason ?? d?.error?.details?.[0]?.reason ?? '';
+  const api = /drive/i.test(d?.error?.message ?? '') ? 'Google Drive API' : /calendar/i.test(d?.error?.message ?? '') ? 'Google Calendar API' : 'API do Google';
+  const motivos: Record<string,string> = {
+    accessNotConfigured: `A ${api} não está habilitada no projeto do Google Cloud.`, SERVICE_DISABLED: `A ${api} não está habilitada no projeto do Google Cloud.`,
+    insufficientPermissions: 'A conta foi conectada sem esta permissão. Renove a autorização em Ajustes.', ACCESS_TOKEN_SCOPE_INSUFFICIENT: 'A conta foi conectada sem esta permissão. Renove a autorização em Ajustes.', insufficientFilePermissions: 'A conta conectada não pode gravar nesta pasta do Drive.',
+    notFound: 'O Google não encontrou o item. Se for a pasta do Drive, a conta conectada não tem acesso a ela.', storageQuotaExceeded: 'O armazenamento da conta Google está cheio.',
+    rateLimitExceeded: 'O Google pediu para aguardar. Será tentado de novo.', userRateLimitExceeded: 'O Google pediu para aguardar. Será tentado de novo.',
+  };
+  return `Google respondeu HTTP ${r.status}. ${motivos[reason] ?? (d?.error?.message ?? 'Confira a conexão e as APIs habilitadas.')}`.slice(0,300);
+}
 export async function googleJson(access: string, url: string, init: RequestInit={}) {
   const r=await fetch(url,{...init,headers:{authorization:`Bearer ${access}`,...init.headers},signal:AbortSignal.timeout(30000)});
-  if (!r.ok) throw new PedidoInvalido(`Google respondeu HTTP ${r.status}. Confira a conexão e as APIs habilitadas.`);
+  if (!r.ok) throw new PedidoInvalido(await explicarErroGoogle(r));
   return await r.json() as Record<string,any>;
 }
 async function projeto(db: PoolClient,id:string) {
@@ -107,18 +143,23 @@ export async function criarEvento(db:PoolClient,i:Identidade,e:z.infer<typeof Es
     return {id,projeto_id:e.projetoId,titulo:e.titulo,inicio:e.inicio,fim:e.fim,marcador:e.marcador,pendente:true,erro:message};
   }
 }
+export const linkDoMeet=(e:Record<string,any>):string|null=>e.hangoutLink??e.conferenceData?.entryPoints?.find((x:any)=>x.entryPointType==='video')?.uri??null;
+export const precisaPedirMeet=(criar:boolean,e:Record<string,any>)=>criar&&!linkDoMeet(e)&&e.conferenceData?.createRequest?.status?.statusCode!=='pending';
 export async function sincronizarEvento(db:PoolClient,id:string) {
   const {rows}=await db.query('SELECT * FROM google_eventos WHERE id=$1',[id]);const r=rows[0];
   if(!r)throw new NaoEncontrado('Evento não encontrado.');if(r.google_id && (!r.criar_meet || r.meet_url))return r;
   const access=await token(db,r.organizacao_id);
   const body=corpoEventoGoogle(id,{projetoId:r.projeto_id,titulo:r.titulo,inicio:new Date(r.inicio).toISOString(),fim:new Date(r.fim).toISOString(),descricao:r.descricao,marcador:r.marcador,criarMeet:r.criar_meet});
+  const base='https://www.googleapis.com/calendar/v3/calendars/primary/events';
   let remote:Record<string,any>;
-  try {remote=r.google_id?await googleJson(access,'https://www.googleapis.com/calendar/v3/calendars/primary/events/'+encodeURIComponent(r.google_id)):await googleJson(access,'https://www.googleapis.com/calendar/v3/calendars/primary/events?conferenceDataVersion=1',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});}
+  try {remote=r.google_id?await googleJson(access,base+'/'+encodeURIComponent(r.google_id)):await googleJson(access,base+'?conferenceDataVersion=1',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});}
   catch(error){
     if(!(error as Error).message.includes('HTTP 409'))throw error;
-    remote=await googleJson(access,'https://www.googleapis.com/calendar/v3/calendars/primary/events/'+id.replaceAll('-',''));
+    remote=await googleJson(access,base+'/'+id.replaceAll('-',''));
   }
-  const meet=remote.hangoutLink??remote.conferenceData?.entryPoints?.find((x:any)=>x.entryPointType==='video')?.uri??null;
+  // Evento que já existe sem sala nunca ganha uma só por ser relido: é preciso pedir a criação.
+  if(precisaPedirMeet(r.criar_meet,remote)) remote=await googleJson(access,base+'/'+encodeURIComponent(remote.id)+'?conferenceDataVersion=1',{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify({conferenceData:{createRequest:{requestId:crypto.randomUUID(),conferenceSolutionKey:{type:'hangoutsMeet'}}}})});
+  const meet=linkDoMeet(remote);
   await db.query('UPDATE google_eventos SET google_id=$2,meet_url=$3,google_url=$4,erro=NULL WHERE id=$1',[id,remote.id,meet,remote.htmlLink]);
   return {id,...remote,meet_url:meet};
 }
@@ -133,7 +174,7 @@ async function folder(access:string,name:string,tag:string,parent?:string) {
 }
 export async function criarPastas(db:PoolClient,id:string) {
   const p=await projeto(db,id); await db.query('SELECT pg_advisory_xact_lock(hashtext($1))',[`google-drive:${id}`]);
-  const {rows}=await db.query('SELECT * FROM google_drive_pastas WHERE projeto_id=$1',[id]);if(rows[0])return rows[0];
+  const {rows}=await db.query('SELECT * FROM google_drive_pastas WHERE projeto_id=$1',[id]);if(rows[0])return {...rows[0],url:`https://drive.google.com/drive/folders/${rows[0].pasta_id}`};
   const access=await token(db,p.organizacao_id);
   const client=await folder(access,p.cliente,`cliente:${p.organizacao_id}:${hash(p.cliente).slice(0,24)}`,pastaDoTipo(p.tipo));
   const project=await folder(access,p.nome,`projeto:${id}`,client);const pastas:Record<string,string>={};
@@ -153,7 +194,7 @@ export async function lerDocumentoDrive(db:PoolClient,storage:Armazenamento,doc:
 export async function sincronizarDocumentos(db:PoolClient,id:string,storage:Armazenamento) {
   const p=await projeto(db,id);const folders=await criarPastas(db,id);const access=await token(db,p.organizacao_id);
   const {rows}=await db.query(`SELECT f.id fila_id,d.* FROM google_fila f JOIN documentos d ON d.id=f.documento_id WHERE f.projeto_id=$1 AND f.estado='pendente' AND d.tem_arquivo ORDER BY f.atualizado_em FOR UPDATE OF f SKIP LOCKED`,[id]);
-  let enviados=0;
+  let enviados=0,falhas=0,ultimoErro:string|null=null;
   for(const d of rows) {
     try {
       const query=`trashed=false and appProperties has { key='ngaDocumento' and value='${d.id}' }`;
@@ -161,27 +202,39 @@ export async function sincronizarDocumentos(db:PoolClient,id:string,storage:Arma
       if(!remote) {
         const data=await lerDocumentoDrive(db,storage,d);const boundary='nga_'+crypto.randomUUID();
         const meta={name:d.nome_original??d.titulo,parents:[folders.pastas[d.categoria==='relatorio_gerador'?'relatorios':d.categoria==='processo'?'processos':d.origem==='portal_cliente'?'cliente':'escritorio']],appProperties:{ngaDocumento:d.id,ngaProjeto:id,ngaOrigem:d.origem}};
-        const body=new Blob([`--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(meta)}\r\n--${boundary}\r\nContent-Type: ${d.tipo_mime}\r\n\r\n`,new Uint8Array(data),`\r\n--${boundary}--`]);
+        const body=new Blob([`--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(meta)}\r\n--${boundary}\r\nContent-Type: ${d.tipo_mime||'application/octet-stream'}\r\n\r\n`,new Uint8Array(data),`\r\n--${boundary}--`]);
         remote=await googleJson(access,'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id',{method:'POST',headers:{'content-type':`multipart/related; boundary=${boundary}`},body});
       }
       await db.query('UPDATE google_fila SET estado=\'concluido\',google_id=$2,erro=NULL,tentativas=tentativas+1,atualizado_em=now() WHERE id=$1',[d.fila_id,remote.id]);enviados++;
-    } catch(e) {await db.query('UPDATE google_fila SET erro=$2,tentativas=tentativas+1,atualizado_em=now() WHERE id=$1',[d.fila_id,(e as Error).message.slice(0,300)]);}
+    } catch(e) {falhas++;ultimoErro=(e as Error).message.slice(0,300);await db.query('UPDATE google_fila SET erro=$2,tentativas=tentativas+1,atualizado_em=now() WHERE id=$1',[d.fila_id,ultimoErro]);}
   }
   await db.query('UPDATE google_fila SET estado=\'concluido\',erro=NULL,google_id=$2 WHERE projeto_id=$1 AND tipo=\'projeto\'',[id,folders.pasta_id]);
-  return {enviados,pasta:folders};
+  return {enviados,falhas,erro:ultimoErro,url:`https://drive.google.com/drive/folders/${folders.pasta_id}`,pasta:folders};
 }
 let serviceHash:string;
-export async function processarGoogleAgendado(banco:Banco,storage:Armazenamento) {
-  if(!config().configurado)return;
+/** Cada projeto em sua transação: uma função encerrada no limite não desfaz o que já foi enviado. */
+export async function processarGoogleAgendado(banco:Banco,storage:Armazenamento,opcoes:{limiteMs?:number}={}) {
+  const tot={eventos:0,projetos:0,erros:0,ultimoErro:null as string|null};
+  if(!config().configurado)return {...tot,ultimoErro:'configuração OAuth incompleta'};
+  const inicio=Date.now(),limite=opcoes.limiteMs??100_000;
+  const falhou=(e:unknown)=>{tot.erros++;tot.ultimoErro=(e as Error).message.slice(0,300);};
   const orgs=await banco.semContexto(async(db)=>(await db.query<{id:string}>('SELECT organizacoes_com_google() AS id')).rows);
   serviceHash??=await Bun.password.hash(crypto.randomUUID()+crypto.randomUUID(),{algorithm:'argon2id'});
   for(const o of orgs) {
-    const uid=await banco.semContexto(async(db)=>(await db.query<{id:string}>('SELECT usuario_de_servico_da_organizacao($1,$2,$3) AS id',[o.id,'google',serviceHash])).rows[0]!.id);
-    await banco.comoUsuario(uid,async(db)=>{
-      const events=await db.query<{id:string}>('SELECT id FROM google_eventos WHERE google_id IS NULL OR (criar_meet AND meet_url IS NULL) ORDER BY criado_em LIMIT 20');
-      for(const e of events.rows){try{await sincronizarEvento(db,e.id);}catch(error){await db.query('UPDATE google_eventos SET erro=$2 WHERE id=$1',[e.id,(error as Error).message.slice(0,300)]);}}
-      const {rows}=await db.query<{projeto_id:string}>('SELECT DISTINCT projeto_id FROM google_fila WHERE estado=\'pendente\' LIMIT 20');
-      for(const p of rows) {try{await sincronizarDocumentos(db,p.projeto_id,storage);}catch(e){await db.query('UPDATE google_fila SET erro=$2,tentativas=tentativas+1,atualizado_em=now() WHERE projeto_id=$1 AND estado=\'pendente\'',[p.projeto_id,(e as Error).message.slice(0,300)]);}}
-    }).catch(()=>{});
+    try {
+      const uid=await banco.semContexto(async(db)=>(await db.query<{id:string}>('SELECT usuario_de_servico_da_organizacao($1,$2,$3) AS id',[o.id,'google',serviceHash])).rows[0]!.id);
+      const eventos=await banco.comoUsuario(uid,async(db)=>(await db.query<{id:string}>('SELECT id FROM google_eventos WHERE google_id IS NULL OR (criar_meet AND meet_url IS NULL) ORDER BY criado_em LIMIT 20')).rows);
+      for(const e of eventos){
+        if(Date.now()-inicio>limite)break;
+        await banco.comoUsuario(uid,async(db)=>{try{await sincronizarEvento(db,e.id);tot.eventos++;}catch(error){falhou(error);await db.query('UPDATE google_eventos SET erro=$2 WHERE id=$1',[e.id,(error as Error).message.slice(0,300)]);}});
+      }
+      // Os mais antigos primeiro: projeto que falha sempre não pode tomar a vez dos demais.
+      const projetos=await banco.comoUsuario(uid,async(db)=>(await db.query<{projeto_id:string}>('SELECT projeto_id FROM google_fila WHERE estado=\'pendente\' GROUP BY projeto_id ORDER BY max(atualizado_em) LIMIT 20')).rows);
+      for(const p of projetos){
+        if(Date.now()-inicio>limite)break;
+        await banco.comoUsuario(uid,async(db)=>{try{const r=await sincronizarDocumentos(db,p.projeto_id,storage);tot.projetos++;if(r.erro)falhou(new Error(r.erro));}catch(e){falhou(e);await db.query('UPDATE google_fila SET erro=$2,tentativas=tentativas+1,atualizado_em=now() WHERE projeto_id=$1 AND estado=\'pendente\'',[p.projeto_id,(e as Error).message.slice(0,300)]);}});
+      }
+    } catch(e){falhou(e);}
   }
+  return tot;
 }
