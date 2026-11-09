@@ -193,6 +193,6 @@ test('Sentinela: tribunal com falha no DataJud espera e não bloqueia os outros'
   await pg.dono.query(`DELETE FROM sentinela_tarefas`);
   await pg.dono.query(`INSERT INTO sentinela_processos(organizacao_id,numero_processo,tribunal,datajud_status,ultima_verificacao) VALUES($1,'1','TJPR','falha',now()),($1,'2','TJSP','pendente',now())`, [NGA]);
   const alvos: string[] = []; const f = (async (u: string) => { alvos.push(String(u)); return new Response('{}', { status: 429 }); }) as unknown as typeof fetch;
-  await rotinaSentinela(banco, { fetch: f, agora: new Date('2026-11-09T02:00:00Z') });
+  await rotinaSentinela(banco, { fetch: f, agora: new Date('2026-11-09T08:00:00Z') }); // 5h em Brasília: sem planejar consultas novas
   expect(alvos).toEqual([expect.stringContaining('api_publica_tjsp')]);
 });
