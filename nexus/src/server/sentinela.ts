@@ -114,8 +114,11 @@ async function processarTarefa(db: PoolClient, r: Rodada, org: string, t: Record
   return { novas };
 }
 
+// Tribunal que falhou (o DataJud limita com 429) espera 1 hora e não impede os demais de avançar.
+const ELEGIVEL = `(p.datajud_status='pendente' OR (p.datajud_status='falha' AND p.ultima_verificacao<now()-interval '1 hour'))`;
+
 async function enriquecer(db: PoolClient, r: Rodada, org: string) {
-  const { rows } = await db.query<{ id: string; numero_processo: string; tribunal: string }>(`SELECT p.id,p.numero_processo,p.tribunal FROM sentinela_processos p WHERE p.organizacao_id=$1 AND p.datajud_status IN ('pendente','falha') AND p.tribunal = (SELECT tribunal FROM sentinela_processos WHERE organizacao_id=$1 AND datajud_status IN ('pendente','falha') AND tribunal ~ '^[A-Za-z0-9]+$' ORDER BY primeira_identificacao LIMIT 1) LIMIT 50`, [org]);
+  const { rows } = await db.query<{ id: string; numero_processo: string; tribunal: string }>(`SELECT p.id,p.numero_processo,p.tribunal FROM sentinela_processos p WHERE p.organizacao_id=$1 AND ${ELEGIVEL} AND p.tribunal = (SELECT tribunal FROM sentinela_processos p WHERE organizacao_id=$1 AND ${ELEGIVEL} AND tribunal ~ '^[A-Za-z0-9]+$' ORDER BY ultima_verificacao LIMIT 1) LIMIT 50`, [org]);
   if (!rows.length) return 0;
   const alias = rows[0]!.tribunal.toLowerCase();
   try {
