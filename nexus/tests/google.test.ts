@@ -3,6 +3,10 @@ import {corpoEventoGoogle,EsquemaEvento,cifrarGoogle,decifrarGoogle,criarEvento,
 import {publicacaoNoPeriodo,hojeSaoPaulo,sincronizarOab,type ItemDjen} from '../src/server/controladoria.ts';
 
 describe('Google Calendar e Drive: contratos reais',()=>{
+ test('a função Edge ganha Buffer global, que o Deno não expõe',async()=>{
+  const {instalarCompatibilidade}=await import('../supabase/functions/nga-lab-api/compat.ts');const g=globalThis as Record<string,unknown>;const original=g.Buffer;
+  try{delete g.Buffer;expect(g.Buffer).toBeUndefined();instalarCompatibilidade();expect(typeof g.Buffer).toBe('function');}finally{g.Buffer=original;}
+ });
  test('evento individualizado, marcador e Meet com identificador estável',()=>{
   const id='aaaaaaaa-0000-4000-8000-000000000001';
   const e=EsquemaEvento.parse({projetoId:id,titulo:'Revisão contábil',inicio:'2026-11-04T10:00:00-03:00',fim:'2026-11-04T11:00:00-03:00',marcador:'cliente'});

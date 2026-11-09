@@ -1,8 +1,11 @@
 import { createHash } from 'node:crypto';
+import { Buffer } from 'node:buffer';
 import { argon2id, argon2Verify } from 'hash-wasm';
 /** Compatibility for the existing, tested domain/API code; no filesystem emulation. */
 export function instalarCompatibilidade() {
  const g=globalThis as unknown as Record<string,unknown>;
+ // Deno não expõe Buffer como global; sem isto, cifrar token Google e assinar download quebram na nuvem.
+ g.Buffer??=Buffer;
  if(g.Bun)return;
  g.Bun={password:{
   hash:async(password:string)=>argon2id({password,salt:crypto.getRandomValues(new Uint8Array(16)),parallelism:1,iterations:2,memorySize:65536,hashLength:32,outputType:'encoded'}),
