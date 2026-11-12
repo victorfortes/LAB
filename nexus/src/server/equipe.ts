@@ -41,6 +41,23 @@ export async function acesso(db:PoolClient,id:string,d:z.infer<typeof EsquemaAce
  await auditar(db,{organizacaoId:o,usuarioId:i.usuarioId,acao:d.revogar?'equipe.acesso_revogado':'equipe.acesso_alterado',entidade:'usuario',entidadeId:id,depois:d});return {id};
 }
 export const gerarLink=link;
+export const EsquemaDados=z.object({nome:z.string().trim().min(2).max(200).optional(),email:z.string().trim().toLowerCase().email().max(200).optional()}).refine(d=>!!d.nome||!!d.email,'informe nome ou e-mail');
+async function editar(db:PoolClient,args:unknown[]){
+ try{return await db.query('SELECT editar_pessoa_equipe($1,$2,$3,$4,$5)',args);}
+ catch(e){const erro=e as {code?:string;message:string};if(erro.code==='P0001')throw new PedidoInvalido(erro.message);if(erro.code==='42501')throw new NaoEncontrado('pessoa não encontrada nesta equipe');throw e;}
+}
+/** Corrige nome e e-mail de login. Trocar o e-mail encerra as sessões abertas. */
+export async function dados(db:PoolClient,id:string,d:z.infer<typeof EsquemaDados>,i:Identidade){
+ const o=org(i);const antes=(await db.query<{nome:string;email:string}>('SELECT nome,email FROM usuarios WHERE id=$1',[id])).rows[0];
+ await editar(db,[o,id,d.nome??null,d.email??null,false]);
+ await auditar(db,{organizacaoId:o,usuarioId:i.usuarioId,acao:'equipe.dados_alterados',entidade:'usuario',entidadeId:id,antes,depois:d});return {id};
+}
+/** Exclui o cadastro: sem acesso, fora das equipes e com o e-mail liberado; o histórico fica. */
+export async function excluir(db:PoolClient,id:string,i:Identidade){
+ const o=org(i);const antes=(await db.query<{nome:string;email:string}>('SELECT nome,email FROM usuarios WHERE id=$1',[id])).rows[0];
+ await editar(db,[o,id,null,null,true]);
+ await auditar(db,{organizacaoId:o,usuarioId:i.usuarioId,acao:'equipe.cadastro_excluido',entidade:'usuario',entidadeId:id,antes});return {ok:true};
+}
 export async function definirSenha(db:PoolClient,d:z.infer<typeof EsquemaSenha>){await db.query('SELECT definir_senha_equipe($1,$2)',[hashDoToken(d.token),await hashDaSenha(d.senha)]);return {ok:true};}
 export async function visao(db:PoolClient,id:string){
  const p=(await db.query('SELECT id FROM projetos WHERE id=$1',[id])).rows[0];if(!p)throw new NaoEncontrado('projeto não encontrado');

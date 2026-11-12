@@ -64,9 +64,9 @@ describe('análises (números do caso de referência EJE)', () => {
     const r = montarRelatorio({ projeto: { nome: 'P — X', razaoSocial: 'EJE', posicao: 'devedor' }, dataBase: '2026-11-10', geradoPor: 'T', versao: 1, documentos: [], checklist: [], portal: { obrigatorios: 0, enviados: 0, aprovados: 0 }, balancos: [], dres: [], faturamento: [], extratos: [], passivo: [], clientesAbc: [], relacionadas: [] });
     expect(JSON.stringify(r)).not.toMatch(/[—–]/); expect(renderizarDiagnostico(r)).not.toMatch(/[—–]/);
   });
-  test('sem dados, as 11 páginas continuam e dizem o que pedir', () => {
+  test('sem dados, as 13 páginas continuam (11 da estrutura + endividamento e enquadramento jurídico) e dizem o que pedir', () => {
     const r = montarRelatorio({ projeto: { nome: 'P', razaoSocial: null, posicao: 'credor' }, dataBase: '2026-11-10', geradoPor: 'T', versao: 1, documentos: [], checklist: [], portal: { obrigatorios: 0, enviados: 0, aprovados: 0 }, balancos: [], dres: [], faturamento: [], extratos: [], passivo: [], clientesAbc: [], relacionadas: [] });
-    const h = renderizarDiagnostico(r); expect((h.match(/class="pg"/g) ?? []).length).toBe(11); expect(h).toContain('Sem documentos para esta análise');
+    const h = renderizarDiagnostico(r); expect((h.match(/class="pg"/g) ?? []).length).toBe(13); expect(h).toContain('Sem documentos para esta análise');
     expect(r.resumo.conclusao).toContain('devedor');
   });
   test('comparar versões mostra o que mudou', () => {
@@ -122,7 +122,7 @@ describe('API do diagnóstico versionado', () => {
     if (!tok.has(e)) { const r = await tratar(new Request('http://x/api/sessao', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: e, senha: 'uma-senha-bem-longa' }) })); tok.set(e, /nga_sessao=([^;]+)/.exec(r.headers.get('set-cookie')!)![1]!); }
     return tratar(new Request(`http://x${u}`, { ...init, headers: { 'content-type': 'application/json', cookie: `nga_sessao=${tok.get(e)}` } }));
   };
-  test('gera versões numeradas, com extração referenciada, HTML de 11 páginas e comparação', async () => {
+  test('gera versões numeradas, com extração referenciada, HTML de 13 páginas e comparação', async () => {
     const a = await req('adv@nga.adv.br', `/api/projetos/${proj}/diagnostico/versoes`, { method: 'POST', body: '{}' }); expect(a.status).toBe(201);
     expect((await a.json()).numero).toBe(1);
     const e = await req('adv@nga.adv.br', `/api/projetos/${proj}/diagnostico/extracoes`, { method: 'POST', body: JSON.stringify({ tipo: 'balanco', referencia: 'balanco-2025.pdf | p. 2', dados: { exercicio: 2025, ativoCirculante: 10, ativoNaoCirculante: 18, passivoCirculante: 40, passivoNaoCirculante: 12.9, patrimonioLiquido: -24.9 } }) });
@@ -130,7 +130,7 @@ describe('API do diagnóstico versionado', () => {
     const b = await (await req('adv@nga.adv.br', `/api/projetos/${proj}/diagnostico/versoes`, { method: 'POST', body: '{}' })).json(); expect(b.numero).toBe(2);
     expect(b.relatorio.contabilII.balancos[0].ref.arquivo).toBe('balanco-2025.pdf');
     expect((await (await req('adv@nga.adv.br', `/api/projetos/${proj}/diagnostico/versoes`)).json()).map((v: { numero: number }) => v.numero)).toEqual([2, 1]);
-    const h = await req('adv@nga.adv.br', `/api/projetos/${proj}/diagnostico/versoes/2/html`); expect(h.headers.get('content-type')).toContain('text/html'); expect(((await h.text()).match(/class="pg"/g) ?? []).length).toBe(11);
+    const h = await req('adv@nga.adv.br', `/api/projetos/${proj}/diagnostico/versoes/2/html`); expect(h.headers.get('content-type')).toContain('text/html'); expect(((await h.text()).match(/class="pg"/g) ?? []).length).toBe(13);
     const c = await (await req('adv@nga.adv.br', `/api/projetos/${proj}/diagnostico/comparacao?de=1&para=2`)).json(); expect(c.mudancas.length).toBeGreaterThan(3);
   });
   test('gerar lê a planilha que o cliente enviou, grava as extrações e não lê de novo', async () => {

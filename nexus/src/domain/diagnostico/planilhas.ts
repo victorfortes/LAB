@@ -6,7 +6,7 @@
 import { lerXlsx } from '../analise/planilha.ts';
 import { csv, dataBr, valorBr } from '../financeiro/importacao.ts';
 
-export interface ExtracaoLida { tipo: 'balanco' | 'dre_contabil' | 'dre_gerencial' | 'faturamento' | 'extrato' | 'clientes_abc'; referencia: string; dados: Record<string, unknown> }
+export interface ExtracaoLida { tipo: 'balanco' | 'dre_contabil' | 'dre_gerencial' | 'faturamento' | 'extrato' | 'clientes_abc' | 'passivo_fonte' | 'checklist_respostas'; referencia: string; dados: Record<string, unknown> }
 export interface ResultadoDaLeitura { extracoes: ExtracaoLida[]; avisos: string[] }
 
 const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
@@ -19,6 +19,12 @@ export function tabelasDe(nome: string, bytes: Uint8Array): { aba: string; linha
   throw new Error(`formato .${ext} não lido automaticamente (use XLSX ou CSV)`);
 }
 
+const MESES_EXTENSO = ['janeiro', 'fevereiro', 'marco', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+/** "Segunda, 26 de outubro de 2026" → 2026-10-26 (extrato do Santander). */
+function dataPorExtenso(t: string): string | null {
+  const m = /(\d{1,2}) de ([a-zç]+) de (\d{4})/.exec(norm(t)); if (!m) return null;
+  const mes = MESES_EXTENSO.indexOf(m[2]!); return mes < 0 ? null : `${m[3]}-${String(mes + 1).padStart(2, '0')}-${m[1]!.padStart(2, '0')}`;
+}
 const col = (cab: string[], re: RegExp) => cab.findIndex((c) => re.test(norm(c)));
 const bancoDe = (arquivo: string) => (/itau|ita[uú]/i.test(arquivo) ? 'Itaú' : /santander/i.test(arquivo) ? 'Santander' : /bradesco/i.test(arquivo) ? 'Bradesco' : /bb|brasil/i.test(arquivo) ? 'Banco do Brasil' : /caixa/i.test(arquivo) ? 'Caixa' : arquivo.replace(/\.[^.]+$/, ''));
 
@@ -26,7 +32,15 @@ function lerTabela(arquivo: string, aba: string, linhas: string[][], out: Result
   const ref = `${arquivo} | ${aba}`;
   // Procura o cabeçalho nas primeiras 15 linhas (extratos costumam ter título antes).
   let h = -1;
-  for (let i = 0; i < Math.min(15, linhas.length); i++) { const c = linhas[i]!.map(norm); if (c.some((x) => /^(data|ano|cliente|nome|descricao|conta)/.test(x)) && c.filter(Boolean).length >= 2) { h = i; break; } }
+  // O cabeçalho é a linha com mais nomes de coluna conhecidos (não a primeira que cita "Nome:" ou "Conta:" no topo do extrato).
+  const PALAVRAS = /^(data|ano|exercicio|periodo|cliente|nome|razao social|descricao|historico|lancamento|conta|valor|credito|debito|saldo|faturamento|fiscal|gerencial|documento|cpf|cnpj)/;
+  let melhor = 0;
+  for (let i = 0; i < Math.min(25, linhas.length); i++) {
+    const c = linhas[i]!.map(norm); const preenchidas = c.filter(Boolean);
+    if (preenchidas.length < 2 || preenchidas.some((x) => x.endsWith(':'))) continue;
+    const pontos = preenchidas.filter((x) => PALAVRAS.test(x)).length;
+    if (pontos > melhor) { melhor = pontos; h = i; }
+  }
   if (h < 0) { out.avisos.push(`${ref}: cabeçalho não encontrado`); return; }
   const cab = linhas[h]!; const corpo = linhas.slice(h + 1).filter((l) => l.some((x) => x.trim()));
 
@@ -36,9 +50,11 @@ function lerTabela(arquivo: string, aba: string, linhas: string[][], out: Result
   if (iData >= 0 && iHist >= 0 && (iValor >= 0 || (iCred >= 0 && iDeb >= 0))) {
     const lin: { data: string; valor: number; historico: string }[] = []; let ignoradas = 0;
     for (const l of corpo) {
-      const data = dataBr(l[iData] ?? ''); const v = iValor >= 0 ? reais(l[iValor]) : (reais(l[iCred]) ?? 0) - Math.abs(reais(l[iDeb]) ?? 0);
+      const data = dataBr(l[iData] ?? '') ?? dataPorExtenso(l[iData] ?? ''); const v = iValor >= 0 ? reais(l[iValor]) : (reais(l[iCred]) ?? 0) - Math.abs(reais(l[iDeb]) ?? 0);
       if (!data || v === null || Number.isNaN(v) || v === 0) { ignoradas++; continue; }
-      lin.push({ data, valor: v, historico: (l[iHist] ?? '').trim() });
+      // Extrato com coluna própria de contraparte (Itaú: "Razão Social"): entra no histórico para classificar.
+      const iRazao = col(cab, /^(razao social|favorecido|pagador|contraparte)/);
+      lin.push({ data, valor: v, historico: [l[iHist], iRazao >= 0 && iRazao !== iHist ? l[iRazao] : ''].map((x) => (x ?? '').trim()).filter(Boolean).join(' · ') });
     }
     if (lin.length) { out.extracoes.push({ tipo: 'extrato', referencia: ref, dados: { banco: bancoDe(arquivo), linhas: lin } }); if (ignoradas > 2) out.avisos.push(`${ref}: ${ignoradas} linhas sem data ou valor foram ignoradas (saldos, totais ou texto)`); return; }
   }
@@ -73,6 +89,12 @@ function lerTabela(arquivo: string, aba: string, linhas: string[][], out: Result
 export function lerPlanilha(arquivo: string, bytes: Uint8Array): ResultadoDaLeitura {
   const out: ResultadoDaLeitura = { extracoes: [], avisos: [] };
   let tabelas; try { tabelas = tabelasDe(arquivo, bytes); } catch (e) { out.avisos.push(`${arquivo}: ${(e as Error).message}`); return out; }
+  // Respostas do cliente ao checklist (planilha "área | item | resposta", sem cabeçalho).
+  for (const t of tabelas) {
+    const itens = t.linhas.filter((l) => /^\d+\.\s/.test((l[0] ?? '').trim()) && /^\d+\.\s/.test((l[1] ?? '').trim()))
+      .map((l) => ({ area: l[0]!.replace(/^\d+\.\s*/, '').trim(), numero: Number(/^(\d+)/.exec(l[1]!.trim())![1]), titulo: l[1]!.replace(/^\d+\.\s*/, '').trim(), resposta: (l[2] ?? '').trim() }));
+    if (itens.length >= 5) { out.extracoes.push({ tipo: 'checklist_respostas', referencia: `${arquivo} | ${t.aba}`, dados: { itens } }); t.linhas = []; }
+  }
   for (const t of tabelas) { if (t.linhas.length < 2) continue; try { lerTabela(arquivo, t.aba, t.linhas, out); } catch (e) { out.avisos.push(`${arquivo} | ${t.aba}: falha na leitura (${(e as Error).message})`); } }
   if (!out.extracoes.length && !out.avisos.length) out.avisos.push(`${arquivo}: planilha vazia`);
   return out;
