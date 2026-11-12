@@ -406,7 +406,13 @@ export function criarApp(ctx: Contexto) {
         if(!d.success)return erro('dados inválidos',400,d.error.issues);
         return json(await banco.comoUsuario(identidade.usuarioId,db=>equipeAdmin.convidar(db,d.data,identidade)),201);
       }
-      const mPessoa=/^\/api\/escritorio\/gestao-equipe\/([0-9a-f-]{36})(?:\/(redefinir-senha))?$/.exec(rota);
+      const mPessoa=/^\/api\/escritorio\/gestao-equipe\/([0-9a-f-]{36})(?:\/(redefinir-senha|dados))?$/.exec(rota);
+      if(mPessoa && mPessoa[2]==='dados' && metodo==='PATCH') {
+        exigir(identidade.papeis,'admin.gerir');
+        const d=equipeAdmin.EsquemaDados.safeParse(await req.json().catch(()=>null));if(!d.success)return erro(d.error.issues[0]?.message ?? 'dados inválidos',400,d.error.issues);
+        return json(await banco.comoUsuario(identidade.usuarioId,db=>equipeAdmin.dados(db,mPessoa[1]!,d.data,identidade)));
+      }
+      if(mPessoa && !mPessoa[2] && metodo==='DELETE') { exigir(identidade.papeis,'admin.gerir'); return json(await banco.comoUsuario(identidade.usuarioId,db=>equipeAdmin.excluir(db,mPessoa[1]!,identidade))); }
       if(mPessoa && ['POST','PATCH'].includes(metodo)) {
         exigir(identidade.papeis,'admin.gerir');
         if(mPessoa[2] && metodo==='POST') return json(await banco.comoUsuario(identidade.usuarioId,db=>equipeAdmin.gerarLink(db,mPessoa[1]!,identidade)));

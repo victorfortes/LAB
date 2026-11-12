@@ -10,7 +10,9 @@ import { NaoEncontrado, PedidoInvalido } from './erros.ts';
 import { compararVersoes, montarRelatorio, type DocumentoLido, type RelatorioDiagnostico } from '../domain/diagnostico/relatorio.ts';
 import type { Qualidade } from '../domain/diagnostico/analises.ts';
 import { renderizarDiagnostico } from './diagnostico_html.ts';
-import { lerPlanilha, lerTextoDeDemonstracao } from '../domain/diagnostico/planilhas.ts';
+import { lerPlanilha, type ExtracaoLida } from '../domain/diagnostico/planilhas.ts';
+import { juntarFaturamento, lerDocumentoPdf } from '../domain/diagnostico/documentos.ts';
+import { folhasDoPassivo, mapaDoEndividamento, type MapaDoEndividamento } from '../domain/diagnostico/juridico.ts';
 import { linhasDoPdf } from './qgc.ts';
 import { lerConteudoDocumento, type Deposito } from './arquivos.ts';
 import { chaveDoHash } from '../store/arquivos.ts';
@@ -44,6 +46,7 @@ export async function excluirExtracao(db: PoolClient, id: string, identidade: Id
   return { ok: true };
 }
 
+const normTexto = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 const refDe = (t: string) => { const [arquivo, ...resto] = t.split(' | '); return { arquivo: arquivo!, local: resto.join(' | ') || undefined }; };
 
 /**
@@ -60,6 +63,8 @@ export async function lerPlanilhasDoProjeto(db: PoolClient, projetoId: string, d
         AND NOT EXISTS (SELECT 1 FROM diagnostico_extracoes x WHERE x.documento_id = d.id) AND NOT EXISTS (SELECT 1 FROM diagnostico_leituras l WHERE l.documento_id = d.id)`, [projetoId]);
   const avisos: string[] = []; let extracoes = 0; let lidas = 0;
   for (const d of docs) {
+    // Um arquivo que falhe não pode abortar a transação inteira: cada um tem seu ponto de salvamento.
+    await db.query('SAVEPOINT leitura_doc');
     try {
       const bytes = await lerConteudoDocumento(db, d.id, dep, chaveDoHash(d.hash_sha256!), d.hash_sha256!);
       const ehPdf = /\.pdf$/i.test(d.nome);
@@ -69,13 +74,14 @@ export async function lerPlanilhasDoProjeto(db: PoolClient, projetoId: string, d
         // PDF sem camada de texto é digitalizado: sem OCR aqui, vira limite declarado, nunca número inventado.
         r = paginas.flat().join('').length < 40 * Math.max(1, paginas.length)
           ? { extracoes: [], avisos: [`${d.nome}: PDF digitalizado (sem texto). OCR não disponível neste servidor; números deste arquivo não foram lidos.`] }
-          : lerTextoDeDemonstracao(d.nome, paginas);
+          : lerDocumentoPdf(d.nome, paginas);
       } else r = lerPlanilha(d.nome, bytes);
       avisos.push(...r.avisos);
       for (const x of r.extracoes) { await db.query(`INSERT INTO diagnostico_extracoes (organizacao_id, projeto_id, documento_id, tipo, referencia, dados, qualidade, origem, criado_por) VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9)`, [pj[0].organizacao_id, projetoId, d.id, x.tipo, x.referencia, JSON.stringify(x.dados), ehPdf ? 'regular' : 'boa', ehPdf ? 'pdf_texto' : 'planilha', identidade.usuarioId]); extracoes++; }
       await db.query(`INSERT INTO diagnostico_leituras (documento_id, organizacao_id, projeto_id, extracoes, avisos) VALUES ($1,$2,$3,$4,$5::jsonb)`, [d.id, pj[0].organizacao_id, projetoId, r.extracoes.length, JSON.stringify(r.avisos)]);
       lidas++;
-    } catch (e) { avisos.push(`${d.nome}: ${(e as Error).message}`); }
+      await db.query('RELEASE SAVEPOINT leitura_doc');
+    } catch (e) { await db.query('ROLLBACK TO SAVEPOINT leitura_doc'); avisos.push(`${d.nome}: ${(e as Error).message}`); }
   }
   return { planilhasLidas: lidas, extracoes, avisos };
 }
@@ -112,6 +118,25 @@ export async function gerar(db: PoolClient, projetoId: string, motivo: 'manual' 
        FROM qgc_preliminar q JOIN documentos d ON d.id = q.documento_id
       WHERE q.projeto_id = $1 AND q.situacao <> 'descartado' GROUP BY d.titulo`, [projetoId]);
   const passivoDoBalancete = bal.map((b) => ({ fonte: 'Balancete (QGC preliminar)', total: Number(b.total) / 100, fiscal: b.fiscal === null ? 0 : Number(b.fiscal) / 100, ref: { arquivo: b.documento ?? 'balancete', local: 'contas do passivo' } }) as never);
+  // Passivo por fonte: de cada série (balanços, balancetes) vale só o período mais recente; as demais fontes ficam.
+  const maisRecente = (lista: typeof ex) => lista.sort((a, b) => String((b.dados as { periodo?: string }).periodo ?? '').localeCompare(String((a.dados as { periodo?: string }).periodo ?? '')))[0];
+  const pf = com('passivo_fonte'); const serie = (re: RegExp) => pf.filter((x) => re.test(String((x.dados as { fonte?: string }).fonte ?? '')));
+  const ultimoBalanco = maisRecente(serie(/^Balanço contábil/)); const ultimoBalancete = maisRecente(serie(/^Balancete gerencial/));
+  const fontesDePassivo = [...pf.filter((x) => !/^(Balanço contábil|Balancete gerencial)/.test(String((x.dados as { fonte?: string }).fonte ?? ''))), ...[ultimoBalanco, ultimoBalancete].filter((x): x is NonNullable<typeof x> => !!x)];
+  // Mapa do endividamento: o balanço mais recente (contas folha do passivo) e, se houver, o balancete gerencial mais recente.
+  const endividamento: MapaDoEndividamento[] = [];
+  const balancoRecente = com('balanco').filter((x) => Array.isArray((x.dados as { contas?: unknown }).contas)).sort((a, b) => Number((b.dados as { exercicio: number }).exercicio) - Number((a.dados as { exercicio: number }).exercicio))[0];
+  if (balancoRecente) { const m = mapaDoEndividamento({ fonte: `Balanço contábil ${(balancoRecente.dados as { exercicio: number }).exercicio}`, ref: refDe(balancoRecente.referencia), contas: folhasDoPassivo((balancoRecente.dados as { contas: { conta: string; saldo: number }[] }).contas) }); if (m) endividamento.push(m); }
+  if (ultimoBalancete && Array.isArray((ultimoBalancete.dados as { contas?: unknown }).contas)) { const d = ultimoBalancete.dados as { fonte: string; contas: { conta: string; saldo: number }[] }; const m = mapaDoEndividamento({ fonte: d.fonte, ref: refDe(ultimoBalancete.referencia), contas: d.contas.map((c) => ({ conta: c.conta, valor: c.saldo })) }); if (m) endividamento.push(m); }
+  // Respostas do cliente ao checklist (planilha), quando existir: "sim" só conta como entregue se houver arquivo que pareça corresponder.
+  const resp = com('checklist_respostas').at(-1);
+  const nomes = documentos.map((d) => normTexto(d.nome)).join(' | ');
+  const respostasCliente = resp ? ((resp.dados as { itens: { area: string; numero: number; titulo: string; resposta: string }[] }).itens).map((i) => {
+    const r = normTexto(i.resposta); const chaves = normTexto(i.titulo).split(/[^a-z0-9]+/).filter((w) => w.length >= 6).slice(0, 4);
+    const temArquivo = chaves.some((w) => nomes.includes(w.slice(0, 7)));
+    const situacao = !r ? 'sem_resposta' : /^nao ha|^nao possui|^nao tem|^inexist/.test(r) ? 'pendente' : /^sim/.test(r) ? (temArquivo ? 'aprovado' : 'enviado') : 'complementacao';
+    return { numero: i.numero, titulo: i.titulo, area: i.area, artigo: null, situacao, temArquivo };
+  }) : undefined;
   const { rows: ult } = await db.query<{ n: number }>('SELECT coalesce(max(numero), 0) AS n FROM diagnostico_versoes WHERE projeto_id = $1', [projetoId]);
   const numero = Number(ult[0]!.n) + 1;
   const quem = (await db.query<{ nome: string }>('SELECT nome FROM usuarios WHERE id = $1', [identidade.usuarioId])).rows[0]?.nome ?? 'sistema';
@@ -122,9 +147,10 @@ export async function gerar(db: PoolClient, projetoId: string, motivo: 'manual' 
     documentos, checklist, portal,
     balancos: com('balanco').filter((x) => ['ativoCirculante', 'ativoNaoCirculante', 'passivoCirculante', 'passivoNaoCirculante', 'patrimonioLiquido'].every((k) => typeof (x.dados as Record<string, unknown>)[k] === 'number')).map((x) => ({ ...(x.dados as object), ref: refDe(x.referencia) }) as never),
     dres: [...com('dre_contabil').map((x) => ({ ...(x.dados as object), tipo: 'contabil', ref: refDe(x.referencia) })), ...com('dre_gerencial').map((x) => ({ ...(x.dados as object), tipo: 'gerencial', ref: refDe(x.referencia) }))] as never,
-    faturamento: com('faturamento').map((x) => ({ ...(x.dados as object), ref: refDe(x.referencia) }) as never),
+    faturamento: juntarFaturamento(com('faturamento') as unknown as ExtracaoLida[]).map((f) => ({ ano: f.ano, fiscal: f.fiscal, gerencial: f.gerencial, outros: f.outros, mesesFiscal: f.mesesFiscal, mesesGerencial: f.mesesGerencial, ref: refDe(f.refs[0]!) }) as never),
     extratos: com('extrato').map((x) => ({ ...(x.dados as object), ref: refDe(x.referencia) }) as never),
-    passivo: [...com('passivo_fonte').map((x) => ({ ...(x.dados as object), ref: refDe(x.referencia) }) as never), ...passivoDoBalancete],
+    passivo: [...fontesDePassivo.map((x) => ({ ...(x.dados as object), ref: refDe(x.referencia) }) as never), ...passivoDoBalancete],
+    endividamento, respostasCliente,
     clientesAbc: com('clientes_abc').flatMap((x) => ((x.dados as { clientes?: { nome: string; valor: number }[] }).clientes ?? []).map((c) => ({ ...c, ref: refDe(x.referencia) }))),
     relacionadas: com('partes_relacionadas').flatMap((x) => (x.dados as { nomes?: string[] }).nomes ?? []),
     avisosDeLeitura,

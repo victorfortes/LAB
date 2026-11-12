@@ -101,7 +101,7 @@ export function mesesRepetidos(serie: readonly { mes: string; valor: number }[])
 // -------------------------------------------------------- contrapartes ---
 
 export type GrupoContraparte = 'fomento' | 'tributos' | 'cartorio' | 'parte_relacionada' | 'outros';
-const FOMENTO = /\b(factoring|fidc|securitizadora|fomento mercantil|fundo de investimento em direitos|f\.?i\.?d\.?c)\b/i;
+const FOMENTO = /(factoring|\bfidc\b|securitiza|\bsecurit\b|fomento|direitos credit|fundo de investimentos? em direitos|\bf\.i\.d\.c\b)/i;
 const TRIBUTOS = /\b(darf|gps|fgts|receita federal|simples nacional|das\b|inss|pgfn|sefaz|icms)\b/i;
 const CARTORIO = /\b(cart[oó]rio|protesto|tabelionato|ieptb)\b/i;
 

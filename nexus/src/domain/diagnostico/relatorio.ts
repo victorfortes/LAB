@@ -9,6 +9,7 @@ import {
   exerciciosAusentes, faixaDePassivo, limparTextos, matrizDeRiscos, type Balanco, type Dre, type Extrato, type Faturamento,
   type ItemDoChecklist, type PassivoFonte, type Qualidade,
 } from './analises.ts';
+import { enquadramento, type MapaDoEndividamento } from './juridico.ts';
 
 export interface DocumentoLido { id: string; nome: string; area: string; estado: string; qualidade: Qualidade; detalhe: string | null }
 export interface EntradaDoDiagnostico {
@@ -24,6 +25,10 @@ export interface EntradaDoDiagnostico {
   foraDoChecklist?: string[];
   /** Avisos da leitura automática de planilhas (layout não reconhecido, linhas ignoradas). Entram em "Limites desta análise". */
   avisosDeLeitura?: string[];
+  /** Mapa do endividamento por natureza (balanço e balancete mais recentes). */
+  endividamento?: MapaDoEndividamento[];
+  /** Respostas do cliente ao checklist em planilha; quando existem, a cobertura usa elas. */
+  respostasCliente?: ItemDoChecklist[];
 }
 
 export const AVISO = 'Leitura automática para revisão profissional. Não conclui sobre viabilidade. Confira vigência e julgados antes de citar qualquer tese.';
@@ -32,7 +37,7 @@ const FORA_PADRAO = ['Relação de empregados', 'Certidões de protesto', 'Extra
 const semDados = (pedir: string[]) => ({ semDados: true as const, pedir });
 
 export function montarRelatorio(e: EntradaDoDiagnostico) {
-  const cobertura = coberturaDoChecklist(e.checklist);
+  const cobertura = coberturaDoChecklist(e.respostasCliente?.length ? e.respostasCliente : e.checklist);
   const balancos = e.balancos.map(analisarBalanco).sort((a, b) => a.exercicio - b.exercicio);
   const faturamento = e.faturamento.length ? compararFaturamento(e.faturamento) : null;
   const dre = e.dres.length ? compararDre(e.dres) : [];
@@ -42,11 +47,22 @@ export function montarRelatorio(e: EntradaDoDiagnostico) {
   const ilegiveis = e.documentos.filter((d) => d.qualidade === 'ilegivel' || d.estado === 'erro' || d.estado === 'sem_texto');
   const riscos = matrizDeRiscos({ posicao: e.projeto.posicao, faturamento: faturamento ?? undefined, dre, balancos, extratos, passivo, cobertura: cobertura.total ? cobertura : undefined, legiveis: { lidos: e.documentos.length - ilegiveis.length, ilegiveis: ilegiveis.length } });
 
+  // Leitura jurídica: o passivo por natureza e o enquadramento na Lei 11.101.
+  const mapa = e.endividamento?.[0] ?? null;
+  const anos = [...e.balancos.map((b) => b.exercicio), ...e.dres.map((d) => d.exercicio), ...e.faturamento.map((f) => f.ano)];
+  const juridico = enquadramento({
+    razaoSocial: e.projeto.razaoSocial ?? e.projeto.nome, primeiroExercicio: anos.length ? Math.min(...anos) : null, anoBase: Number(e.dataBase.slice(0, 4)),
+    pendentesArt51: cobertura.itens.filter((i) => i.status === 'pendente' || i.status === 'marcado_sem_arquivo').map((i) => i.titulo),
+    mapa, patrimonioLiquido: balancos.at(-1)?.patrimonioLiquido ?? null, posicao: e.projeto.posicao,
+  });
+
   // Resumo: cada card tem borda de status. Só entram números que existem.
   const cards: { rotulo: string; valor: string; status: 'vermelho' | 'ambar' | 'verde'; ref?: string }[] = [];
-  if (faturamento && faturamento.diferencaAcumulada) cards.push({ rotulo: 'Faturamento gerencial acima do fiscal', valor: `R$ ${(faturamento.diferencaAcumulada / 1e6).toFixed(1)} mi`, status: faturamento.diferencaAcumulada > 0 ? 'vermelho' : 'verde' });
-  const ult = balancos.at(-1); if (ult) cards.push({ rotulo: `Patrimônio líquido em ${ult.exercicio}`, valor: `R$ ${(ult.patrimonioLiquido / 1e6).toFixed(1)} mi`, status: ult.patrimonioLiquido < 0 ? 'vermelho' : 'verde', ref: ult.ref.arquivo });
-  const ex = extratos[0]; if (ex?.percentualFomentoNasEntradas != null) cards.push({ rotulo: 'Das entradas do extrato vieram de fomento', valor: `${ex.percentualFomentoNasEntradas}%`, status: ex.percentualFomentoNasEntradas >= 25 ? 'vermelho' : 'ambar' });
+  if (faturamento && faturamento.diferencaAcumulada) cards.push({ rotulo: 'Faturamento gerencial acima do fiscal', valor: `R$ ${(faturamento.diferencaAcumulada / 1e6).toFixed(1).replace('.', ',')} mi`, status: faturamento.diferencaAcumulada > 0 ? 'vermelho' : 'verde' });
+  if (mapa) cards.push({ rotulo: `do passivo fica fora da recuperação judicial (${mapa.fonte})`, valor: `${Math.round((mapa.foraDaRj / mapa.total) * 100)}%`, status: mapa.foraDaRj / mapa.total >= 0.35 ? 'vermelho' : mapa.foraDaRj / mapa.total >= 0.15 ? 'ambar' : 'verde' });
+  const ult = balancos.at(-1); if (ult) cards.push({ rotulo: `Patrimônio líquido em ${ult.exercicio}`, valor: `R$ ${(ult.patrimonioLiquido / 1e6).toFixed(1).replace('.', ',')} mi`, status: ult.patrimonioLiquido < 0 ? 'vermelho' : 'verde', ref: ult.ref.arquivo });
+  // O extrato que mais recebe é o que mostra a dependência de fomento.
+  const ex = [...extratos].sort((a, b) => b.entradasTotal - a.entradasTotal)[0]; if (ex?.percentualFomentoNasEntradas != null) cards.push({ rotulo: 'Das entradas do extrato vieram de fomento', valor: `${Math.round(ex.percentualFomentoNasEntradas)}%`, status: ex.percentualFomentoNasEntradas >= 25 ? 'vermelho' : 'ambar' });
   cards.push({ rotulo: 'Itens do checklist entregues por completo', valor: `${cobertura.percentuais.entregue}%`, status: cobertura.percentuais.entregue < 50 ? 'vermelho' : cobertura.percentuais.entregue < 80 ? 'ambar' : 'verde' });
 
   const porArea = new Map<string, typeof cobertura.itens>();
@@ -57,10 +73,12 @@ export function montarRelatorio(e: EntradaDoDiagnostico) {
     capa: { marca: 'NGA Nexus', titulo: 'Diagnóstico inicial da documentação', razaoSocial: e.projeto.razaoSocial ?? e.projeto.nome, projeto: e.projeto.nome, escopo: 'Financeiro, contábil e patrimônio', dataBase: e.dataBase, posicao: e.projeto.posicao, confidencialidade: 'Confidencial. Sujeito a sigilo profissional.' },
     resumo: {
       titulo: riscos.some((r) => r.prioridade === 'Alta') ? 'Há pontos críticos a esclarecer antes de avançar' : 'Quadro inicial sem pontos críticos calculáveis',
-      conclusao: e.projeto.posicao === 'credor'
+      conclusao: (e.projeto.posicao === 'credor'
         ? 'Leitura inicial voltada à avaliação do devedor: risco de crédito, indícios de simulação e estratégia de habilitação, impugnação ou objeção. Os números abaixo vêm dos arquivos indicados.'
-        : 'Leitura inicial voltada à preparação da recuperação judicial ou da negociação. Os números abaixo vêm dos arquivos indicados; o que não foi entregue aparece como pendência.',
-      cards, achados: riscos.slice(0, 5).map((r) => ({ rotulo: r.tema, texto: r.achado, natureza: r.natureza })),
+        : 'Leitura inicial voltada à preparação da recuperação judicial ou da negociação. Os números abaixo vêm dos arquivos indicados; o que não foi entregue aparece como pendência.')
+        + (mapa ? ` ${juridico.rj.alcance}` : ''),
+      cards: cards.slice(0, 4),
+      achados: [...(mapa?.principalDor ? [{ rotulo: 'Principal dor', texto: mapa.principalDor.texto, natureza: 'hipotese' as const }] : []), ...riscos.map((r) => ({ rotulo: r.tema, texto: r.achado, natureza: r.natureza }))].slice(0, 5),
     },
     baseDocumental: {
       documentos: e.documentos, lidos: e.documentos.length - ilegiveis.length, ilegiveis: ilegiveis.length,
@@ -75,6 +93,8 @@ export function montarRelatorio(e: EntradaDoDiagnostico) {
     financeiroI: extratos.length ? { extratos } : semDados(['Extratos de todas as contas bancárias dos últimos 12 meses']),
     financeiroII: passivo ? { passivo, abc } : semDados(['Relatório consolidado de endividamento', 'Relatório do passivo fiscal', 'Contratos de financiamento e garantias']),
     patrimonio: { semDados: true as const, pedir: ['Relação de bens da empresa e dos sócios', 'IRPF dos sócios e avalistas', 'Matrículas imobiliárias atualizadas', 'Organograma e empresas do grupo'], parteRelacionadaPorBanco: extratos.map((x) => ({ banco: x.banco, ...x.grupos.parteRelacionada })) },
+    juridico: { ...juridico, aviso: 'Leitura indicativa a partir dos documentos. Confira a redação vigente da Lei 11.101/2005 e os julgados antes de usar em peça.' },
+    endividamento: e.endividamento ?? [],
     riscos,
     proximosPassos: [
       { frente: 'Esclarecer com o contador', itens: ['Diferenças entre faturamento fiscal e gerencial', 'Contas de ajuste e saldos com sócios'] },

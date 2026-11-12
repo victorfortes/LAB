@@ -158,6 +158,15 @@ const REGRAS: Regra[] = [
   { re: /(provis|contingenc)/, natureza: 'quirografario', hipotese: true, motivo: 'Provisão contábil: só vira crédito se houver obrigação concreta; conferir.' },
 ];
 
+/** Natureza sugerida para uma conta de passivo pelo nome (e pelo grupo, se a conta não der pista). */
+export function classificarConta(conta: string, grupo?: string | null): { natureza: NaturezaCredito; motivo: string; hipotese: boolean } {
+  const nome = norm(conta);
+  const regra = REGRAS.find((r) => r.re.test(nome)) ?? (grupo ? REGRAS.find((r) => r.re.test(norm(grupo))) : undefined);
+  const meEpp = (regra?.natureza ?? 'quirografario') === 'quirografario' && /\b(me|epp|mei)\.?$/.test(nome);
+  if (meEpp) return { natureza: 'me_epp', motivo: 'Nome termina em ME/EPP: provável classe IV (art. 41, IV).', hipotese: true };
+  return regra ? { natureza: regra.natureza, motivo: regra.motivo, hipotese: !!regra.hipotese } : { natureza: 'quirografario', motivo: 'Sem pista no nome da conta: sugerido como quirografário.', hipotese: true };
+}
+
 /** Linhas que nunca são credor: grupos e totais do plano de contas. */
 const GRUPO = /^(total|passivo|ativo|circulante|nao circulante|exigivel a (curto|longo) prazo|passivo (circulante|nao circulante)|obrigacoes? (de curto|de longo)|patrimonio liquido|resultado)/;
 const PL = /(patrimonio liquido|capital social|reservas? de (lucro|capital)|lucros? (ou prejuizos )?acumulad|prejuizos? acumulad|ajustes? de avaliacao|acoes em tesouraria|resultado do exercicio)/;
