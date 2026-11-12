@@ -136,3 +136,52 @@ export async function vincularPublicacoes(db: PoolClient, org: string) {
       WHERE p.organizacao_id = $1 AND p.situacao IN ('nova','lida')`, [org]);
   return { vinculadasAoProcesso: Number(v[0]?.n ?? 0), semProcesso: Number(rows[0]!.sem_processo), semProjeto: Number(rows[0]!.sem_projeto) };
 }
+
+/**
+ * Vincula ao projeto certo os processos que ainda estão soltos, sem precisar da planilha:
+ *   1. registro do Astrea sem etiqueta, mas com o MESMO nome de cliente de um projeto (um só) → herda o projeto;
+ *   2. processo cujo registro do Astrea já tem projeto → o processo vai junto;
+ *   3. processo cuja parte "cliente" tem o CNPJ de uma empresa de um único projeto → esse projeto;
+ *   4. publicações do DJEN seguem o processo.
+ * Sem `aplicar`, roda tudo dentro de um ponto de salvamento e desfaz: devolve só a contagem.
+ */
+export async function vincularProcessosAosProjetos(db: PoolClient, org: string, aplicar: boolean, identidade: Identidade) {
+  await db.query('SAVEPOINT vinculo_projetos');
+  const heranca = await db.query(
+    `WITH mapa AS (SELECT lower(btrim(cliente_nome)) AS nome, (array_agg(DISTINCT projeto_id))[1] AS projeto
+                     FROM astrea_registros WHERE organizacao_id = $1 AND projeto_id IS NOT NULL AND btrim(coalesce(cliente_nome,'')) <> ''
+                    GROUP BY 1 HAVING count(DISTINCT projeto_id) = 1)
+     UPDATE astrea_registros r SET projeto_id = m.projeto FROM mapa m
+      WHERE r.organizacao_id = $1 AND r.projeto_id IS NULL AND lower(btrim(r.cliente_nome)) = m.nome`, [org]);
+  const peloAstrea = await db.query(
+    `UPDATE processos pr SET projeto_id = r.projeto_id, atualizado_em = now() FROM astrea_registros r
+      WHERE r.organizacao_id = $1 AND pr.projeto_id IS NULL AND r.projeto_id IS NOT NULL
+        AND (r.processo_id = pr.id OR regexp_replace(coalesce(r.numero_original, ''), '\\D', '', 'g') = regexp_replace(pr.numero, '\\D', '', 'g'))`, [org]);
+  const peloCnpj = await db.query(
+    `WITH alvo AS (SELECT pp.processo_id, (array_agg(DISTINCT pe.projeto_id))[1] AS projeto
+                     FROM partes_processo pp JOIN empresas e ON regexp_replace(coalesce(e.cnpj, ''), '\\D', '', 'g') = regexp_replace(pp.documento, '\\D', '', 'g')
+                     JOIN projetos_empresas pe ON pe.empresa_id = e.id JOIN projetos p ON p.id = pe.projeto_id AND p.situacao <> 'encerrado'
+                    WHERE pp.organizacao_id = $1 AND pp.eh_cliente AND pp.tipo_documento = 'cnpj' GROUP BY 1 HAVING count(DISTINCT pe.projeto_id) = 1)
+     UPDATE processos pr SET projeto_id = a.projeto, atualizado_em = now() FROM alvo a WHERE pr.id = a.processo_id AND pr.projeto_id IS NULL`, [org]);
+  const pub = await vincularPublicacoes(db, org);
+  const { rows: [r] } = await db.query<{ soltos: number; total: number }>(`SELECT count(*) FILTER (WHERE projeto_id IS NULL)::int AS soltos, count(*)::int AS total FROM processos WHERE organizacao_id = $1`, [org]);
+  const { rows: amostra } = await db.query(
+    `SELECT pr.id, pr.numero, pr.classe, (SELECT r.cliente_nome FROM astrea_registros r WHERE r.processo_id = pr.id OR regexp_replace(coalesce(r.numero_original, ''), '\\D', '', 'g') = regexp_replace(pr.numero, '\\D', '', 'g') LIMIT 1) AS cliente,
+            (SELECT r.titulo FROM astrea_registros r WHERE r.processo_id = pr.id LIMIT 1) AS titulo
+       FROM processos pr WHERE pr.organizacao_id = $1 AND pr.projeto_id IS NULL ORDER BY pr.criado_em DESC LIMIT 200`, [org]);
+  const rel = { aplicado: aplicar, registrosPeloNome: heranca.rowCount ?? 0, processosPeloAstrea: peloAstrea.rowCount ?? 0, processosPeloCnpj: peloCnpj.rowCount ?? 0, publicacoes: pub, processos: r!.total, semProjeto: r!.soltos, amostraSemProjeto: amostra };
+  if (aplicar) {
+    await db.query('RELEASE SAVEPOINT vinculo_projetos');
+    await auditar(db, { organizacaoId: org, usuarioId: identidade.usuarioId, acao: 'controladoria.processos_vinculados', entidade: 'organizacao', entidadeId: org, depois: { pelaNome: rel.registrosPeloNome, peloAstrea: rel.processosPeloAstrea, peloCnpj: rel.processosPeloCnpj } });
+  } else await db.query('ROLLBACK TO SAVEPOINT vinculo_projetos');
+  return rel;
+}
+
+/** Vínculo à mão, para o que nenhuma regra resolveu. */
+export async function vincularProcessoManual(db: PoolClient, processoId: string, projetoId: string | null, identidade: Identidade) {
+  const { rows } = await db.query<{ organizacao_id: string; numero: string }>('UPDATE processos SET projeto_id = $2, atualizado_em = now() WHERE id = $1 RETURNING organizacao_id, numero', [processoId, projetoId]);
+  if (!rows[0]) throw new PedidoInvalido('processo não encontrado');
+  await db.query('UPDATE publicacoes SET processo_id = $1 WHERE processo_id IS NULL AND regexp_replace(coalesce(numero_processo, \'\'), \'\\D\', \'\', \'g\') = $2', [processoId, rows[0].numero.replace(/\D/g, '')]);
+  await auditar(db, { organizacaoId: rows[0].organizacao_id, usuarioId: identidade.usuarioId, acao: 'controladoria.processo_vinculado', entidade: 'processo', entidadeId: processoId, depois: { projetoId } });
+  return { ok: true };
+}

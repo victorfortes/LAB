@@ -11,6 +11,7 @@ import {definirConfiguracaoGoogle,processarGoogleAgendado} from '../../../src/se
 import {provedorDoAmbiente} from '../../../src/ai/provedor.ts';
 import {rotinaSentinela} from '../../../src/server/sentinela.ts';
 import {rotinaRadar} from '../../../src/server/radar.ts';
+import {rotinaDataJud} from '../../../src/server/andamentos.ts';
 import {createHash} from 'node:crypto';
 instalarCompatibilidade();
 const e=Deno.env.toObject();
@@ -19,8 +20,7 @@ const dbUrl=new URL(database); dbUrl.searchParams.delete('sslmode'); dbUrl.searc
 const banco=new Banco({host:'',port:5432,user:'nga_app',password:'',database:'postgres',connectionString:dbUrl.href,ssl:{ca:supabaseCa,rejectUnauthorized:true},papelAplicacao:'nga_app',esquema:'nga_lab',max:2});
 const segredo=e.NGA_SEGREDO_ARQUIVOS??createHash('sha256').update(e.SUPABASE_SERVICE_ROLE_KEY??JSON.stringify(e.SUPABASE_SECRET_KEYS)).digest('hex');
 const dep=deposito(new AcervoNaNuvem(),{NGA_SEGREDO_ARQUIVOS:segredo,NGA_LIMITE_ARQUIVO:String(10*1024*1024)});
-const app=criarApp({banco,deposito:dep,analiseAutomatica:false,analiseEmWorker:true,exigirTrocaDeSenha:true});
-const prefix='/nga-lab-api';
+
 let googleConfig:Promise<void>|undefined;
 async function prepararGoogle(){
  googleConfig??=banco.semContexto(async(db)=>{
@@ -33,6 +33,8 @@ async function prepararGoogle(){
 
 // Acima disto o PDF não cabe no limite de CPU da função: sai com motivo na tela, em vez de travar.
 const LIMITE_PDF=3*1024*1024;
+const app=criarApp({banco,deposito:dep,analiseAutomatica:false,analiseEmWorker:true,exigirTrocaDeSenha:true,limitePdfBytes:LIMITE_PDF,segredoCofre:e.NGA_COFRE_CHAVE??createHash('sha256').update('cofre:'+segredo).digest('hex')});
+const prefix='/nga-lab-api';
 const acervo=new AcervoNaNuvem();
 const ROTINAS:Record<string,()=>Promise<unknown>>={
  analise:()=>processarFilaAnalise(banco,dep,provedorDoAmbiente(e),{limitePdfBytes:LIMITE_PDF}),
@@ -40,6 +42,7 @@ const ROTINAS:Record<string,()=>Promise<unknown>>={
  google:async()=>{await prepararGoogle();return JSON.stringify(await processarGoogleAgendado(banco,acervo))},
  sentinela:async()=>JSON.stringify(await rotinaSentinela(banco)),
  radar:()=>rotinaRadar(banco,e.DJEN_INGEST_SECRET),
+ datajud:async()=>JSON.stringify(await rotinaDataJud(banco,{limite:40})),
 };
 async function executarRotina(req:Request,nome:string):Promise<Response>{
  const negado=new Response('não encontrado',{status:404});

@@ -16,6 +16,7 @@ import { folhasDoPassivo, mapaDoEndividamento, type MapaDoEndividamento } from '
 import { linhasDoPdf } from './qgc.ts';
 import { lerConteudoDocumento, type Deposito } from './arquivos.ts';
 import { chaveDoHash } from '../store/arquivos.ts';
+import { quadro as quadroSocios } from './socios.ts';
 
 const TIPOS = ['balanco', 'dre_contabil', 'dre_gerencial', 'faturamento', 'extrato', 'passivo_fonte', 'clientes_abc', 'partes_relacionadas'] as const;
 export const EsquemaExtracao = z.object({
@@ -53,22 +54,37 @@ const refDe = (t: string) => { const [arquivo, ...resto] = t.split(' | '); retur
  * Lê as planilhas (XLSX e CSV) que o cliente enviou e ainda não foram lidas, e grava as extrações com a origem de cada número.
  * Arquivo que falha entra nos avisos e a leitura segue com os demais.
  */
-export async function lerPlanilhasDoProjeto(db: PoolClient, projetoId: string, dep: Deposito, identidade: Identidade) {
-  const { rows: pj } = await db.query<{ organizacao_id: string }>('SELECT organizacao_id FROM projetos WHERE id = $1', [projetoId]);
-  if (!pj[0]) throw new NaoEncontrado('projeto não encontrado');
-  const { rows: docs } = await db.query<{ id: string; nome: string; hash_sha256: string | null }>(
-    `SELECT d.id, coalesce(d.nome_original, d.titulo) AS nome, d.hash_sha256 FROM documentos d
+const PENDENTES_SQL = `SELECT d.id, coalesce(d.nome_original, d.titulo) AS nome, d.hash_sha256, d.tamanho_bytes::int AS tamanho FROM documentos d
       WHERE d.projeto_id = $1 AND d.origem = 'portal_cliente' AND d.tem_arquivo AND d.hash_sha256 IS NOT NULL
         AND lower(coalesce(d.nome_original, d.titulo)) ~ '[.](xlsx|xls|csv|pdf)$'
-        AND NOT EXISTS (SELECT 1 FROM diagnostico_extracoes x WHERE x.documento_id = d.id) AND NOT EXISTS (SELECT 1 FROM diagnostico_leituras l WHERE l.documento_id = d.id)`, [projetoId]);
-  const avisos: string[] = []; let extracoes = 0; let lidas = 0;
-  for (const d of docs) {
-    // Um arquivo que falhe não pode abortar a transação inteira: cada um tem seu ponto de salvamento.
-    await db.query('SAVEPOINT leitura_doc');
-    try {
+        AND NOT EXISTS (SELECT 1 FROM diagnostico_extracoes x WHERE x.documento_id = d.id) AND NOT EXISTS (SELECT 1 FROM diagnostico_leituras l WHERE l.documento_id = d.id)
+      ORDER BY d.criado_em`;
+
+/** Quantos arquivos do cliente ainda não passaram pela leitura do diagnóstico. */
+export async function pendentesDeLeitura(db: PoolClient, projetoId: string) {
+  const { rows } = await db.query<{ nome: string }>(PENDENTES_SQL, [projetoId]);
+  return { restantes: rows.length, nomes: rows.slice(0, 50).map((r) => r.nome) };
+}
+
+/**
+ * Lê UM arquivo pendente e grava as extrações. Na nuvem cada chamada tem limite curto de CPU:
+ * ler tudo numa requisição só derrubava a geração ("erro ao gerar"). A tela chama em sequência, com progresso.
+ * PDF acima do limite não é aberto: vira aviso declarado, nunca número inventado.
+ */
+export async function lerProximo(db: PoolClient, projetoId: string, dep: Deposito, identidade: Identidade, limitePdfBytes?: number) {
+  const { rows: pj } = await db.query<{ organizacao_id: string }>('SELECT organizacao_id FROM projetos WHERE id = $1', [projetoId]);
+  if (!pj[0]) throw new NaoEncontrado('projeto não encontrado');
+  const { rows: docs } = await db.query<{ id: string; nome: string; hash_sha256: string | null; tamanho: number | null }>(PENDENTES_SQL, [projetoId]);
+  const d = docs[0];
+  if (!d) return { lido: null, extracoes: 0, avisos: [] as string[], restantes: 0 };
+  const ehPdf = /\.pdf$/i.test(d.nome);
+  let r: { extracoes: ExtracaoLida[]; avisos: string[] };
+  await db.query('SAVEPOINT leitura_doc');
+  try {
+    if (ehPdf && limitePdfBytes && (d.tamanho ?? 0) > limitePdfBytes) {
+      r = { extracoes: [], avisos: [`${d.nome}: PDF de ${Math.ceil((d.tamanho ?? 0) / 1048576)} MB, acima do limite de leitura automática na nuvem. Registre os números à mão ou envie o arquivo em partes.`] };
+    } else {
       const bytes = await lerConteudoDocumento(db, d.id, dep, chaveDoHash(d.hash_sha256!), d.hash_sha256!);
-      const ehPdf = /\.pdf$/i.test(d.nome);
-      let r;
       if (ehPdf) {
         const paginas = await linhasDoPdf(bytes);
         // PDF sem camada de texto é digitalizado: sem OCR aqui, vira limite declarado, nunca número inventado.
@@ -76,18 +92,31 @@ export async function lerPlanilhasDoProjeto(db: PoolClient, projetoId: string, d
           ? { extracoes: [], avisos: [`${d.nome}: PDF digitalizado (sem texto). OCR não disponível neste servidor; números deste arquivo não foram lidos.`] }
           : lerDocumentoPdf(d.nome, paginas);
       } else r = lerPlanilha(d.nome, bytes);
-      avisos.push(...r.avisos);
-      for (const x of r.extracoes) { await db.query(`INSERT INTO diagnostico_extracoes (organizacao_id, projeto_id, documento_id, tipo, referencia, dados, qualidade, origem, criado_por) VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9)`, [pj[0].organizacao_id, projetoId, d.id, x.tipo, x.referencia, JSON.stringify(x.dados), ehPdf ? 'regular' : 'boa', ehPdf ? 'pdf_texto' : 'planilha', identidade.usuarioId]); extracoes++; }
-      await db.query(`INSERT INTO diagnostico_leituras (documento_id, organizacao_id, projeto_id, extracoes, avisos) VALUES ($1,$2,$3,$4,$5::jsonb)`, [d.id, pj[0].organizacao_id, projetoId, r.extracoes.length, JSON.stringify(r.avisos)]);
-      lidas++;
-      await db.query('RELEASE SAVEPOINT leitura_doc');
-    } catch (e) { await db.query('ROLLBACK TO SAVEPOINT leitura_doc'); avisos.push(`${d.nome}: ${(e as Error).message}`); }
+    }
+    for (const x of r.extracoes) { await db.query(`INSERT INTO diagnostico_extracoes (organizacao_id, projeto_id, documento_id, tipo, referencia, dados, qualidade, origem, criado_por) VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9)`, [pj[0].organizacao_id, projetoId, d.id, x.tipo, x.referencia, JSON.stringify(x.dados), ehPdf ? 'regular' : 'boa', ehPdf ? 'pdf_texto' : 'planilha', identidade.usuarioId]); }
+    await db.query('RELEASE SAVEPOINT leitura_doc');
+  } catch (e) {
+    await db.query('ROLLBACK TO SAVEPOINT leitura_doc');
+    r = { extracoes: [], avisos: [`${d.nome}: não foi possível ler (${(e as Error).message})`] };
+  }
+  // A leitura fica registrada mesmo quando falha: o arquivo não volta para a fila e o aviso entra no relatório.
+  await db.query(`INSERT INTO diagnostico_leituras (documento_id, organizacao_id, projeto_id, extracoes, avisos) VALUES ($1,$2,$3,$4,$5::jsonb)`, [d.id, pj[0].organizacao_id, projetoId, r.extracoes.length, JSON.stringify(r.avisos)]);
+  return { lido: d.nome, extracoes: r.extracoes.length, avisos: r.avisos, restantes: docs.length - 1 };
+}
+
+/** Lê todos os pendentes numa chamada (servidor local e testes, sem limite de CPU). */
+export async function lerPlanilhasDoProjeto(db: PoolClient, projetoId: string, dep: Deposito, identidade: Identidade) {
+  const avisos: string[] = []; let extracoes = 0; let lidas = 0;
+  for (let i = 0; i < 500; i++) {
+    const r = await lerProximo(db, projetoId, dep, identidade);
+    if (!r.lido) break;
+    lidas++; extracoes += r.extracoes; avisos.push(...r.avisos);
   }
   return { planilhasLidas: lidas, extracoes, avisos };
 }
 
-export async function gerar(db: PoolClient, projetoId: string, motivo: 'manual' | 'rodada_de_entrega', identidade: Identidade, dep?: Deposito) {
-  const leitura = dep ? await lerPlanilhasDoProjeto(db, projetoId, dep, identidade) : { planilhasLidas: 0, extracoes: 0, avisos: [] as string[] };
+export async function gerar(db: PoolClient, projetoId: string, motivo: 'manual' | 'rodada_de_entrega', identidade: Identidade, dep?: Deposito, opcoes: { lerArquivos?: boolean } = {}) {
+  const leitura = dep && opcoes.lerArquivos !== false ? await lerPlanilhasDoProjeto(db, projetoId, dep, identidade) : { planilhasLidas: 0, extracoes: 0, avisos: [] as string[] };
   const { rows: antigos } = await db.query<{ avisos: string[] }>('SELECT avisos FROM diagnostico_leituras WHERE projeto_id = $1', [projetoId]);
   const avisosDeLeitura = [...new Set([...antigos.flatMap((a) => a.avisos), ...leitura.avisos])];
   const { rows: pj } = await db.query<{ organizacao_id: string; nome: string; posicao_cliente: 'devedor' | 'credor'; razao: string | null }>(
@@ -154,6 +183,7 @@ export async function gerar(db: PoolClient, projetoId: string, motivo: 'manual' 
     clientesAbc: com('clientes_abc').flatMap((x) => ((x.dados as { clientes?: { nome: string; valor: number }[] }).clientes ?? []).map((c) => ({ ...c, ref: refDe(x.referencia) }))),
     relacionadas: com('partes_relacionadas').flatMap((x) => (x.dados as { nomes?: string[] }).nomes ?? []),
     avisosDeLeitura,
+    socios: (await quadroSocios(db, projetoId)).quadro,
   });
   await db.query(`INSERT INTO diagnostico_versoes (organizacao_id, projeto_id, numero, gerado_por, motivo, documentos, resultado) VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb)`,
     [pj[0].organizacao_id, projetoId, numero, identidade.usuarioId, motivo, JSON.stringify(documentos), JSON.stringify(relatorio)]);

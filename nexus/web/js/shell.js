@@ -22,7 +22,7 @@ const NAV_EQUIPE = [
   { rota: 'ferramentas', rotulo: 'Ferramentas', icone: 'bolt', permissao: 'modulo.ferramentas' },
   { rota: 'controladoria', rotulo: 'Controladoria', icone: 'inbox', permissao: 'controladoria.ler', contagem: 'pubs' },
   { rota: 'sentinela', rotulo: 'Sentinela', icone: 'radar', permissao: 'controladoria.ler' },
-  { rota: 'bi-prazos', rotulo: 'BI de Prazos', icone: 'chart', permissao: 'controladoria.ler' },
+  { rota: 'bi-prazos', rotulo: 'BI de Prazos', icone: 'chart', permissao: 'modulo.bi_prazos' },
   { rota: 'relatorios', rotulo: 'Relatórios', icone: 'chart', permissao: 'modulo.relatorios' },
   { rota: 'equipe', rotulo: 'Equipe', icone: 'users', permissao: 'modulo.equipe' },
   { rota: 'entregas', rotulo: 'Entregas NEXUS', icone: 'flag', dono: true },
@@ -49,7 +49,7 @@ const ROTAS = {
     ['painel', 'painel'], ['tarefas', 'tarefas'], ['calendario', 'calendario'],
     ['projetos', 'projetos'], ['projetos/:id', 'projeto'], ['projetos/:id/:aba', 'projeto'],
     ['ferramentas', 'ferramentas'], ['ferramentas/:id', 'ferramentas'], ['controladoria', 'controladoria'],
-    ['relatorios', 'relatorios'], ['equipe', 'equipe'], ['ajustes', 'ajustes'], ['clientes', 'clientes'], ['sentinela', 'sentinela'], ['sentinela/:aba', 'sentinela'], ['sentinela/:aba/:id', 'sentinela'], ['financeiro', 'financeiro'], ['financeiro/:aba', 'financeiro'], ['bi-prazos', 'bi_prazos'], ['ajustes/:aba', 'ajustes'], ['entregas', 'entregas'],
+    ['relatorios', 'relatorios'], ['equipe', 'equipe'], ['ajustes', 'ajustes'], ['clientes', 'clientes'], ['clientes/:cliente', 'clientes'], ['sentinela', 'sentinela'], ['sentinela/:aba', 'sentinela'], ['sentinela/:aba/:id', 'sentinela'], ['financeiro', 'financeiro'], ['financeiro/:aba', 'financeiro'], ['bi-prazos', 'bi_prazos'], ['ajustes/:aba', 'ajustes'], ['entregas', 'entregas'],
   ],
   cliente: [
     ['inicio', 'portal', { aba: 'inicio' }], ['andamento', 'portal', { aba: 'andamento' }],

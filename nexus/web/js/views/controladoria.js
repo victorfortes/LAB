@@ -5,6 +5,7 @@
  * O texto da publicação é DADO de terceiros: aparece como texto, nunca como instrução. O prazo não nasce
  * sozinho: "Calcular prazo" abre o cálculo com a data da publicação já preenchida, para a pessoa conferir.
  */
+import { montarConferencia, vincularProcessos } from './controladoria_conferencia.js';
 import { api } from '../api.js';
 import { pode } from '../estado.js';
 import { dataBR, esc, hojeISO, html, icone, ouvir, relativo } from '../util.js';
@@ -29,9 +30,10 @@ export default async function controladoria() {
     titulo: 'Controladoria',
     html: html`${cabecalho({
       titulo: 'Controladoria', sub: oabs.length ? `Diário de Justiça Eletrônico Nacional · ${oabs.filter((o) => o.ativo).length} OAB(s) monitorada(s) · ${ultima ? `última busca ${relativo(ultima)}` : 'ainda não buscou'}` : 'Cadastre as OABs dos sócios para começar a receber as publicações.',
-      acoes: gere ? html`<button type="button" class="btn btn--ghost" data-confronto>${icone('link')}Confrontar com o Astrea</button><button type="button" class="btn btn--ghost" data-oabs>${icone('user')}OABs</button><button type="button" class="btn btn--accent" data-sync>${icone('refresh')}Buscar agora</button>` : '',
+      acoes: gere ? html`<button type="button" class="btn btn--ghost" data-vinculo-proj>${icone('folder')}Vincular processos aos projetos</button><button type="button" class="btn btn--ghost" data-confronto>${icone('link')}Confrontar com o Astrea</button><button type="button" class="btn btn--ghost" data-oabs>${icone('user')}OABs</button><button type="button" class="btn btn--accent" data-sync>${icone('refresh')}Buscar agora</button>` : '',
       resumo: [{ rotulo: 'Novas', valor: r.novas, tom: r.novas ? 'warn' : '' }, { rotulo: 'Lidas', valor: r.lidas }, { rotulo: 'Tratadas', valor: r.tratadas }],
     })}
+    <div data-conferencia><div class="skel mt" style="height:140px"></div></div>
     ${pendentes.length ? html`<section class="card glass mt" aria-labelledby="astrea-titulo">
       <header class="card__head"><div><h2 class="card__title" id="astrea-titulo">Prazos do Astrea a vincular</h2>
       <p class="card__sub">Confira o cliente e vincule o processo ao projeto. O Nexus importa os vencimentos confirmados no Astrea e as tarefas correspondentes.</p></div></header>
@@ -113,6 +115,8 @@ export default async function controladoria() {
       });
       ouvir(el, 'click', '[data-oabs]', () => gerirOabs(oabs));
       ouvir(el, 'click', '[data-confronto]', () => confrontarComAstrea());
+      ouvir(el, 'click', '[data-vinculo-proj]', () => vincularProcessos());
+      montarConferencia(el.querySelector('[data-conferencia]'));
       ouvir(el, 'click', '[data-mais]', (b) => abrirPublicacao(b.dataset.mais).catch(erroDe));
       ouvir(el, 'click', '[data-detalhar]', (b) => abrirPublicacao(b.dataset.detalhar).catch(erroDe));
       ouvir(el, 'click', '[data-sit]', async (b) => { try { await api.patch(`/api/controladoria/publicacoes/${b.dataset.sit}`, { situacao: b.dataset.v }); navegar(); } catch (e) { erroDe(e); } });

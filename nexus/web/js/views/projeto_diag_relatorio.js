@@ -1,10 +1,16 @@
-/** Relatório do diagnóstico inicial: versões, PDF, comparação e as extrações (números com a origem de cada um). */
+/**
+ * Relatório do diagnóstico inicial dentro da aba: a MESMA página que vira PDF, mostrada aqui como é.
+ *
+ * Gerar tem duas etapas: primeiro os arquivos do cliente são lidos um a um (cada leitura numa chamada,
+ * para caber no limite da nuvem e mostrar o progresso), depois a versão é montada. Nenhuma versão é
+ * sobrescrita: cada geração fica guardada e pode ser comparada com a anterior.
+ */
 import { api } from '../api.js';
 import { pode } from '../estado.js';
 import { dataHoraBR, html, icone, ouvir } from '../util.js';
 import { erroDe, formulario, modal, toast, vazio } from '../ui.js';
 
-const TIPOS = [['balanco', 'Balanço (por exercício)'], ['dre_contabil', 'DRE contábil'], ['dre_gerencial', 'DRE gerencial'], ['faturamento', 'Faturamento (fiscal x gerencial)'], ['extrato', 'Extrato bancário'], ['passivo_fonte', 'Passivo por fonte'], ['clientes_abc', 'Clientes (curva ABC)'], ['partes_relacionadas', 'Partes relacionadas (nomes)']];
+const TIPOS = [['balanco', 'Balanço (por exercício)'], ['dre_contabil', 'DRE contábil'], ['dre_gerencial', 'DRE gerencial'], ['faturamento', 'Faturamento (fiscal x gerencial)'], ['extrato', 'Extrato bancário'], ['passivo_fonte', 'Passivo por fonte'], ['clientes_abc', 'Clientes (curva ABC)'], ['partes_relacionadas', 'Partes relacionadas (nomes)'], ['checklist_respostas', 'Respostas do checklist']];
 const MODELO = {
   balanco: { exercicio: 2025, ativoCirculante: 0, ativoNaoCirculante: 0, passivoCirculante: 0, passivoNaoCirculante: 0, patrimonioLiquido: 0 },
   dre_contabil: { exercicio: 2025, receitaBruta: 0, resultado: 0 }, dre_gerencial: { exercicio: 2025, receitaBruta: 0, resultado: 0 },
@@ -12,34 +18,90 @@ const MODELO = {
   passivo_fonte: { fonte: 'Balanço contábil', total: 0, fiscal: 0 }, clientes_abc: { clientes: [{ nome: 'Cliente A', valor: 0 }] }, partes_relacionadas: { nomes: ['Nome do sócio ou empresa do grupo'] },
 };
 
+/** Botão "Gerar": lê os arquivos pendentes um por um e só então monta a versão. */
+export async function gerarComProgresso(ctx, botao) {
+  const base = `/api/projetos/${ctx.id}/diagnostico`;
+  const texto = botao?.innerHTML; const avisos = [];
+  const mostrar = (t) => { if (botao) botao.textContent = t; };
+  if (botao) botao.disabled = true;
+  try {
+    let { restantes } = await api.get(`${base}/leituras`);
+    const total = restantes; let feitos = 0;
+    while (restantes > 0 && feitos < 400) {
+      mostrar(`Lendo arquivo ${feitos + 1} de ${total}…`);
+      const r = await api.post(`${base}/leituras`, {});
+      if (!r.lido) break;
+      avisos.push(...r.avisos); feitos++; restantes = r.restantes;
+    }
+    mostrar('Montando o relatório…');
+    const v = await api.post(`${base}/versoes`, { motivo: 'manual', lerArquivos: false });
+    toast(`Versão ${v.numero} gerada${feitos ? ` · ${feitos} arquivo(s) lido(s)` : ''}${avisos.length ? ` · ${avisos.length} aviso(s) no relatório` : ''}`);
+    ctx.recarregar();
+  } catch (e) {
+    if (botao) { botao.disabled = false; botao.innerHTML = texto; }
+    erroDe(new Error(`Não foi possível gerar o diagnóstico: ${e.message}`));
+  }
+}
+
+async function htmlDaVersao(ctx, numero) {
+  const r = await fetch(`/api/projetos/${ctx.id}/diagnostico/versoes/${numero}/html`, { credentials: 'same-origin' });
+  if (!r.ok) throw new Error(`relatório indisponível (HTTP ${r.status})`);
+  return r.text();
+}
+
+/** Quadro com o relatório: página A4 paisagem escalada para a largura do cartão. */
+function encaixar(quadro) {
+  const largura = quadro.parentElement.clientWidth; const escala = Math.min(1, largura / 1123);
+  quadro.style.transform = `scale(${escala})`; quadro.style.marginBottom = `${Math.round(quadro.dataset.altura * (escala - 1))}px`;
+}
+
 export async function secaoRelatorio(ctx) {
   const escreve = pode('analise.executar');
-  const [versoes, extracoes] = await Promise.all([api.get(`/api/projetos/${ctx.id}/diagnostico/versoes`).catch(() => []), api.get(`/api/projetos/${ctx.id}/diagnostico/extracoes`).catch(() => [])]);
   const base = `/api/projetos/${ctx.id}/diagnostico`;
+  const [versoes, extracoes] = await Promise.all([api.get(`${base}/versoes`).catch(() => []), api.get(`${base}/extracoes`).catch(() => [])]);
+  const atual = versoes[0];
   return {
-    html: html`<section class="card glass up" data-diag-rel><header class="card__head"><div><h2 class="card__title">Relatório do diagnóstico inicial</h2><p class="card__sub">Cada geração é uma versão guardada, com PDF paisagem. Todo número do relatório aponta para o arquivo de onde veio.</p></div>
-      <div class="flex">${escreve ? html`<select class="select" data-posicao aria-label="Posição do cliente"><option value="devedor" ${ctx.h.posicaoCliente !== 'credor' ? 'selected' : ''}>NGA atua pelo devedor</option><option value="credor" ${ctx.h.posicaoCliente === 'credor' ? 'selected' : ''}>NGA atua pelo credor</option></select><button class="btn btn--accent" data-gerar>${icone('sparkle')}Gerar diagnóstico</button>` : ''}</div></header>
-      <p class="nota">Leitura automática para revisão profissional. Não conclui sobre viabilidade. Confira vigência e julgados antes de citar qualquer tese.</p>
-      ${versoes.length ? html`<table class="tbl"><thead><tr><th>Versão</th><th>Gerada</th><th>Por</th><th class="num">Docs</th><th class="num">Pendentes</th><th class="num">Riscos altos</th><th></th></tr></thead><tbody>${versoes.map((v, i) => html`<tr><td><b>v${v.numero}</b><small>${v.motivo === 'rodada_de_entrega' ? 'rodada de entrega' : 'manual'}</small></td><td>${dataHoraBR(v.geradoEm)}</td><td>${v.geradoPor ?? '—'}</td><td class="num">${v.documentos}</td><td class="num">${v.pendentes ?? '—'}</td><td class="num">${v.riscosAltos}</td>
-        <td><div class="nx-acts"><a class="btn btn--ghost btn--sm" href="${base}/versoes/${v.numero}/html" target="_blank" rel="noopener">${icone('eye')}Abrir</a><button class="btn btn--accent btn--sm" data-pdf="${v.numero}">${icone('download')}Baixar PDF</button>${versoes[i + 1] ? html`<button class="btn btn--ghost btn--sm" data-cmp="${versoes[i + 1].numero}" data-para="${v.numero}">Comparar com v${versoes[i + 1].numero}</button>` : ''}</div></td></tr>`)}</tbody></table>`
-        : vazio('doc', 'Nenhuma versão gerada', 'Clique em “Gerar diagnóstico”. Sem números extraídos, as páginas aparecem com o aviso “sem documentos para esta análise” e a lista do que pedir.')}
-      <h3 class="mini-h">Números extraídos dos documentos</h3>
-      ${extracoes.length ? html`<ul class="lista">${extracoes.map((x) => html`<li><div><b>${TIPOS.find(([t]) => t === x.tipo)?.[1] ?? x.tipo}</b><small>${x.referencia} · leitura ${x.qualidade} · ${x.origem}</small></div>${escreve ? html`<div class="fim"><button class="btn btn--ghost btn--sm perigo-btn" data-del="${x.id}">${icone('trash')}</button></div>` : ''}</li>`)}</ul>` : html`<p class="dica">Nada extraído ainda. Registre os números de cada demonstração, sempre com o arquivo e a página de origem.</p>`}
-      ${escreve ? html`<button class="btn btn--ghost mt" data-extrair>${icone('plus')}Registrar números de um documento</button>` : ''}</section>`,
+    html: html`<section class="card glass up" data-diag-rel><header class="card__head"><div><h2 class="card__title">Relatório do diagnóstico ${atual ? html`<span class="selo info">v${atual.numero}</span>` : ''}</h2>
+      <p class="card__sub">${atual ? html`Gerado em ${dataHoraBR(atual.geradoEm)} por ${atual.geradoPor ?? '—'} · é exatamente o que sai no PDF` : 'Gere a primeira versão para ver o relatório aqui.'}</p></div>
+      ${atual ? html`<div class="nx-acts"><button class="btn btn--ghost btn--sm" data-cheia="${atual.numero}">${icone('eye')}Tela cheia</button><button class="btn btn--accent btn--sm" data-pdf="${atual.numero}">${icone('download')}Baixar PDF</button></div>` : ''}</header>
+      ${atual ? html`<div class="diag-folha" data-folha><iframe title="Relatório do diagnóstico" data-quadro="${atual.numero}" data-altura="794" style="width:1123px;height:794px;border:0;transform-origin:0 0;border-radius:12px;background:#0B111D"></iframe></div>`
+        : vazio('doc', 'Nenhuma versão gerada', 'Clique em “Gerar diagnóstico”. Os arquivos do cliente são lidos um a um e o relatório aparece aqui, igual ao PDF.')}
+      ${versoes.length > 1 ? html`<details class="mt"><summary class="link">Versões anteriores (${versoes.length - 1})</summary><table class="tbl mt"><thead><tr><th>Versão</th><th>Gerada</th><th>Por</th><th class="num">Docs</th><th class="num">Riscos altos</th><th></th></tr></thead><tbody>${versoes.map((v, i) => html`<tr><td><b>v${v.numero}</b><small>${v.motivo === 'rodada_de_entrega' ? 'rodada de entrega' : 'manual'}</small></td><td>${dataHoraBR(v.geradoEm)}</td><td>${v.geradoPor ?? '—'}</td><td class="num">${v.documentos}</td><td class="num">${v.riscosAltos}</td>
+        <td><div class="nx-acts"><button class="btn btn--ghost btn--sm" data-cheia="${v.numero}">${icone('eye')}Ver</button><button class="btn btn--ghost btn--sm" data-pdf="${v.numero}">${icone('download')}PDF</button>${versoes[i + 1] ? html`<button class="btn btn--ghost btn--sm" data-cmp="${versoes[i + 1].numero}" data-para="${v.numero}">Comparar com v${versoes[i + 1].numero}</button>` : ''}</div></td></tr>`)}</tbody></table></details>` : ''}
+      <details class="mt"><summary class="link">Números extraídos dos documentos (${extracoes.length})</summary>
+      ${extracoes.length ? html`<ul class="lista mt">${extracoes.map((x) => html`<li><div><b>${TIPOS.find(([t]) => t === x.tipo)?.[1] ?? x.tipo}</b><small>${x.referencia} · leitura ${x.qualidade} · ${x.origem}</small></div>${escreve ? html`<div class="fim"><button class="btn btn--ghost btn--sm perigo-btn" data-del="${x.id}" aria-label="Excluir">${icone('trash')}</button></div>` : ''}</li>`)}</ul>` : html`<p class="dica">Nada extraído ainda. Planilhas e PDFs com texto são lidos ao gerar; o resto você registra à mão, sempre com o arquivo e a página de origem.</p>`}
+      ${escreve ? html`<button class="btn btn--ghost mt" data-extrair>${icone('plus')}Registrar números de um documento</button>` : ''}</details></section>`,
     depois(el) {
-      ouvir(el, 'change', '[data-posicao]', async (s) => { try { await api.patch(`/api/projetos/${ctx.id}/dados-do-cliente`, { posicaoCliente: s.value }); toast('Posição do cliente salva'); } catch (e) { erroDe(e); } });
-      ouvir(el, 'click', '[data-gerar]', async (b) => { b.disabled = true; try { const r = await api.post(`${base}/versoes`, { motivo: 'manual' }); toast(`Versão ${r.numero} gerada`); ctx.recarregar(); } catch (e) { b.disabled = false; erroDe(e); } });
+      const quadro = el.querySelector('[data-quadro]');
+      if (quadro) {
+        htmlDaVersao(ctx, quadro.dataset.quadro).then((doc) => {
+          quadro.srcdoc = doc;
+          quadro.onload = () => { const paginas = quadro.contentDocument?.querySelectorAll('.pg').length || 1; quadro.dataset.altura = String(paginas * 794); quadro.style.height = `${paginas * 794}px`; encaixar(quadro); };
+        }).catch((e) => { quadro.replaceWith(Object.assign(document.createElement('p'), { className: 'selo erro', textContent: e.message })); });
+        const ro = new ResizeObserver(() => encaixar(quadro)); ro.observe(quadro.parentElement);
+      }
+      ouvir(el, 'click', '[data-cheia]', async (b) => {
+        try {
+          const doc = await htmlDaVersao(ctx, b.dataset.cheia);
+          const f = document.createElement('iframe'); f.srcdoc = doc; f.title = 'Relatório em tela cheia';
+          f.style.cssText = 'position:fixed;inset:0;width:100vw;height:100vh;border:0;z-index:9999;background:#0B111D';
+          document.body.appendChild(f);
+          const sair = () => { f.remove(); document.removeEventListener('fullscreenchange', aoMudar); };
+          const aoMudar = () => { if (!document.fullscreenElement) sair(); };
+          f.onload = () => f.contentDocument?.addEventListener('keydown', (e) => { if (e.key === 'Escape') sair(); });
+          try { await f.requestFullscreen(); document.addEventListener('fullscreenchange', aoMudar); } catch { toast('Pressione Esc para fechar o relatório.'); }
+        } catch (e) { erroDe(e); }
+      });
       ouvir(el, 'click', '[data-pdf]', async (b) => {
         const r = await fetch(`${base}/versoes/${b.dataset.pdf}/pdf`, { credentials: 'same-origin' });
         if (r.ok) { const u = URL.createObjectURL(await r.blob()); const a = document.createElement('a'); a.href = u; a.download = `diagnostico-v${b.dataset.pdf}.pdf`; a.click(); return; }
-        // Sem Chromium no servidor (caso da nuvem): o próprio navegador imprime o mesmo HTML em A4 paisagem.
-        // "Salvar como PDF" no diálogo gera o arquivo; o @page do relatório já fixa 297 x 210 mm e margem zero.
+        // Sem Chromium no servidor (caso da nuvem): o navegador imprime o mesmo HTML em A4 paisagem.
         try {
-          const doc = await (await fetch(`${base}/versoes/${b.dataset.pdf}/html`, { credentials: 'same-origin' })).text();
-          const quadro = document.createElement('iframe');
-          quadro.setAttribute('aria-hidden', 'true'); quadro.style.cssText = 'position:fixed;right:0;bottom:0;width:297mm;height:210mm;border:0;opacity:0;pointer-events:none';
-          quadro.srcdoc = doc; document.body.appendChild(quadro);
-          quadro.onload = () => { setTimeout(() => { quadro.contentWindow.focus(); quadro.contentWindow.print(); setTimeout(() => quadro.remove(), 60_000); }, 400); };
+          const doc = await htmlDaVersao(ctx, b.dataset.pdf);
+          const q = document.createElement('iframe');
+          q.setAttribute('aria-hidden', 'true'); q.style.cssText = 'position:fixed;right:0;bottom:0;width:297mm;height:210mm;border:0;opacity:0;pointer-events:none';
+          q.srcdoc = doc; document.body.appendChild(q);
+          q.onload = () => { setTimeout(() => { q.contentWindow.focus(); q.contentWindow.print(); setTimeout(() => q.remove(), 60_000); }, 400); };
           toast('Na janela de impressão, escolha "Salvar como PDF". O relatório já sai em A4 paisagem.');
         } catch (e) { erroDe(e); }
       });
@@ -54,7 +116,7 @@ export async function secaoRelatorio(ctx) {
       ouvir(el, 'click', '[data-del]', async (b) => { try { await api.del(`/api/diagnostico/extracoes/${b.dataset.del}`); ctx.recarregar(); } catch (e) { erroDe(e); } });
       ouvir(el, 'click', '[data-extrair]', async () => {
         const ok = await formulario({ titulo: 'Registrar números de um documento', subtitulo: 'Sem arquivo de origem, o número não entra no relatório.', rotulo: 'Registrar', largo: true, campos: [
-          { nome: 'tipo', rotulo: 'Tipo', tipo: 'select', valor: 'balanco', opcoes: TIPOS.map(([v, t]) => ({ v, t })) },
+          { nome: 'tipo', rotulo: 'Tipo', tipo: 'select', valor: 'balanco', opcoes: TIPOS.filter(([t]) => MODELO[t]).map(([v, t]) => ({ v, t })) },
           { nome: 'referencia', rotulo: 'Arquivo e página ou aba', obrigatorio: true, placeholder: 'balanco-2025.pdf | p. 2' },
           { nome: 'qualidade', rotulo: 'Qualidade da leitura', tipo: 'select', valor: 'boa', opcoes: [['boa', 'Boa'], ['regular', 'Regular'], ['ruim', 'Ruim'], ['ilegivel', 'Ilegível (não entra)']].map(([v, t]) => ({ v, t })) },
           { nome: 'dados', rotulo: 'Dados (JSON)', tipo: 'textarea', obrigatorio: true, valor: JSON.stringify(MODELO.balanco, null, 1), dica: 'Valores em reais. O modelo muda conforme o tipo; veja os campos em cada exemplo.' }],

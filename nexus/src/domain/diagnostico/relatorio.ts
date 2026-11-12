@@ -10,6 +10,7 @@ import {
   type ItemDoChecklist, type PassivoFonte, type Qualidade,
 } from './analises.ts';
 import { enquadramento, type MapaDoEndividamento } from './juridico.ts';
+import type { PatrimonioDosSocios } from './socios.ts';
 
 export interface DocumentoLido { id: string; nome: string; area: string; estado: string; qualidade: Qualidade; detalhe: string | null }
 export interface EntradaDoDiagnostico {
@@ -29,6 +30,8 @@ export interface EntradaDoDiagnostico {
   endividamento?: MapaDoEndividamento[];
   /** Respostas do cliente ao checklist em planilha; quando existem, a cobertura usa elas. */
   respostasCliente?: ItemDoChecklist[];
+  /** Patrimônio dos sócios (quadro por sócio e alertas). */
+  socios?: PatrimonioDosSocios;
 }
 
 export const AVISO = 'Leitura automática para revisão profissional. Não conclui sobre viabilidade. Confira vigência e julgados antes de citar qualquer tese.';
@@ -92,7 +95,7 @@ export function montarRelatorio(e: EntradaDoDiagnostico) {
     contabilII: balancos.length ? { balancos, ausentes: exerciciosAusentes(e.balancos), assinaturaTardia: e.balancos.filter(assinaturaTardia).map((b) => ({ exercicio: b.exercicio, assinadoEm: b.assinadoEm })) } : semDados(['Balanço patrimonial de cada exercício', 'Balancetes do ano corrente', 'Razão analítico das contas de adiantamento e de sócios']),
     financeiroI: extratos.length ? { extratos } : semDados(['Extratos de todas as contas bancárias dos últimos 12 meses']),
     financeiroII: passivo ? { passivo, abc } : semDados(['Relatório consolidado de endividamento', 'Relatório do passivo fiscal', 'Contratos de financiamento e garantias']),
-    patrimonio: { semDados: true as const, pedir: ['Relação de bens da empresa e dos sócios', 'IRPF dos sócios e avalistas', 'Matrículas imobiliárias atualizadas', 'Organograma e empresas do grupo'], parteRelacionadaPorBanco: extratos.map((x) => ({ banco: x.banco, ...x.grupos.parteRelacionada })) },
+    patrimonio: { semDados: !e.socios?.socios.length, socios: e.socios?.socios.length ? e.socios : null, pedir: ['Relação de bens da empresa e dos sócios', 'IRPF dos sócios e avalistas', 'Matrículas imobiliárias atualizadas', 'Organograma e empresas do grupo'], parteRelacionadaPorBanco: extratos.map((x) => ({ banco: x.banco, ...x.grupos.parteRelacionada })) },
     juridico: { ...juridico, aviso: 'Leitura indicativa a partir dos documentos. Confira a redação vigente da Lei 11.101/2005 e os julgados antes de usar em peça.' },
     endividamento: e.endividamento ?? [],
     riscos,

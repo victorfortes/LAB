@@ -185,7 +185,7 @@ export async function hub(db: PoolClient, projetoId: string) {
     `SELECT p.id, p.organizacao_id, p.grupo_id, p.nome, p.tipo, p.situacao, p.prioridade,
             p.fase, p.fase_desde, p.responsavel_id, p.iniciado_em, p.previsao_fim,
             p.encerrado_em, p.motivo_encerramento, p.criado_em, p.resumo,
-            p.whatsapp_grupo_url AS "whatsappGrupoUrl", p.posicao_cliente AS "posicaoCliente",
+            p.whatsapp_grupo_url AS "whatsappGrupoUrl", p.posicao_cliente AS "posicaoCliente", p.segmento,
             u.nome AS responsavel, g.nome AS grupo
        FROM projetos p
        LEFT JOIN usuarios u ON u.id = p.responsavel_id
@@ -272,6 +272,8 @@ export const EsquemaDadosDoCliente = z.object({
   resumo: z.string().trim().max(1000).nullable().optional(),
   /** Em que lado o NGA atua: muda o foco do diagnóstico inicial. */
   posicaoCliente: z.enum(['devedor', 'credor']).optional(),
+  /** Segmento do cliente: decide blocos do diagnóstico (frota só para transportadora). */
+  segmento: z.enum(['transportadora', 'industria', 'comercio', 'servicos', 'agronegocio', 'construcao', 'saude', 'outro']).nullable().optional(),
 }).refine((d) => Object.keys(d).length > 0, 'nada a alterar');
 
 export async function atualizarDadosDoCliente(
@@ -283,6 +285,7 @@ export async function atualizarDadosDoCliente(
   if (d.whatsappGrupoUrl !== undefined) { args.push(d.whatsappGrupoUrl || null); sets.push(`whatsapp_grupo_url = $${args.length}`); }
   if (d.resumo !== undefined) { args.push(d.resumo || null); sets.push(`resumo = $${args.length}`); }
   if (d.posicaoCliente !== undefined) { args.push(d.posicaoCliente); sets.push(`posicao_cliente = $${args.length}`); }
+  if (d.segmento !== undefined) { args.push(d.segmento); sets.push(`segmento = $${args.length}`); }
   await db.query(`UPDATE projetos SET ${sets.join(', ')} WHERE id = $1`, args);
   await auditar(db, {
     organizacaoId: rows[0].organizacao_id, usuarioId: identidade.usuarioId, acao: 'projeto.dados_do_cliente', entidade: 'projeto', entidadeId: projetoId,

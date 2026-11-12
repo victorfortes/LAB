@@ -1,70 +1,60 @@
 /**
- * BI de Prazos: o painel de controle dos prazos do escritório, dentro do Nexus.
+ * BI de Prazos: o MESMO painel "Controle de prazos - NGA ADV" (Visão Geral, Prazos hoje, Próximos 7 dias,
+ * Performance e Eventos, com o rodízio de abas), agora alimentado pelo banco do Nexus.
  *
- * Substitui o painel avulso alimentado por planilha do Astrea: aqui os dados são os prazos reais do banco
- * (agenda da controladoria), com a contagem em dias úteis forenses. Mesmos filtros de sempre — responsável,
- * projeto, tipo, mês, situação e busca — e leitura por responsável, mês e projeto.
+ * A automação diária do Astrea entrega a base em /api/integracao/agenda. A tela lê a cada 2 minutos.
+ * "Tela cheia" deixa o painel rodando sozinho; "Link da TV" gera um endereço que abre o painel sem login
+ * (credencial só de leitura do BI, revogável), para a TV do escritório não depender de sessão.
  */
 import { api } from '../api.js';
-import { dataBR, guardado, hojeISO, html, icone, ouvir } from '../util.js';
-import { cabecalho, vazio } from '../ui.js';
-import { animarBarras, contar } from '../fx.js';
-import { ir } from '../shell.js';
-
-const MESES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
-const mesDe = (iso) => `${MESES[Number(iso.slice(5, 7)) - 1]}/${iso.slice(2, 4)}`;
-const ate = () => { const d = new Date(); d.setFullYear(d.getFullYear() + 1); return d.toLocaleDateString('sv-SE'); };
+import { pode } from '../estado.js';
+import { dataHoraBR, html, icone, ouvir, relativo } from '../util.js';
+import { cabecalho, confirmar, erroDe, formulario, modal, toast } from '../ui.js';
+import { aoSair } from '../shell.js';
 
 export default async function biPrazos() {
-  const a = await api.get(`/api/agenda?ate=${ate()}`);
-  const itens = a.itens;
-  const filtros = guardado.ler('biPrazos', { resp: '', proj: '', tipo: '', mes: '', sit: '', q: '' });
-  const uniq = (k) => [...new Set(itens.map((i) => i[k]).filter(Boolean))].sort((x, y) => String(x).localeCompare(String(y), 'pt-BR'));
-  const meses = [...new Set(itens.map((i) => i.vencimento.slice(0, 7)))].sort();
+  const [d, cargas] = await Promise.all([api.get('/api/bi-prazos').catch(() => ({ rows: [], updatedAt: null })), api.get('/api/bi-prazos/historico').catch(() => [])]);
+  const ultima = cargas[0];
+  const atrasada = ultima && Date.now() - new Date(ultima.recebidoEm).getTime() > 30 * 3600_000;
   return {
     titulo: 'BI de Prazos',
-    html: html`${cabecalho({ titulo: 'BI de Prazos', sub: `Prazos abertos da carteira · atualizado em ${dataBR(hojeISO())}`,
-      resumo: [{ rotulo: 'Abertos', valor: itens.length }, { rotulo: 'Vencidos', valor: a.vencidos, tom: a.vencidos ? 'alert' : '' }, { rotulo: 'Vencem hoje', valor: a.venceHoje, tom: a.venceHoje ? 'warn' : '' }] })}
-      <form class="tk-bar glass mt" data-filtros>
-        <label class="field"><span>Responsável</span><select class="select" name="resp"><option value="">Todos</option>${uniq('responsavel').map((x) => html`<option>${x}</option>`)}</select></label>
-        <label class="field"><span>Projeto</span><select class="select" name="proj"><option value="">Todos</option>${uniq('projeto').map((x) => html`<option>${x}</option>`)}</select></label>
-        <label class="field"><span>Tipo</span><select class="select" name="tipo"><option value="">Todos</option>${uniq('tipo').map((x) => html`<option>${x}</option>`)}</select></label>
-        <label class="field"><span>Mês</span><select class="select" name="mes"><option value="">Todos</option>${meses.map((m) => html`<option value="${m}">${mesDe(`${m}-01`)}</option>`)}</select></label>
-        <label class="field"><span>Situação</span><select class="select" name="sit"><option value="">Todas</option><option value="vencido">Vencidos</option><option value="semana">Próximos 7 dias</option><option value="avencer">A vencer</option></select></label>
-        <label class="field grow"><span>Buscar caso ou processo</span><input class="input" type="search" name="q" placeholder="Número, título ou projeto"></label>
-        <button class="btn btn--ghost" type="button" data-limpar>Limpar</button></form>
-      <div id="bi-corpo" class="mt"></div>
-      <p class="dica mt">${a.ressalva}</p>`,
+    html: html`${cabecalho({ titulo: 'BI de Prazos', sub: ultima ? html`Base do Astrea recebida ${relativo(ultima.recebidoEm)} · ${d.rows.length} registros${atrasada ? ' · a automação não entrega há mais de 30 horas' : ''}` : 'Aguardando a primeira carga da automação do Astrea.',
+      acoes: html`<button class="btn btn--accent" data-cheia>${icone('eye')}Tela cheia</button><button class="btn btn--ghost" data-tv>${icone('link')}Link da TV</button><button class="btn btn--ghost" data-cargas>${icone('refresh')}Cargas</button>`,
+      resumo: [{ rotulo: 'Prazos', valor: d.rows.filter((r) => r.tipo === 'Prazo').length }, { rotulo: 'Eventos e audiências', valor: d.rows.filter((r) => r.tipo !== 'Prazo').length }, ...(atrasada ? [{ rotulo: 'Automação', valor: 'atrasada', tom: 'alert' }] : [])] })}
+      <div class="bi-quadro mt" data-quadro><iframe title="Controle de prazos - NGA ADV" data-bi></iframe></div>`,
     depois(el) {
-      const form = el.querySelector('[data-filtros]');
-      for (const [k, v] of Object.entries(filtros)) if (form.elements[k]) form.elements[k].value = v;
-      const desenhar = () => {
-        const f = Object.fromEntries(new FormData(form)); guardado.gravar('biPrazos', f);
-        const q = (f.q ?? '').toLowerCase().trim();
-        const lista = itens.filter((i) => (!f.resp || i.responsavel === f.resp) && (!f.proj || i.projeto === f.proj) && (!f.tipo || i.tipo === f.tipo) && (!f.mes || i.vencimento.startsWith(f.mes))
-          && (!f.sit || (f.sit === 'vencido' ? i.vencido : f.sit === 'semana' ? !i.vencido && i.diasUteisRestantes <= 5 : !i.vencido))
-          && (!q || `${i.numero} ${i.titulo} ${i.projeto ?? ''} ${i.classe ?? ''}`.toLowerCase().includes(q)));
-        const conta = (chave) => { const m = new Map(); for (const i of lista) { const k = chave(i); m.set(k, (m.get(k) ?? 0) + 1); } return [...m].sort((x, y) => y[1] - x[1]); };
-        const barras = (titulo, sub, dados, tom = 'amber') => { const max = Math.max(1, ...dados.map((d) => d[1])); return html`<section class="card glass up"><header class="card__head"><div><h2 class="card__title">${titulo}</h2><p class="card__sub">${sub}</p></div></header>
-          ${dados.length ? html`<ul class="nx-bars">${dados.slice(0, 8).map(([nome, n]) => html`<li><span class="nx-bars__nome" title="${nome}">${nome}</span><span class="nx-bars__trilho"><i class="nx-bars__bar nx-bars__bar--${tom}" data-w="${Math.round((n / max) * 100)}" style="width:0"></i></span><b>${n}</b></li>`)}</ul>` : html`<p class="dica">Sem dados neste filtro.</p>`}</section>`; };
-        const porMes = conta((i) => i.vencimento.slice(0, 7)).sort((x, y) => x[0].localeCompare(y[0])).map(([m, n]) => [mesDe(`${m}-01`), n]);
-        const venc = lista.filter((i) => i.vencido).length; const sem = lista.filter((i) => !i.vencido && i.diasUteisRestantes <= 5).length;
-        el.querySelector('#bi-corpo').innerHTML = String(html`
-          <div class="nx-kpis nx-kpis--3"><div class="nx-kpi"><span class="nx-kpi__label">No filtro</span><b class="nx-kpi__big" data-n="${lista.length}">0</b><small>prazos abertos</small></div>
-            <div class="nx-kpi ${venc ? 'is-alert' : ''}"><span class="nx-kpi__label">Vencidos</span><b class="nx-kpi__big" data-n="${venc}">0</b><small>exigem ação imediata</small></div>
-            <div class="nx-kpi"><span class="nx-kpi__label">Próximos 5 dias úteis</span><b class="nx-kpi__big" data-n="${sem}">0</b><small>vencem logo</small></div></div>
-          <div class="grid3 mt">${barras('Por responsável', 'Quem carrega mais prazos', conta((i) => i.responsavel ?? 'Sem responsável'))}${barras('Por mês', 'Distribuição dos vencimentos', porMes, 'cy')}${barras('Por projeto', 'Onde os prazos se concentram', conta((i) => i.projeto ?? 'Sem projeto'), 'green')}</div>
-          <section class="card glass up mt"><header class="card__head"><div><h2 class="card__title">Prazos</h2><p class="card__sub">${lista.length} no filtro, do mais próximo ao mais distante</p></div></header>
-            ${lista.length ? html`<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Vencimento</th><th>Prazo</th><th>Processo</th><th>Projeto</th><th>Responsável</th><th class="num">Dias úteis</th></tr></thead>
-              <tbody>${lista.slice(0, 300).map((i) => html`<tr class="${i.vencido ? 'vencido' : ''}" ${i.projeto_id ? html`data-ir="projetos/${i.projeto_id}/processos" style="cursor:pointer"` : ''}><td>${dataBR(i.vencimento)}</td><td>${i.titulo}<small>${i.tipo ?? ''}</small></td><td class="mono-sm">${i.numero}</td><td>${i.projeto ?? '—'}</td><td>${i.responsavel ?? '—'}</td>
-                <td class="num">${i.vencido ? html`<span class="selo erro">${-i.diasUteisRestantes}d atraso</span>` : i.diasUteisRestantes}</td></tr>`)}</tbody></table></div>${lista.length > 300 ? html`<p class="dica mt">Mostrando os 300 primeiros. Use os filtros para refinar.</p>` : ''}` : vazio('calendar', 'Nenhum prazo neste filtro', 'Ajuste os filtros acima.')}</section>`);
-        contar(el); animarBarras(el);
-      };
-      form.addEventListener('input', desenhar);
-      form.addEventListener('submit', (e) => e.preventDefault());
-      ouvir(el, 'click', '[data-limpar]', () => { form.reset(); desenhar(); });
-      ouvir(el, 'click', '[data-ir]', (tr) => ir(tr.dataset.ir));
-      desenhar(); void icone;
+      const quadro = el.querySelector('[data-bi]');
+      fetch('/bi-prazos-tv.html', { credentials: 'same-origin' }).then((r) => r.text()).then((t) => { quadro.srcdoc = t; }).catch(erroDe);
+      ouvir(el, 'click', '[data-cheia]', async () => {
+        try { await el.querySelector('[data-quadro]').requestFullscreen(); } catch { toast('O navegador recusou a tela cheia. Use F11.', 'aviso'); }
+      });
+      ouvir(el, 'click', '[data-cargas]', () => modal({ titulo: 'Cargas da base', subtitulo: 'Cada execução da automação do Astrea troca a base inteira.', acoes: [{ id: 'ok', rotulo: 'Fechar', tipo: 'primario' }],
+        corpo: String(cargas.length ? html`<table class="tbl"><thead><tr><th>Recebida</th><th>Origem</th><th class="num">Prazos</th><th class="num">Eventos</th></tr></thead><tbody>${cargas.map((c) => html`<tr><td>${dataHoraBR(c.recebidoEm)}</td><td>${c.origem === 'automacao' ? 'Automação' : 'Manual'}</td><td class="num">${c.prazos}</td><td class="num">${c.eventos}</td></tr>`)}</tbody></table>` : html`<p class="dica">Nenhuma carga ainda.</p>`),
+        aoAbrir(m) { m.addEventListener('acao', () => m.fechar(true)); } }));
+      ouvir(el, 'click', '[data-tv]', async () => {
+        const acessos = await api.get('/api/bi-prazos/acessos-tv').catch(() => []);
+        const ativos = acessos.filter((a) => !a.revogadoEm && new Date(a.expiraEm) > new Date());
+        await modal({ titulo: 'Link da TV', subtitulo: 'Abre o painel em tela cheia sem login. Só lê o BI de Prazos. Revogue quando trocar de TV.', largo: true,
+          acoes: [{ id: 'fechar', rotulo: 'Fechar' }, { id: 'novo', rotulo: 'Gerar link novo', tipo: 'primario' }],
+          corpo: String(html`${ativos.length ? html`<ul class="lista">${ativos.map((a) => html`<li><div><b>${a.nome}</b><small>criado por ${a.criadoPor ?? '—'} · vale até ${dataHoraBR(a.expiraEm)}${a.ultimoUso ? ` · último uso ${relativo(a.ultimoUso)}` : ' · ainda não usado'}</small></div><div class="fim"><button class="btn btn--ghost btn--sm perigo-btn" data-revogar="${a.id}">Revogar</button></div></li>`)}</ul>` : html`<p class="dica">Nenhum link ativo.</p>`}<div data-novo-link></div>`),
+          aoAbrir(m) {
+            m.addEventListener('click', async (e) => {
+              const b = e.target.closest('[data-revogar]'); if (!b) return;
+              if (!(await confirmar('Revogar este link?', 'A TV que usa este link para de atualizar.', { rotulo: 'Revogar', perigo: true }))) return;
+              try { await api.del(`/api/bi-prazos/acessos-tv/${b.dataset.revogar}`); b.closest('li').remove(); toast('Link revogado'); } catch (er) { erroDe(er); }
+            });
+            m.addEventListener('acao', async (e) => {
+              if (e.detail.id !== 'novo') return m.fechar(true);
+              const r = await formulario({ titulo: 'Novo link da TV', rotulo: 'Gerar', campos: [{ nome: 'nome', rotulo: 'Onde vai ficar', valor: 'TV da recepção', obrigatorio: true }],
+                async enviar(v) { return api.post('/api/bi-prazos/acessos-tv', { nome: v.nome, dias: 365 }); } });
+              if (!r) return;
+              const link = `${location.origin}/bi-prazos-tv.html?tv=${encodeURIComponent(r.token)}`;
+              m.querySelector('[data-novo-link]').innerHTML = String(html`<div class="card glass mt" style="padding:12px"><b>Abra este endereço no navegador da TV e aperte F11:</b><p class="mono-sm" style="word-break:break-all;margin:8px 0">${link}</p><button class="btn btn--accent btn--sm" data-copiar-link>Copiar link</button><p class="dica">O link aparece só agora. Ele fica gravado no navegador da TV depois da primeira abertura.</p></div>`);
+              m.querySelector('[data-copiar-link]').addEventListener('click', async () => { try { await navigator.clipboard.writeText(link); toast('Link copiado'); } catch { toast('Copie o link manualmente', 'aviso'); } });
+            });
+          } });
+      });
+      void pode; void aoSair;
     },
   };
 }

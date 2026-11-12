@@ -71,6 +71,8 @@ export type Permissao =
    */
   | 'modulo.painel' | 'modulo.clientes' | 'modulo.equipe' | 'modulo.relatorios'
   | 'modulo.ferramentas' | 'modulo.entregas'
+  /** BI de Prazos (prazos, eventos e audiências do escritório). Inclui a TV. */
+  | 'modulo.bi_prazos'
   /** Dar e administrar acesso do CLIENTE ao portal. Chave de porta, como `integracao.gerir`. */
   | 'portal.acessos'
   /** Faturas e guias: ler, gerir (juntar, emitir, conferir comprovante) e anexar comprovante (cliente). */
@@ -95,7 +97,7 @@ const ADVOGADO: Permissao[] = [
   'plano.escrever', 'agc.registrar_voto', 'agc.apurar', 'documento.escrever',
   'portal.publicar', 'analise.executar', 'analise.validar',
   'processo.escrever', 'prazo.escrever', 'tarefa.escrever', 'negociacao.escrever',
-  'modulo.painel', 'modulo.ferramentas', 'fatura.ler',
+  'modulo.painel', 'modulo.ferramentas', 'fatura.ler', 'modulo.bi_prazos',
 ];
 
 /** Tudo o que a sócia, o sócio e a coordenação veem do escritório, de ponta a ponta. */
@@ -128,15 +130,15 @@ export const PERMISSOES: Readonly<Record<Papel, readonly Permissao[]>> = Object.
   controladoria: [...INTERNO_LEITURA, 'projeto.escrever', 'documento.escrever',
     'analise.executar', 'processo.escrever', 'prazo.escrever', 'relatorio.gerar',
     'tarefa.escrever', 'auditoria.ler', 'controladoria.ler', 'controladoria.gerir',
-    'cliente.escrever', 'modulo.painel', 'modulo.clientes', 'modulo.equipe', 'modulo.relatorios'],
+    'cliente.escrever', 'modulo.painel', 'modulo.clientes', 'modulo.equipe', 'modulo.relatorios', 'modulo.bi_prazos'],
   financeiro: ['projeto.ler', 'documento.ler', 'documento.escrever', 'financeiro_cliente.ler',
     'financeiro.ler', 'financeiro.escrever', 'fatura.ler', 'fatura.gerir'],
   administrativo: [...INTERNO_LEITURA, 'documento.escrever', 'processo.escrever', 'tarefa.escrever',
-    'modulo.painel', 'modulo.ferramentas', 'modulo.equipe'],
+    'modulo.painel', 'modulo.ferramentas', 'modulo.equipe', 'modulo.bi_prazos'],
   // Estagiário lê e redige, mas não valida enquadramento nem publica para fora.
   estagiario: [...INTERNO_LEITURA, 'credito.escrever', 'documento.escrever',
     'analise.executar', 'processo.escrever', 'relatorio.gerar', 'tarefa.escrever',
-    'modulo.painel', 'modulo.ferramentas', 'modulo.relatorios', 'modulo.equipe'],
+    'modulo.painel', 'modulo.ferramentas', 'modulo.relatorios', 'modulo.equipe', 'modulo.bi_prazos'],
   cliente_administrador: [
     'projeto.ler', 'documento.ler', 'documento.escrever', 'plano.ler', 'processo.ler',
     // O cliente lança no PRÓPRIO caixa; nunca vê as finanças da NGA.

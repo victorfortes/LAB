@@ -10,7 +10,7 @@ const CLASSE = { confirmada: ['ok', 'Confirmada'], provavel: ['aviso', 'Prováve
 const ROT = { nova_distribuicao: 'Nova distribuição', processo_antigo: 'Processo antigo', indeterminada: 'Data indeterminada', automatico: 'Automático', pendente: 'Pendente', em_verificacao: 'Em verificação', confirmado_manual: 'Confirmado manualmente', descartado_manual: 'Descartado manualmente', descartado_auto: 'Descartado (auto)', alta: 'Alta', media: 'Média', baixa: 'Baixa' };
 const TOM_PRIO = { alta: 'erro', media: 'aviso', baixa: '' };
 const SAUDE = { operacional: 'ok', degradado: 'aviso', indisponivel: 'erro' };
-const ABAS = [['painel', 'Painel'], ['clientes', 'Clientes'], ['processos', 'Processos'], ['cobertura', 'Cobertura'], ['validacao', 'Validação'], ['fontes', 'Fontes'], ['alertas', 'Alertas'], ['config', 'Configurações']];
+const ABAS = [['confiabilidade', 'Confiabilidade'], ['painel', 'Painel'], ['clientes', 'Clientes'], ['processos', 'Processos'], ['cobertura', 'Cobertura'], ['validacao', 'Validação'], ['fontes', 'Fontes'], ['alertas', 'Alertas'], ['config', 'Configurações']];
 const COB = { coberto: 'Lido e conferido', provisorio: 'Lido, ainda sendo relido', em_curso: 'Dia em curso', lacuna: 'Não lido (lacuna)', incompleto: 'Lido incompleto', sem_historico: 'Fora do histórico buscado' };
 const CTRL = { capturado: ['Capturado', 'ok'], canario_ok: ['Canário conferido', 'ok'], recuperado: ['Falha nossa, recuperado agora', 'erro'], revisar: ['Revisar nomes', 'aviso'], invisivel_no_djen: ['Invisível no DJEN', 'info'], anterior_ao_historico: ['Anterior ao histórico (incluído)', 'info'], fora_da_fonte: ['Fora da fonte', 'info'], erro: ['Erro ao verificar', 'erro'] };
 const cnj = (n) => (n?.length === 20 ? `${n.slice(0, 7)}-${n.slice(7, 9)}.${n.slice(9, 13)}.${n.slice(13, 14)}.${n.slice(14, 16)}.${n.slice(16)}` : n);
@@ -181,8 +181,44 @@ async function config() {
   return tela('config', html`${bloco('prioridade', 'Critérios de prioridade', 'Termos e classes que elevam a prioridade e faixas de valor da causa.')}${bloco('motor', 'Motor', 'Janela (dias) para considerar uma distribuição como nova e dias da busca retroativa de cliente novo.')}<p class="dica mt">Usuários, permissões e auditoria são os do próprio NGA NEXUS, em Equipe.</p>`, [], '', (el) => ouvir(el, 'click', '[data-salva]', async (b) => { try { await api.put(`/api/sentinela/config/${b.dataset.salva}`, JSON.parse($(`[data-cfg=${b.dataset.salva}]`, el).value)); toast('Salvo'); } catch (e) { erroDe(e); } }));
 }
 
-export default function sentinela({ aba = 'painel', id } = {}) {
+// ------------------------------------------------------------ confiabilidade ---
+async function confiabilidade() {
+  const c = await api.get('/api/sentinela/confiabilidade');
+  const pct = (v) => (v === null || v === undefined ? '—' : `${v}%`);
+  const tom = (v) => (v === null ? '' : v >= 95 ? 'ok' : v >= 80 ? 'aviso' : 'erro');
+  const pilar = (rot, v, sub) => html`<div class="kpi card glass conf-pilar ${tom(v)}"><small>${rot}</small><b>${pct(v)}</b><small>${sub}</small></div>`;
+  const foraBase = c.novas.filter((n) => !n.naBase);
+  const corpo = html`<section class="card glass up mt conf-hero"><div class="conf-nota ${tom(c.nota)}"><b>${c.nota ?? '—'}</b><small>de 100</small></div>
+      <div><h2 class="card__title">Quanto dá para confiar hoje</h2><p>${c.nota === null ? 'Ainda sem dados: cadastre os clientes da carteira.' : c.nota >= 95 ? 'Monitoramento completo: todos os clientes com CNPJ foram lidos nos últimos dias, sem lacuna.' : 'Há pontos abaixo que reduzem a confiança. Resolva-os na ordem em que aparecem.'}</p>
+        ${escreve() ? html`<div class="nx-acts"><button class="btn btn--accent" data-carteira>${icone('users')}Cadastrar todos os clientes da carteira</button><button class="btn btn--ghost" data-lacunas>${icone('refresh')}Reler lacunas</button></div>` : ''}</div></section>
+    <div class="kpis mt">${pilar('Clientes da carteira monitorados', c.pctClientes, `${c.carteira.empresas} empresa(s) · ${c.carteira.sem_cnpj} sem CNPJ · ${c.carteira.fora} fora do Sentinela`)}
+      ${pilar('Dias lidos sem lacuna (30 dias)', c.pctCobertura, `${c.lacunas} lacuna(s) aberta(s)`)}
+      ${pilar('Clientes verificados nas últimas 36 h', c.pctEmDia, `${c.clientes.em_dia} de ${c.clientes.ativos} ativo(s)`)}
+      <div class="kpi card glass ${foraBase.length ? 'alerta' : ''}"><small>Ações novas fora da base (30 dias)</small><b>${foraBase.length}</b><small>encontradas e ainda não cadastradas no Nexus nem no Astrea</small></div></div>
+    ${card('Fontes', c.fontes.length ? html`<ul class="lista">${c.fontes.map((f) => html`<li><span class="selo ${SAUDE[f.estado] ?? ''}">${f.estado}</span><div><b>${f.fonte.toUpperCase()}</b><small>último sucesso ${f.ultimo_sucesso ? relativo(f.ultimo_sucesso) : 'nunca'}${f.falhas_consecutivas ? ` · ${f.falhas_consecutivas} falha(s) seguida(s)` : ''}</small></div></li>`)}</ul>` : html`<p class="dica">Nenhuma rodada registrada ainda. A primeira acontece no minuto seguinte ao cadastro dos clientes.</p>`)}
+    ${card('Ações novas encontradas × base do escritório', c.novas.length ? html`<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Processo</th><th>Cliente</th><th>Classe</th><th>Ajuizada</th><th>Na base?</th></tr></thead><tbody>${c.novas.map((n) => html`<tr><td class="mono-sm">${cnj(n.numero)}</td><td>${n.cliente}</td><td>${n.classe ?? '—'}<small>${n.tribunal ?? ''}</small></td><td>${n.ajuizamento ? dataBR(n.ajuizamento) : '—'}</td><td>${n.naBase ? html`<span class="selo ok">Já cadastrada</span>` : html`<span class="selo erro">Nova: cadastrar</span>`}</td></tr>`)}</tbody></table></div>` : html`<p class="dica">Nenhuma ação confirmada ou provável nos últimos 30 dias.</p>`, 'Comparação diária do que o Sentinela achou com os processos do Nexus e da carteira do Astrea.')}
+    ${card('Limites das fontes públicas', html`<ul class="lista">${c.limites.map((l) => html`<li>${icone('alert')}<div><small>${l}</small></div></li>`)}</ul>`, 'O que nenhuma automação consegue garantir, para a decisão ser informada.')}`;
+  return tela('confiabilidade', corpo, [{ rotulo: 'Nota', valor: c.nota ?? '—' }], '', (el) => {
+    ouvir(el, 'click', '[data-lacunas]', comando('preencher_lacunas', 'Lacunas enviadas para releitura'));
+    ouvir(el, 'click', '[data-carteira]', async (b) => {
+      b.disabled = true; b.textContent = 'Cadastrando…';
+      try {
+        const r = await api.post('/api/sentinela/carteira', {});
+        toast(`${r.cadastrados} cliente(s) cadastrado(s) · ${r.jaMonitorados} já monitorado(s) · ${r.semCnpj.length} sem CNPJ`);
+        if (r.semCnpj.length) {
+          const ok = await formulario({ titulo: `${r.semCnpj.length} cliente(s) sem CNPJ`, subtitulo: 'Informe o CNPJ para entrar no monitoramento. Deixe em branco o que não souber agora.', rotulo: 'Salvar e cadastrar', largo: true,
+            campos: r.semCnpj.slice(0, 15).map((x) => ({ nome: x.empresaId, rotulo: `${x.empresa} (${x.projeto})`, placeholder: '00.000.000/0000-00' })),
+            async enviar(v) { for (const [empresaId, cnpj] of Object.entries(v)) if (cnpj) await api.post('/api/sentinela/carteira/cnpj', { empresaId, cnpj }); } });
+          if (ok) toast('CNPJs salvos e clientes cadastrados');
+        }
+        navegar();
+      } catch (e) { b.disabled = false; erroDe(e); }
+    });
+  });
+}
+
+export default function sentinela({ aba = 'confiabilidade', id } = {}) {
   if (aba === 'cliente' && id) return cliente(id);
   if (aba === 'processo' && id) return processo(id);
-  return ({ painel, clientes, processos, cobertura, validacao, fontes, alertas, config }[aba] ?? painel)();
+  return ({ confiabilidade, painel, clientes, processos, cobertura, validacao, fontes, alertas, config }[aba] ?? painel)();
 }

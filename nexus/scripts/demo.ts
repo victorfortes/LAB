@@ -340,6 +340,23 @@ const processoId = (await dono.query<{id:string}>(
    RETURNING id`,
   [NGA, projeto, parseReais('12.450.000,00').toString(), SOCIO])).rows[0]!.id;
 
+// Carteira do Astrea (demonstração): três clientes etiquetados, processos em fases diferentes.
+{
+  const linhas: [string, string, string, string, string, string, string, string][] = [
+    ['Cliente:INDÚSTRIA DEMONSTRAÇÃO', 'Recuperação judicial', '0001234-56.2024.8.16.0001', 'Recuperação Judicial', 'Em andamento', 'Victor Fortes', '1ª Vara de Falências', 'Curitiba'],
+    ['Cliente:INDÚSTRIA DEMONSTRAÇÃO', 'Execução Banco Alfa x Indústria', '0004321-11.2025.8.16.0001', 'Execução de Título Extrajudicial', 'Suspenso (stay)', 'Marcos Graboski', '3ª Vara Cível', 'Curitiba'],
+    ['Cliente:INDÚSTRIA DEMONSTRAÇÃO', 'Reclamatória trabalhista João', '0000555-22.2023.5.09.0001', 'Reclamação Trabalhista', 'Arquivado', 'Victor Fortes', '1ª Vara do Trabalho', 'Curitiba'],
+    ['Cliente:TRANSPORTES DEMO', 'Busca e apreensão caminhão', '0007777-33.2025.8.16.0014', 'Busca e Apreensão', 'Em andamento', 'Bruna Richter', '2ª Vara Cível', 'Londrina'],
+    ['Cliente:TRANSPORTES DEMO', 'Recuperação extrajudicial', '0008888-44.2026.8.16.0014', 'Recuperação Extrajudicial', 'Em andamento', 'Bruna Richter', '1ª Vara Cível', 'Londrina'],
+    ['Cliente:AGRO DEMO', 'Embargos à execução', '0009999-55.2025.8.16.0021', 'Embargos à Execução', 'Concluso para decisão', 'Marcos Graboski', 'Vara Cível', 'Cascavel'],
+  ];
+  for (const [i, [et, titulo, numero, acao, fase, resp, vara, foro]] of linhas.entries()) {
+    await dono.query(`INSERT INTO astrea_registros (organizacao_id, projeto_id, chave, tipo, titulo, cliente_nome, cliente_etiqueta, numero_original, acao, equipe, fase, responsavel, vara, foro, ultimo_historico)
+      VALUES ($1, $2, $3, 'Processo', $4, $5, $5, $6, $7, 'Reestruturação', $8, $9, $10, $11, '10/11/2026 - Juntada de petição')`,
+      [NGA, et.includes('INDÚSTRIA') ? projeto : null, `demo-${i}`, titulo, et.replace('Cliente:', ''), numero, acao, fase, resp, vara, foro]);
+  }
+}
+
 await dono.query(
   `INSERT INTO partes_processo (processo_id,organizacao_id,nome,documento,tipo_documento,polo,papel,eh_cliente)
    VALUES ($1,$2,'INDÚSTRIA DEMONSTRAÇÃO LTDA.','11222333000180','cnpj','ativo','recuperanda',TRUE),

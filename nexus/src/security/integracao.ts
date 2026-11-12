@@ -20,15 +20,15 @@ export const PREFIXO_DO_TOKEN = 'nga_int_';
 export type Aplicacao = 'sentinela' | 'integra' | 'prazos' | 'outra';
 
 /** O que cada credencial pode entregar. */
-export type Escopo = 'processos' | 'prazos' | 'documentos';
+export type Escopo = 'processos' | 'prazos' | 'documentos' | 'agenda' | 'publicacoes';
 
-export const ESCOPOS: readonly Escopo[] = Object.freeze(['processos', 'prazos', 'documentos']);
+export const ESCOPOS: readonly Escopo[] = Object.freeze(['processos', 'prazos', 'documentos', 'agenda', 'publicacoes']);
 
 /** Escopos que cada aplicação costuma precisar, para a tela sugerir. */
 export const ESCOPO_USUAL: Readonly<Record<Aplicacao, readonly Escopo[]>> = Object.freeze({
   sentinela: ['processos'],
   integra: ['documentos'],
-  prazos: ['prazos', 'processos'],
+  prazos: ['prazos', 'processos', 'agenda', 'publicacoes'],
   outra: [],
 });
 

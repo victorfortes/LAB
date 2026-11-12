@@ -41,7 +41,7 @@ import { prazoUsual } from '../domain/processo/prazos.ts';
 export const EsquemaNovaIntegracao = z.object({
   nome: z.string().min(3).max(80),
   aplicacao: z.enum(['sentinela', 'integra', 'prazos', 'outra']),
-  escopos: z.array(z.enum(['processos', 'prazos', 'documentos'])).min(1),
+  escopos: z.array(z.enum(['processos', 'prazos', 'documentos', 'agenda', 'publicacoes'])).min(1),
 });
 
 /**

@@ -227,3 +227,88 @@ export async function salvarConfig(db: PoolClient, chave: string, corpo: unknown
   const org = orgDe(i); await db.query('INSERT INTO sentinela_config(organizacao_id,chave,valor) VALUES($1,$2,$3) ON CONFLICT(organizacao_id,chave) DO UPDATE SET valor=EXCLUDED.valor,atualizado_em=now()', [org, chave, JSON.stringify(v.data)]);
   await auditar(db, { organizacaoId: org, usuarioId: i.usuarioId, acao: 'sentinela.config', entidade: 'sentinela_config', depois: { chave } }); return { ok: true };
 }
+
+// ------------------------------------------------- carteira inteira e confiabilidade ---
+/**
+ * Cadastra no Sentinela todo cliente da carteira (empresas dos projetos ativos) que ainda não é monitorado.
+ * CNPJ vem do cadastro da empresa ou, se faltar, da parte "cliente" com CNPJ nos processos do projeto.
+ * Quem não tem CNPJ em lugar nenhum volta na lista `semCnpj`, para alguém informar.
+ */
+export async function sincronizarComCarteira(db: PoolClient, i: Identidade) {
+  const org = orgDe(i);
+  const { rows } = await db.query<{ projeto_id: string; projeto: string; empresa_id: string; razao: string; fantasia: string | null; cnpj: string | null; cnpj_parte: string | null; responsavel: string | null }>(
+    `SELECT p.id AS projeto_id, p.nome AS projeto, e.id AS empresa_id, coalesce(e.razao_social, e.nome_fantasia, p.nome) AS razao, e.nome_fantasia AS fantasia,
+            nullif(regexp_replace(coalesce(e.cnpj, ''), '\\D', '', 'g'), '') AS cnpj,
+            (SELECT regexp_replace(pp.documento, '\\D', '', 'g') FROM partes_processo pp JOIN processos pr ON pr.id = pp.processo_id
+              WHERE pr.projeto_id = p.id AND pp.eh_cliente AND pp.tipo_documento = 'cnpj' AND pp.documento IS NOT NULL LIMIT 1) AS cnpj_parte,
+            (SELECT u.nome FROM usuarios u WHERE u.id = p.responsavel_id) AS responsavel
+       FROM projetos p JOIN projetos_empresas pe ON pe.projeto_id = p.id JOIN empresas e ON e.id = pe.empresa_id
+      WHERE p.situacao <> 'encerrado' AND pe.papel IN ('recuperanda', 'devedora', 'credora') ORDER BY p.nome`);
+  const { rows: ja } = await db.query<{ cnpj: string }>('SELECT cnpj FROM sentinela_cnpjs');
+  const monitorados = new Set(ja.map((x) => x.cnpj));
+  let cadastrados = 0; let jaMonitorados = 0; const semCnpj: { projetoId: string; projeto: string; empresaId: string; empresa: string }[] = []; const erros: string[] = [];
+  for (const r of rows) {
+    const cnpj = [r.cnpj, r.cnpj_parte].find((c) => c && validarCnpj(c)) ?? null;
+    if (!cnpj) { semCnpj.push({ projetoId: r.projeto_id, projeto: r.projeto, empresaId: r.empresa_id, empresa: r.razao }); continue; }
+    if (monitorados.has(cnpj)) { jaMonitorados++; continue; }
+    await db.query('SAVEPOINT cart');
+    try {
+      const id = await cadastrar(db, org, EsquemaClienteSentinela.parse({ razaoSocial: r.razao, cnpj, nomeFantasia: r.fantasia ?? undefined, advogadoResponsavel: r.responsavel ?? undefined }));
+      await buscaInicial(db, org, id, new Date());
+      // O CNPJ achado na parte do processo volta para o cadastro da empresa.
+      if (!r.cnpj) await db.query('UPDATE empresas SET cnpj = $2, atualizado_em = now() WHERE id = $1 AND cnpj IS NULL', [r.empresa_id, cnpj]);
+      await db.query('RELEASE SAVEPOINT cart'); monitorados.add(cnpj); cadastrados++;
+    } catch (e) { await db.query('ROLLBACK TO SAVEPOINT cart'); erros.push(`${r.razao}: ${(e as Error).message}`.slice(0, 200)); }
+  }
+  await auditar(db, { organizacaoId: org, usuarioId: i.usuarioId, acao: 'sentinela.carteira_sincronizada', entidade: 'sentinela_cliente', depois: { cadastrados, jaMonitorados, semCnpj: semCnpj.length } });
+  return { cadastrados, jaMonitorados, semCnpj, erros };
+}
+
+export const EsquemaCnpjEmpresa = z.object({ empresaId: z.string().uuid(), cnpj: z.string().max(20) });
+/** Informa o CNPJ que faltava e já põe o cliente no monitoramento. */
+export async function informarCnpj(db: PoolClient, d: z.infer<typeof EsquemaCnpjEmpresa>, i: Identidade) {
+  const cnpj = cnpjValido(d.cnpj);
+  const r = await db.query('UPDATE empresas SET cnpj = $2, atualizado_em = now() WHERE id = $1 RETURNING razao_social', [d.empresaId, cnpj]);
+  if (!r.rowCount) throw new NaoEncontrado('empresa não encontrada');
+  return sincronizarComCarteira(db, i);
+}
+
+/**
+ * Quanto dá para confiar no Sentinela hoje: clientes cobertos, dias sem lacuna, fontes no ar e
+ * ações encontradas que ainda não estão na base do escritório (Nexus ou Astrea).
+ */
+export async function confiabilidade(db: PoolClient) {
+  const { rows: [c] } = await db.query<Record<string, number>>(`SELECT count(*)::int AS clientes, count(*) FILTER (WHERE ativo)::int AS ativos,
+      count(*) FILTER (WHERE ativo AND ultima_verificacao > now() - interval '36 hours')::int AS em_dia,
+      count(*) FILTER (WHERE ativo AND (ultima_verificacao IS NULL OR ultima_verificacao <= now() - interval '36 hours'))::int AS atrasados FROM sentinela_clientes`);
+  const { rows: [cart] } = await db.query<{ empresas: number; sem_cnpj: number; fora: number }>(`SELECT count(DISTINCT e.id)::int AS empresas,
+      count(DISTINCT e.id) FILTER (WHERE coalesce(e.cnpj, '') = '')::int AS sem_cnpj,
+      count(DISTINCT e.id) FILTER (WHERE coalesce(e.cnpj, '') <> '' AND NOT EXISTS (SELECT 1 FROM sentinela_cnpjs k WHERE k.cnpj = regexp_replace(e.cnpj, '\\D', '', 'g')))::int AS fora
+    FROM projetos p JOIN projetos_empresas pe ON pe.projeto_id = p.id JOIN empresas e ON e.id = pe.empresa_id WHERE p.situacao <> 'encerrado' AND pe.papel IN ('recuperanda', 'devedora', 'credora')`);
+  const { rows: novas } = await db.query<{ id: string; numero: string; cliente: string; classificacao: string; estado: string; identificada: Date; ajuizamento: string | null; tribunal: string | null; classe: string | null; na_base: boolean }>(
+    `SELECT a.id, p.numero_processo AS numero, c.razao_social AS cliente, a.classificacao, a.estado_validacao AS estado, a.identificada_em AS identificada, p.data_ajuizamento::text AS ajuizamento, p.tribunal, p.classe,
+            (EXISTS (SELECT 1 FROM processos x WHERE regexp_replace(x.numero, '\\D', '', 'g') = regexp_replace(p.numero_processo, '\\D', '', 'g'))
+             OR EXISTS (SELECT 1 FROM astrea_registros r WHERE regexp_replace(coalesce(r.numero_original, ''), '\\D', '', 'g') = regexp_replace(p.numero_processo, '\\D', '', 'g'))) AS na_base
+       FROM sentinela_achados a JOIN sentinela_processos p ON p.id = a.processo_id JOIN sentinela_clientes c ON c.id = a.cliente_id
+      WHERE a.classificacao IN ('confirmada', 'provavel') AND a.identificada_em > now() - interval '30 days' ORDER BY a.identificada_em DESC LIMIT 300`);
+  const { rows: fontes } = await db.query<{ fonte: string; estado: string; ultimo_sucesso: Date | null; falhas_consecutivas: number }>('SELECT fonte, estado, ultimo_sucesso, falhas_consecutivas FROM sentinela_saude');
+  const cob = await cobertura(db, 30);
+  const diasFechados = Object.entries(cob.total).filter(([k]) => ['coberto', 'lacuna', 'incompleto', 'provisorio'].includes(k)).reduce((n, [, v]) => n + (v as number), 0);
+  const pctCobertura = diasFechados ? Math.round((1000 * (cob.total.coberto ?? 0)) / diasFechados) / 10 : null;
+  const pctClientes = cart!.empresas ? Math.round((1000 * Math.max(0, cart!.empresas - cart!.sem_cnpj - cart!.fora)) / cart!.empresas) / 10 : null;
+  const pctEmDia = c!.ativos ? Math.round((1000 * (c!.em_dia ?? 0)) / c!.ativos) / 10 : null;
+  const fontesOk = fontes.filter((f) => f.estado === 'operacional').length;
+  // Nota única para a tela: média dos três pilares, derrubada se alguma fonte está fora.
+  const pilares = [pctCobertura, pctClientes, pctEmDia].filter((x): x is number => x !== null);
+  const nota = pilares.length ? Math.round((pilares.reduce((a, b) => a + b, 0) / pilares.length) * (fontes.length && fontesOk < fontes.length ? 0.8 : 1)) : null;
+  return {
+    nota, pctCobertura, pctClientes, pctEmDia,
+    clientes: c, carteira: cart, fontes, lacunas: cob.lacunas.length,
+    novas: novas.map((n) => ({ ...n, naBase: n.na_base })), foraDaBase: novas.filter((n) => !n.na_base).length,
+    limites: [
+      'O DJEN só mostra o processo depois da primeira comunicação publicada (em geral, a citação). Ação recém-distribuída e ainda sem comunicação não aparece em nenhuma fonte pública por CNPJ.',
+      'O DataJud não permite busca por CNPJ ou nome: ele confirma a data de ajuizamento e os dados do processo que o DJEN revelou.',
+      'Processo em segredo de justiça não aparece nas fontes públicas.',
+    ],
+  };
+}

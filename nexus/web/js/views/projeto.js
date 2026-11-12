@@ -7,6 +7,10 @@
  * e equipe. As abas trocam só o painel — sem recarregar a tela — e o endereço
  * acompanha (`#/projetos/<id>/<aba>`), então dá para copiar o link de uma aba.
  */
+import { secaoAvisosEquipe } from './avisos_portal.js';
+import { abaOnboarding, abrirPainelOnboarding } from './projeto_onboarding.js';
+import { abaReunioesEAtas } from './projeto_reunioes.js';
+import { abaAndamentos } from './projeto_andamentos.js';
 import { api } from '../api.js';
 import { pode } from '../estado.js';
 import { anel, animarAneis, animarBarras, contar } from '../fx.js';
@@ -28,23 +32,25 @@ export { novoProcessoSolto } from './projeto_extra.js';
 
 const ABAS = [
   { id: 'visao', rotulo: 'Visão geral', icone: 'home' },
+  { id: 'onboarding', rotulo: 'Onboarding', icone: 'flag', perm: 'projeto.ler' },
   { id: 'diagnostico', rotulo: 'Diagnóstico', icone: 'sparkle', perm: 'analise.executar' },
   { id: 'tarefas', rotulo: 'Tarefas', icone: 'check', perm: 'tarefa.ler', n: (c) => c.tarefas_abertas },
   { id: 'negociacoes', rotulo: 'Negociações', icone: 'target', perm: 'negociacao.ler' },
   { id: 'creditos', rotulo: 'QGC', icone: 'scale', perm: 'credito.ler', n: (c) => c.creditos, alerta: (c) => c.creditos_a_validar },
+  { id: 'andamentos', rotulo: 'Andamentos', icone: 'scale', perm: 'processo.ler' },
   { id: 'processos', rotulo: 'Processos e prazos', icone: 'file', perm: 'processo.ler', n: (c) => c.processos, alerta: (c) => c.prazos_abertos },
   { id: 'documentos', rotulo: 'Documentos', icone: 'doc', perm: 'documento.ler', n: (c) => c.documentos, alerta: (c) => c.requisitos_a_analisar },
   { id: 'portal', rotulo: 'Portal do cliente', icone: 'eye', perm: 'documento.ler' },
   { id: 'plano', rotulo: 'Plano e caixa', icone: 'money', perm: 'plano.ler' },
   { id: 'relatorios', rotulo: 'Relatórios', icone: 'chart', perm: 'relatorio.gerar' },
-  { id: 'atas', rotulo: 'Atas', icone: 'doc' },
+  { id: 'atas', rotulo: 'Reuniões e atas', icone: 'calendar' },
   { id: 'equipe', rotulo: 'Equipe', icone: 'users', n: (c, h) => h.equipe.length },
 ];
 
 const MODULOS = {
-  visao: abaVisao, diagnostico: abaDiagnostico, negociacoes: abaNegociacoes, tarefas: abaTarefas, creditos: abaCreditos, processos: extra.abaProcessos,
-  documentos: extra.abaDocumentos, portal: extra.abaPortal, plano: extra.abaPlano,
-  relatorios: extra.abaRelatorios, equipe: abaEquipe, atas: abaAtas,
+  visao: abaVisao, diagnostico: abaDiagnostico, negociacoes: abaNegociacoes, tarefas: abaTarefas, creditos: abaCreditos, processos: extra.abaProcessos, andamentos: abaAndamentos,
+  documentos: extra.abaDocumentos, portal: async (ctx) => { const [av, pt] = await Promise.all([secaoAvisosEquipe(ctx), extra.abaPortal(ctx)]); return { ...pt, html: html`${av.html}<div class="mt"></div>${pt.html}`, depois(el) { av.depois(el); pt.depois?.(el); } }; }, plano: extra.abaPlano,
+  relatorios: extra.abaRelatorios, equipe: abaEquipe, atas: abaReunioesEAtas, onboarding: abaOnboarding,
 };
 
 export default async function projeto({ id, aba }) {
@@ -117,6 +123,10 @@ export default async function projeto({ id, aba }) {
       ouvir(raiz, 'click', '[data-fase]', (b) => mudarFase(ctx, b.dataset.fase));
       ctx.recarregar = async () => { await atualizarBadges(ctx); await desenhar(ctx); };
       ctx.irParaAba = (a) => abrirAba(ctx, a);
+      // Botão fixo do painel lateral de onboarding, presente em todas as abas do projeto.
+      const fab = document.createElement('button'); fab.type = 'button'; fab.className = 'onb-fab'; fab.innerHTML = `${icone('flag')}<span>Onboarding</span>`;
+      fab.addEventListener('click', () => abrirPainelOnboarding(ctx)); document.body.appendChild(fab);
+      aoSair(() => { fab.remove(); document.querySelector('.onb-gaveta')?.remove(); });
       abrirAba(ctx, inicial, true);
       ligarArvore(ctx, $('#arvore-fase', raiz)).catch(console.error);
     },

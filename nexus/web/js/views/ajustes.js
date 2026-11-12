@@ -13,8 +13,8 @@ import { dataBR, esc, guardado, html, icone, ouvir, raw, relativo } from '../uti
 import { cabecalho, confirmar, erroDe, formulario, modal, toast, vazio } from '../ui.js';
 import { navegar } from '../shell.js';
 
-const ESCOPOS = { 'processos': ['processos'], 'prazos': ['prazos'], 'documentos': ['documentos'], 'processos+documentos': ['processos', 'documentos'], 'todos': ['processos', 'prazos', 'documentos'] };
-const ABAS = [['geral', 'Geral'], ['acessos', 'Acessos'], ['fluxos', 'Fluxos'], ['tempo', 'Linhas do tempo'], ['automacoes', 'Automações']];
+const ESCOPOS = { 'processos': ['processos'], 'prazos': ['prazos'], 'documentos': ['documentos'], 'processos+documentos': ['processos', 'documentos'], 'todos': ['processos', 'prazos', 'documentos'], 'automação do Astrea (BI de Prazos + publicações)': ['agenda', 'publicacoes'] };
+const ABAS = [['geral', 'Geral'], ['acessos', 'Acessos'], ['fluxos', 'Fluxos'], ['tempo', 'Linhas do tempo'], ['automacoes', 'Automações'], ['credenciais', 'Credenciais']];
 const GATILHO = { projeto_criado: 'Quando um projeto for criado', fase_iniciada: 'Quando uma fase começar', documento_cliente_enviado: 'Quando o cliente enviar um documento', fatura_criada: 'Quando uma fatura for emitida', fatura_paga: 'Quando uma fatura for paga' };
 let abertoFluxo = null; let abertoTempo = null;
 
@@ -28,10 +28,33 @@ async function concluirGoogle() {
   catch (e) { erroDe(e); }
 }
 
+/** Cofre: a senha do Astrea é cifrada no servidor (AES-256-GCM) e nunca volta para a tela. */
+async function credenciais() {
+  if (!pode('admin.gerir')) return { html: html`<section class="card glass up">${vazio('lock', 'Só a administração', 'As credenciais de sistemas externos ficam com a sócia administradora.')}</section>` };
+  const lista = await api.get('/api/cofre').catch(() => []);
+  const astrea = lista.find((c) => c.servico === 'astrea');
+  return {
+    html: html`<section class="card glass up"><header class="card__head"><div><h2 class="card__title">Acesso ao Astrea</h2><p class="card__sub">Guardado cifrado no servidor. Ninguém consegue ler a senha pela tela, nem pela API; só as rotinas internas usam.</p></div>
+      <div class="nx-acts"><button class="btn btn--accent btn--sm" data-cofre>${icone('lock')}${astrea ? 'Trocar credencial' : 'Guardar credencial'}</button>${astrea ? html`<button class="btn btn--ghost btn--sm perigo-btn" data-cofre-del>Remover</button>` : ''}</div></header>
+      ${astrea ? html`<ul class="lista"><li><span class="selo ok">cifrada</span><div><b>${astrea.usuario}</b><small>atualizada ${relativo(astrea.atualizadoEm)}${astrea.atualizadoPor ? ` por ${astrea.atualizadoPor}` : ''}</small></div></li></ul>` : html`<p class="dica">Nenhuma credencial guardada.</p>`}
+      <p class="dica mt">Senha que já foi enviada por chat ou e-mail deve ser trocada no Astrea antes de ser guardada aqui.</p></section>`,
+    depois(el) {
+      ouvir(el, 'click', '[data-cofre]', async () => {
+        const ok = await formulario({ titulo: 'Acesso ao Astrea', subtitulo: 'A senha é cifrada antes de ir para o banco.', rotulo: 'Guardar', campos: [
+          { nome: 'usuario', rotulo: 'Usuário (e-mail)', tipo: 'email', obrigatorio: true, autocomplete: 'off' },
+          { nome: 'senha', rotulo: 'Senha', tipo: 'password', obrigatorio: true, autocomplete: 'new-password' }],
+          async enviar(v) { await api.put('/api/cofre', { servico: 'astrea', usuario: v.usuario, senha: v.senha }); } });
+        if (ok) { toast('Credencial guardada cifrada'); navegar(); }
+      });
+      ouvir(el, 'click', '[data-cofre-del]', async () => { if (!(await confirmar('Remover a credencial do Astrea?', 'As rotinas que dependem dela param de funcionar.', { rotulo: 'Remover', perigo: true }))) return; try { await api.del('/api/cofre/astrea'); navegar(); } catch (e) { erroDe(e); } });
+    },
+  };
+}
+
 export default async function ajustes({ aba = 'geral' } = {}) {
   await concluirGoogle();
   if (!ABAS.some(([id]) => id === aba)) aba = 'geral';
-  const corpo = await ({ geral, acessos, fluxos, tempo, automacoes }[aba])();
+  const corpo = await ({ geral, acessos, fluxos, tempo, automacoes, credenciais }[aba])();
   return {
     titulo: 'Ajustes',
     html: html`${cabecalho({ titulo: 'Ajustes', sub: 'Conta, acessos, fluxos, linhas do tempo e automações do escritório' })}

@@ -5,6 +5,7 @@
  * só oferece o que o cliente pode fazer. Mas quem garante o isolamento é o RLS
  * do banco (§6.1); esta tela apenas não finge que o resto existe.
  */
+import { avisosDoCliente, onboardingDoCliente } from './avisos_portal.js';
 import { api } from '../api.js';
 import { estado, pode } from '../estado.js';
 import { anel } from '../fx.js';
@@ -36,6 +37,8 @@ export default async function portal({ aba }) {
       <p>Seu acesso está ativo, mas o escritório ainda não vinculou um projeto a você.</p></div>` };
   }
   const corpo = await ABAS[aba](proj);
+  // Avisos do escritório (ex.: nova ação encontrada pelo Sentinela) abrem o início do portal.
+  if (aba === 'inicio') { const [av, onb] = await Promise.all([avisosDoCliente(), onboardingDoCliente(proj.projeto_id)]); if (onb) { corpo.html = html`${onb}<div class="mt"></div>${corpo.html}`; } if (av.html) { const d0 = corpo.depois; corpo.html = html`${av.html}<div class="mt"></div>${corpo.html}`; corpo.depois = (el, pj) => { av.depois(el); d0?.(el, pj); }; } }
   const cab = aba === 'inicio' ? '' : cabecalho({ titulo: TITULOS[aba], sub: `${SUB[aba] ?? ''}`, resumo: corpo.resumo ?? [] });
   return {
     titulo: TITULOS[aba],

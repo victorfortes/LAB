@@ -10,6 +10,7 @@ import { estado, pode } from '../estado.js';
 import { dataBR, html, icone, ouvir, relativo, tamanho } from '../util.js';
 import { cabecalho, confirmar, erroDe, formulario, modal, toast, vazio } from '../ui.js';
 import { navegar } from '../shell.js';
+import { baixar, gerarWord, imprimirFatura } from '../fatura_modelo.js';
 
 const STATUS = { a_vencer: ['info', 'A vencer'], vencida: ['erro', 'Vencida'], paga_em_conferencia: ['aviso', 'Paga · a conferir'], paga: ['ok', 'Paga'], cancelada: ['', 'Cancelada'] };
 const ABAS = [['faturas', 'Faturas'], ['guias', 'Guias de custas'], ['documentos', 'Documentos'], ['escritorio', 'Escritório']];
@@ -54,6 +55,7 @@ export default async function financeiro({ aba = 'faturas' }) {
       <td>${f.descricao}<small>${f.competencia ?? ''}${f.processo ? ` · proc. ${f.processo}` : ''}</small></td><td>${dataBR(f.vencimento)}<small>${f.situacao === 'aberta' ? (f.diasParaVencer < 0 ? `${-f.diasParaVencer} dia(s) de atraso` : `em ${f.diasParaVencer} dia(s)`) : f.pagoEm ? `pago em ${dataBR(f.pagoEm)}` : ''}</small></td>
       <td class="num">${f.valorFormatado}</td><td><span class="selo ${tom}"><i></i>${rot}</span></td>
       <td><div class="nx-acts">
+        ${f.tipo !== 'guia_custas' && f.situacao !== 'cancelada' ? html`<button class="btn btn--ghost btn--sm" data-fatura-word="${f.id}" title="Fatura no modelo do escritório (Word)">${icone('doc')}Word</button><button class="btn btn--ghost btn--sm" data-fatura-pdf="${f.id}" title="Fatura no modelo do escritório (PDF)">${icone('download')}PDF</button>` : ''}
         ${f.documentoId ? html`<button class="btn btn--ghost btn--sm" data-baixar="${f.documentoId}" title="Boleto, guia ou nota">${icone('download')}</button>` : ''}
         ${f.comprovanteId ? html`<button class="btn btn--ghost btn--sm" data-baixar="${f.comprovanteId}" title="Comprovante">${icone('doc')}</button>` : ''}
         ${f.status === 'paga_em_conferencia' ? html`<button class="btn btn--accent btn--sm" data-conferir="${f.id}">${icone('check')}Conferir</button><button class="btn btn--ghost btn--sm perigo-btn" data-recusar="${f.id}">Recusar</button>` : ''}
@@ -87,6 +89,14 @@ export default async function financeiro({ aba = 'faturas' }) {
       ouvir(el, 'click', '[data-nova]', () => novaFatura());
       ouvir(el, 'click', '[data-nova-guia]', () => novaFatura(null, 'guia_custas'));
       ouvir(el, 'click', '[data-baixar]', async (b) => { try { const x = await api.post(`/api/documentos/${b.dataset.baixar}/link`); window.open(x.url, '_blank', 'noopener'); } catch (e) { erroDe(e); } });
+      ouvir(el, 'click', '[data-fatura-word]', async (b) => {
+        b.disabled = true;
+        try { const f = await api.get(`/api/faturas/${b.dataset.faturaWord}/modelo`); baixar(await gerarWord(f), `${f.arquivo}.docx`); toast('Fatura gerada no modelo do escritório'); }
+        catch (e) { erroDe(e); } finally { b.disabled = false; }
+      });
+      ouvir(el, 'click', '[data-fatura-pdf]', async (b) => {
+        try { imprimirFatura(await api.get(`/api/faturas/${b.dataset.faturaPdf}/modelo`)); toast('Na janela de impressão, escolha "Salvar como PDF".'); } catch (e) { erroDe(e); }
+      });
       ouvir(el, 'click', '[data-conferir]', async (b) => { try { await api.post(`/api/faturas/${b.dataset.conferir}/conferencia`, { acao: 'conferir' }); toast('Comprovante conferido.'); navegar(); } catch (e) { erroDe(e); } });
       ouvir(el, 'click', '[data-recusar]', async (b) => {
         const ok = await formulario({ titulo: 'Recusar comprovante', subtitulo: 'A fatura volta a ficar em aberto e o cliente vê o motivo.', rotulo: 'Recusar', campos: [{ nome: 'motivo', rotulo: 'Motivo', tipo: 'textarea', obrigatorio: true, placeholder: 'Ex.: o valor do comprovante é diferente do boleto' }], async enviar(v) { await api.post(`/api/faturas/${b.dataset.recusar}/conferencia`, { acao: 'recusar', motivo: v.motivo }); } });

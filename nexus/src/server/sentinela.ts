@@ -10,7 +10,7 @@ import { analisarPorRegras, motivoInvisivel, obterConfig, type ComunicacaoAnalis
 const URL_DJEN = 'https://comunicaapi.pje.jus.br/api/v1/comunicacao';
 const URL_DATAJUD = (t: string) => `https://api-publica.datajud.cnj.jus.br/api_publica_${t}/_search`;
 /** Chave pública divulgada pelo CNJ em datajud-wiki.cnj.jus.br/api-publica/acesso. */
-const CHAVE_DATAJUD = 'cDZHYzlZa0JadVREZDJCendQbXY6SkJlTzNjLV9TRENyQk1RdnFKZGRQdw==';
+export const CHAVE_DATAJUD = 'cDZHYzlZa0JadVREZDJCendQbXY6SkJlTzNjLV9TRENyQk1RdnFKZGRQdw==';
 const ESTADO_AUTO: Record<Classificacao, string> = { confirmada: 'automatico', provavel: 'pendente', inconclusiva: 'pendente', descartada: 'descartado_auto' };
 const AUTOMATICOS = new Set(Object.values(ESTADO_AUTO));
 const POR_PAGINA = 100; const TETO = 10_000; const CHUNK = 3; const RESCAN = 7; const MAX_TENTATIVAS = 6; const TAM_TRECHO = 6000;

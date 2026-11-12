@@ -35,6 +35,14 @@ import * as faturas from './faturas.ts';
 import * as configuracao from './configuracao.ts';
 import * as astreaBase from './astrea_base.ts';
 import * as diagVersoes from './diagnostico_versoes.ts';
+import * as socios from './socios.ts';
+import * as biAgenda from './bi_agenda.ts';
+import * as conferencia from './conferencia.ts';
+import * as cofre from './cofre.ts';
+import * as andamentos from './andamentos.ts';
+import * as faturaDoc from './fatura_documento.ts';
+import * as onboarding from './onboarding.ts';
+import * as avisos from './avisos.ts';
 import { rotasFrenteB } from './rotas_frente_b.ts';
 import * as sentinelaGestao from './sentinela_gestao.ts';
 import { interpretar } from '../domain/financeiro/linguagem.ts';
@@ -112,6 +120,10 @@ export interface Contexto {
    * pedir o arquivo pelo caminho estático (§12.4).
    */
   readonly deposito?: arquivos.Deposito;
+  /** Na nuvem, PDF acima disto não é aberto numa requisição (limite de CPU da função). */
+  readonly limitePdfBytes?: number;
+  /** Chave do cofre de credenciais (AES-256-GCM). Sem ela, o cofre fica indisponível. */
+  readonly segredoCofre?: string;
 }
 
 /** JSON com BigInt: centavos viram string, nunca Number (perderia precisão). */
@@ -140,6 +152,8 @@ export function criarApp(ctx: Contexto) {
   const deposito = ctx.deposito
     ?? arquivos.deposito(new ArmazenamentoLocal(process.env['NGA_ACERVO'] ?? './acervo'));
   if (deposito.segredo.aviso) console.warn(`  aviso: ${deposito.segredo.aviso}`);
+  // Sem chave própria, o cofre usa o segredo do depósito: serve para guardar, mas troca a cada reinício local.
+  const chaveDoCofre = ctx.segredoCofre ?? process.env['NGA_COFRE_CHAVE'] ?? deposito.segredo.valor;
 
   // Leitura automática dos documentos recebidos. Roda depois da resposta, fora
   // da requisição; o estado de cada documento fica gravado e a tela o mostra.
@@ -241,11 +255,36 @@ export function criarApp(ctx: Contexto) {
             }), 201);
           }
 
+          // BI de Prazos: a automação do Astrea entrega a lista inteira (prazos, eventos e audiências).
+          if (rota === '/api/integracao/agenda') {
+            exigirEscopo(integracao, 'agenda');
+            const corpo = biAgenda.EsquemaCarga.safeParse(await req.json().catch(() => null));
+            if (!corpo.success) return erro('dados inválidos', 400, corpo.error.issues.slice(0, 5));
+            return json(await banco.comoUsuario(integracao.usuarioId, (db) =>
+              biAgenda.receberCarga(db, integracao.organizacaoId, corpo.data, 'automacao', integracao.usuarioId)), 201);
+          }
+          // Publicações que chegaram no Astrea, para a conferência diária com o DJEN do Nexus.
+          if (rota === '/api/integracao/publicacoes-astrea') {
+            exigirEscopo(integracao, 'publicacoes');
+            const corpo = conferencia.EsquemaPublicacoesAstrea.safeParse(await req.json().catch(() => null));
+            if (!corpo.success) return erro('dados inválidos', 400, corpo.error.issues.slice(0, 5));
+            return json(await banco.comoUsuario(integracao.usuarioId, (db) =>
+              conferencia.receberPublicacoesAstrea(db, integracao.organizacaoId, corpo.data, integracao.usuarioId)), 201);
+          }
+
           return erro('rota de integração não encontrada', 404);
         })();
 
         await banco.semContexto((db) => marcarUso(db, integracao.id));
         return entregue;
+      }
+
+      // TV do escritório: lê o BI de Prazos com a credencial de exibição, sem sessão de usuário.
+      if (rota === '/api/bi-prazos/tv' && metodo === 'GET') {
+        const t = req.headers.get('x-nga-tv');
+        if (!biAgenda.pareceTokenTv(t)) return erro('credencial de TV ausente', 401);
+        const r = await banco.semContexto((db) => biAgenda.lerPelaTv(db, t));
+        return r ? json(r) : erro('credencial de TV inválida, expirada ou revogada', 401);
       }
 
       if (rota === '/definir-senha' && metodo === 'GET') return equipeAdmin.paginaSenha();
@@ -390,6 +429,13 @@ export function criarApp(ctx: Contexto) {
           const d=google.EsquemaEvento.safeParse(await req.json().catch(()=>null));
           if(!d.success)return erro('Evento inválido.',400,d.error.issues);
           return json(await banco.comoUsuario(identidade.usuarioId,db=>google.criarEvento(db,identidade,d.data)),201);
+        }
+        const mPauta=/^\/api\/google\/eventos\/([0-9a-f-]{36})\/pauta$/.exec(rota);
+        if(mPauta && metodo==='PUT') {
+          exigir(identidade.papeis,'tarefa.escrever');
+          const d=google.EsquemaPauta.safeParse(await req.json().catch(()=>null));
+          if(!d.success)return erro('Pauta inválida.',400,d.error.issues);
+          return json(await banco.comoUsuario(identidade.usuarioId,db=>google.atualizarPauta(db,mPauta[1]!,d.data.pauta,identidade)));
         }
         const drive=/^\/api\/google\/projetos\/([0-9a-f-]{36})\/(drive|documentos)$/.exec(rota);
         if(drive && metodo==='POST') {
@@ -998,11 +1044,14 @@ export function criarApp(ctx: Contexto) {
           if (sub === '/equipe') return json(await como((db) => s.equipeResponsavel(db, identidade)));
           if (sub === '/cobertura') return json(await como((db) => s.cobertura(db, Number(q.get('dias') ?? 45))));
           if (sub === '/fontes') return json(await como(s.fontes));
+          if (sub === '/confiabilidade') return json(await como(s.confiabilidade));
           if (sub === '/alertas') return json(await como(s.listarAlertas));
           if (sub === '/config') { gerir(); return json(await como((db) => s.verConfig(db, identidade))); }
         }
         if (metodo === 'POST') {
           if (sub === '/clientes') { escrever(); const d = await corpoDe(s.EsquemaClienteSentinela); return json(await como((db) => s.criarCliente(db, d, identidade)), 201); }
+          if (sub === '/carteira') { escrever(); return json(await como((db) => s.sincronizarComCarteira(db, identidade))); }
+          if (sub === '/carteira/cnpj') { escrever(); const d = await corpoDe(s.EsquemaCnpjEmpresa); return json(await como((db) => s.informarCnpj(db, d, identidade))); }
           if (sub === '/clientes/importar') { escrever(); const d = await corpoDe(s.EsquemaImportacao); return json(await como((db) => s.importarClientes(db, d.linhas, identidade))); }
           if ((m = casa(`/achados/${ID}/decisao`))) { escrever(); const d = await corpoDe(s.EsquemaDecisao); return json(await como((db) => s.decidir(db, m![1]!, d, identidade))); }
           if (sub === '/achados/lote') { escrever(); const d = await corpoDe(s.EsquemaLote); return json(await como((db) => s.decidirLote(db, d, identidade))); }
@@ -1130,6 +1179,128 @@ export function criarApp(ctx: Contexto) {
         return json(await como((db) => configuracao.atualizarAutomacao(db, mAutConf[1]!, d, identidade)));
       }
 
+      // ------------------------------------------------------------- onboarding do projeto ---
+      const mOnb = /^\/api\/projetos\/([0-9a-f-]{36})\/onboarding(\/iniciar|\/itens)?$/.exec(rota);
+      if (mOnb) {
+        if (ehCliente) { if (metodo !== 'GET' || mOnb[2]) return erro('acesso negado', 403); return json(await como((db) => onboarding.obter(db, mOnb[1]!, true))); }
+        exigir(identidade.papeis, 'projeto.ler');
+        if (metodo === 'GET' && !mOnb[2]) return json(await como((db) => onboarding.obter(db, mOnb[1]!)));
+        exigir(identidade.papeis, 'tarefa.escrever');
+        if (metodo === 'POST' && mOnb[2] === '/iniciar') { const d = await corpoDe(z.object({ inicio: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() })); return json(await como((db) => onboarding.iniciar(db, mOnb[1]!, identidade, d.inicio)), 201); }
+        if (metodo === 'POST' && mOnb[2] === '/itens') { const d = await corpoDe(onboarding.EsquemaItem); return json(await como((db) => onboarding.criarItem(db, mOnb[1]!, d, identidade)), 201); }
+        return erro('método não permitido', 405);
+      }
+      const mOnbItem = /^\/api\/onboarding\/itens\/([0-9a-f-]{36})$/.exec(rota);
+      if (mOnbItem) {
+        if (ehCliente) return erro('acesso negado', 403);
+        exigir(identidade.papeis, 'tarefa.escrever');
+        if (metodo === 'PATCH') { const d = await corpoDe(onboarding.EsquemaEdicaoItem); return json(await como((db) => onboarding.editarItem(db, mOnbItem[1]!, d, identidade))); }
+        if (metodo === 'DELETE') return json(await como((db) => onboarding.excluirItem(db, mOnbItem[1]!, identidade)));
+        return erro('método não permitido', 405);
+      }
+      if (rota === '/api/onboarding' && metodo === 'GET') { if (ehCliente) return erro('acesso negado', 403); exigir(identidade.papeis, 'projeto.ler'); return json(await como(onboarding.emAndamento)); }
+
+      // --------------------------------------------------------------- avisos ao portal ---
+      if (rota === '/api/portal/avisos' && metodo === 'GET') { if (!ehCliente) return erro('só para o portal', 403); return json(await como(avisos.doPortal)); }
+      const mAvLido = /^\/api\/portal\/avisos\/([0-9a-f-]{36})\/lido$/.exec(rota);
+      if (mAvLido && metodo === 'POST') { if (!ehCliente) return erro('só para o portal', 403); return json(await como((db) => avisos.marcarLido(db, mAvLido[1]!))); }
+      const mAvProj = /^\/api\/projetos\/([0-9a-f-]{36})\/avisos(\/automatico)?$/.exec(rota);
+      if (mAvProj) {
+        if (ehCliente) return erro('acesso negado', 403);
+        exigir(identidade.papeis, 'projeto.ler');
+        if (metodo === 'GET' && !mAvProj[2]) return json(await como((db) => avisos.doProjeto(db, mAvProj[1]!)));
+        exigir(identidade.papeis, 'portal.publicar');
+        if (metodo === 'PUT' && mAvProj[2]) { const d = await corpoDe(z.object({ automatico: z.boolean() })); return json(await como((db) => avisos.configurar(db, mAvProj[1]!, d.automatico, identidade))); }
+        return erro('método não permitido', 405);
+      }
+      if (rota === '/api/avisos/rascunhos' && metodo === 'GET') { if (ehCliente) return erro('acesso negado', 403); exigir(identidade.papeis, 'portal.publicar'); return json(await como(avisos.rascunhos)); }
+      const mAv = /^\/api\/avisos\/([0-9a-f-]{36})\/(publicacao|descarte)$/.exec(rota);
+      if (mAv && metodo === 'POST') {
+        if (ehCliente) return erro('acesso negado', 403);
+        exigir(identidade.papeis, 'portal.publicar');
+        if (mAv[2] === 'publicacao') { const d = await corpoDe(avisos.EsquemaPublicar); return json(await como((db) => avisos.publicar(db, mAv[1]!, d, identidade))); }
+        return json(await como((db) => avisos.descartar(db, mAv[1]!, identidade)));
+      }
+
+      // ---------------------------------------------------------------- BI de Prazos ---
+      if (rota.startsWith('/api/bi-prazos')) {
+        if (ehCliente) return erro('acesso negado', 403);
+        exigir(identidade.papeis, 'modulo.bi_prazos');
+        if (rota === '/api/bi-prazos' && metodo === 'GET') return json(await como(biAgenda.linhas));
+        if (rota === '/api/bi-prazos/historico' && metodo === 'GET') return json(await como(biAgenda.historico));
+        if (rota === '/api/bi-prazos/carga' && metodo === 'POST') {
+          exigir(identidade.papeis, 'controladoria.gerir');
+          const org = identidade.organizacoes.find((o) => o.tipo === 'escritorio')?.id; if (!org) return erro('acesso negado', 403);
+          const d = await corpoDe(biAgenda.EsquemaCarga);
+          return json(await como((db) => biAgenda.receberCarga(db, org, d, 'manual', identidade.usuarioId)), 201);
+        }
+        if (rota === '/api/bi-prazos/acessos-tv' && metodo === 'GET') return json(await como(biAgenda.listarAcessosTv));
+        if (rota === '/api/bi-prazos/acessos-tv' && metodo === 'POST') { const d = await corpoDe(biAgenda.EsquemaAcessoTv); return json(await como((db) => biAgenda.criarAcessoTv(db, d, identidade)), 201); }
+        const mTv = /^\/api\/bi-prazos\/acessos-tv\/([0-9a-f-]{36})$/.exec(rota);
+        if (mTv && metodo === 'DELETE') return json(await como((db) => biAgenda.revogarAcessoTv(db, mTv[1]!, identidade)));
+        return erro('rota não encontrada', 404);
+      }
+
+      // ----------------------------------------------- andamentos (DataJud + manual) ---
+      const mAnd = /^\/api\/projetos\/([0-9a-f-]{36})\/andamentos(\/atualizar)?$/.exec(rota);
+      if (mAnd) {
+        if (ehCliente) return erro('acesso negado', 403);
+        exigir(identidade.papeis, 'processo.ler');
+        const hojeBr = new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' });
+        if (metodo === 'GET' && !mAnd[2]) return json(await como((db) => andamentos.historicoDoProjeto(db, mAnd[1]!, hojeBr, Math.max(7, Math.min(365, Number(url.searchParams.get('dias') ?? 30))))));
+        exigir(identidade.papeis, 'processo.escrever');
+        if (metodo === 'POST' && mAnd[2]) return json(await como((db) => andamentos.atualizarProjeto(db, mAnd[1]!)));
+        if (metodo === 'POST') { const d = await corpoDe(andamentos.EsquemaHistorico); return json(await como((db) => andamentos.registrarHistorico(db, mAnd[1]!, d, identidade)), 201); }
+        return erro('método não permitido', 405);
+      }
+      const mHist = /^\/api\/historicos\/([0-9a-f-]{36})$/.exec(rota);
+      if (mHist && metodo === 'DELETE') { if (ehCliente) return erro('acesso negado', 403); exigir(identidade.papeis, 'processo.escrever'); return json(await como((db) => andamentos.excluirHistorico(db, mHist[1]!, identidade))); }
+      if (rota === '/api/andamentos/estado' && metodo === 'GET') { if (ehCliente) return erro('acesso negado', 403); exigir(identidade.papeis, 'processo.ler'); return json(await como(andamentos.estado)); }
+
+      // ------------------------------------------------ conferência Astrea × Nexus ---
+      if (rota === '/api/controladoria/conferencia' && metodo === 'GET') {
+        if (ehCliente) return erro('acesso negado', 403);
+        exigir(identidade.papeis, 'controladoria.ler');
+        const org = identidade.organizacoes.find((o) => o.tipo === 'escritorio')!.id;
+        return json(await como((db) => conferencia.painel(db, org, new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' }))));
+      }
+      if (rota === '/api/controladoria/conferencia/publicacoes' && metodo === 'POST') {
+        if (ehCliente) return erro('acesso negado', 403);
+        exigir(identidade.papeis, 'controladoria.gerir');
+        const org = identidade.organizacoes.find((o) => o.tipo === 'escritorio')!.id;
+        const d = await corpoDe(conferencia.EsquemaPublicacoesAstrea);
+        return json(await como((db) => conferencia.receberPublicacoesAstrea(db, org, d, identidade.usuarioId)), 201);
+      }
+      if (rota === '/api/controladoria/vinculo-projetos' && metodo === 'POST') {
+        if (ehCliente) return erro('acesso negado', 403);
+        exigir(identidade.papeis, 'controladoria.gerir');
+        const org = identidade.organizacoes.find((o) => o.tipo === 'escritorio')!.id;
+        const d = await corpoDe(z.object({ aplicar: z.boolean().default(false) }));
+        return json(await como((db) => astreaBase.vincularProcessosAosProjetos(db, org, d.aplicar, identidade)));
+      }
+      const mProcProj = /^\/api\/processos\/([0-9a-f-]{36})\/projeto$/.exec(rota);
+      if (mProcProj && metodo === 'PUT') {
+        if (ehCliente) return erro('acesso negado', 403);
+        exigir(identidade.papeis, 'controladoria.gerir');
+        const d = await corpoDe(z.object({ projetoId: z.string().uuid().nullable() }));
+        return json(await como((db) => astreaBase.vincularProcessoManual(db, mProcProj[1]!, d.projetoId, identidade)));
+      }
+
+      // --------------------------------------------------------- cofre de credenciais ---
+      if (rota === '/api/cofre' || rota.startsWith('/api/cofre/')) {
+        if (ehCliente) return erro('acesso negado', 403);
+        exigir(identidade.papeis, 'admin.gerir');
+        if (rota === '/api/cofre' && metodo === 'GET') return json(await como(cofre.estado));
+        if (rota === '/api/cofre' && metodo === 'PUT') { const d = await corpoDe(cofre.EsquemaCredencial); return json(await como((db) => cofre.salvar(db, d, chaveDoCofre, identidade))); }
+        const mCof = /^\/api\/cofre\/(astrea)$/.exec(rota);
+        if (mCof && metodo === 'DELETE') return json(await como((db) => cofre.remover(db, mCof[1]!, identidade)));
+        return erro('rota não encontrada', 404);
+      }
+
+      // --------------------------------------------------- fatura no modelo do escritório ---
+      const mFatDoc = /^\/api\/faturas\/([0-9a-f-]{36})\/modelo$/.exec(rota);
+      if (mFatDoc && metodo === 'GET') { exigir(identidade.papeis, 'fatura.ler'); return json(await como((db) => faturaDoc.dadosDaFatura(db, mFatDoc[1]!))); }
+
       // Controladoria × base do Astrea: vincula processos a projetos e publicações a processos.
       if (rota === '/api/controladoria/confronto' && metodo === 'POST') {
         if (ehCliente) return erro('acesso negado', 403);
@@ -1145,6 +1316,31 @@ export function criarApp(ctx: Contexto) {
         return json(await como((db) => astreaBase.vincularPublicacoes(db, org)));
       }
       // ------------------------------------------ diagnóstico inicial versionado ---
+      // Leitura dos arquivos do diagnóstico, um por chamada (cabe no limite de CPU da nuvem).
+      const mDiagLeit = /^\/api\/projetos\/([0-9a-f-]{36})\/diagnostico\/leituras$/.exec(rota);
+      if (mDiagLeit) {
+        if (ehCliente) return erro('acesso negado', 403);
+        exigir(identidade.papeis, 'analise.executar');
+        if (metodo === 'GET') return json(await como((db) => diagVersoes.pendentesDeLeitura(db, mDiagLeit[1]!)));
+        if (metodo === 'POST') return json(await como((db) => diagVersoes.lerProximo(db, mDiagLeit[1]!, deposito, identidade, ctx.limitePdfBytes)));
+        return erro('método não permitido', 405);
+      }
+      // Patrimônio dos sócios do cliente.
+      const mSocios = /^\/api\/projetos\/([0-9a-f-]{36})\/socios(\/qsa)?$/.exec(rota);
+      if (mSocios) {
+        if (ehCliente) return erro('acesso negado', 403);
+        if (metodo === 'GET' && !mSocios[2]) { exigir(identidade.papeis, 'projeto.ler'); return json(await como((db) => socios.quadro(db, mSocios[1]!))); }
+        exigir(identidade.papeis, 'analise.executar');
+        if (metodo === 'POST' && mSocios[2]) return json(await como((db) => socios.importarQsa(db, mSocios[1]!, identidade)));
+        if (metodo === 'POST') { const d = await corpoDe(socios.EsquemaBem); return json(await como((db) => socios.registrar(db, mSocios[1]!, d, identidade)), 201); }
+        return erro('método não permitido', 405);
+      }
+      const mSocioBem = /^\/api\/socios\/([0-9a-f-]{36})$/.exec(rota);
+      if (mSocioBem && metodo === 'DELETE') {
+        if (ehCliente) return erro('acesso negado', 403);
+        exigir(identidade.papeis, 'analise.executar');
+        return json(await como((db) => socios.excluir(db, mSocioBem[1]!, identidade)));
+      }
       const mDiag = /^\/api\/projetos\/([0-9a-f-]{36})\/diagnostico\/(versoes|extracoes)(?:\/(\d+))?(?:\/(html|pdf))?$/.exec(rota);
       if (mDiag) {
         if (ehCliente) return erro('acesso negado', 403);
@@ -1152,8 +1348,8 @@ export function criarApp(ctx: Contexto) {
         const [, did, recurso, num, formato] = mDiag as unknown as [string, string, string, string | undefined, string | undefined];
         if (recurso === 'versoes' && !num && metodo === 'GET') return json(await como((db) => diagVersoes.listarVersoes(db, did)));
         if (recurso === 'versoes' && !num && metodo === 'POST') {
-          const d = await corpoDe(z.object({ motivo: z.enum(['manual', 'rodada_de_entrega']).default('manual') }));
-          return json(await como((db) => diagVersoes.gerar(db, did, d.motivo, identidade, deposito)), 201);
+          const d = await corpoDe(z.object({ motivo: z.enum(['manual', 'rodada_de_entrega']).default('manual'), lerArquivos: z.boolean().default(true) }));
+          return json(await como((db) => diagVersoes.gerar(db, did, d.motivo, identidade, deposito, { lerArquivos: d.lerArquivos && !ctx.limitePdfBytes })), 201);
         }
         if (recurso === 'versoes' && num && metodo === 'GET') {
           if (formato === 'html') return new Response(await como((db) => diagVersoes.html(db, did, Number(num))), { headers: { 'content-type': 'text/html; charset=utf-8', 'x-content-type-options': 'nosniff' } });

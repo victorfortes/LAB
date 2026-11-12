@@ -2,7 +2,7 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
 import type { PoolClient } from 'pg';
 import { z } from 'zod';
-import type { Banco } from '../store/conexao.ts';
+import { auditar, type Banco } from '../store/conexao.ts';
 import type { Identidade } from '../security/sessao.ts';
 import { ArquivoCorrompido, type Armazenamento } from '../store/arquivos.ts';
 import { NaoEncontrado, PedidoInvalido } from './erros.ts';
@@ -133,9 +133,19 @@ async function projeto(db: PoolClient,id:string) {
   const { rows }=await db.query<{id:string;organizacao_id:string;nome:string;tipo:string;cliente:string}>(`SELECT p.id,p.organizacao_id,p.nome,p.tipo,coalesce((SELECT o.nome FROM portais po JOIN organizacoes o ON o.id=po.organizacao_cliente_id WHERE po.projeto_id=p.id AND po.ativo ORDER BY po.criado_em LIMIT 1),p.nome) AS cliente FROM projetos p WHERE p.id=$1`,[id]);
   if (!rows[0]) throw new NaoEncontrado('Projeto não encontrado.'); return rows[0];
 }
-export const EsquemaEvento = z.object({projetoId:z.string().uuid(),titulo:z.string().trim().min(1).max(300),inicio:z.iso.datetime({offset:true}),fim:z.iso.datetime({offset:true}),descricao:z.string().max(5000).default(''),marcador:z.enum(['reuniao','prazo','audiencia','interno','cliente','lembrete']).default('reuniao'),criarMeet:z.boolean().default(true),convidados:z.array(z.string().trim().toLowerCase().email()).max(50).default([])}).refine((e)=>new Date(e.fim)>new Date(e.inicio),'O fim deve ser posterior ao início.');
+/** Item da pauta da reunião: o que discutir, quem conduz e quanto tempo. `feito` e `decisao` são preenchidos na reunião. */
+export const ItemDePauta = z.object({ texto: z.string().trim().min(1).max(300), responsavel: z.string().trim().max(120).optional(), minutos: z.number().int().min(1).max(480).optional(), feito: z.boolean().default(false), decisao: z.string().trim().max(1000).optional() });
+type Pauta = z.infer<typeof ItemDePauta>[];
+/** A pauta vai escrita no próprio convite: quem recebe o Google Calendar já sabe o que será tratado. */
+export function descricaoComPauta(descricao: string, pauta: Pauta) {
+  if (!pauta.length) return descricao;
+  const linhas = pauta.map((p, i) => `${i + 1}. ${p.texto}${p.responsavel ? ` (${p.responsavel})` : ''}${p.minutos ? ` · ${p.minutos} min` : ''}`);
+  const total = pauta.reduce((s, p) => s + (p.minutos ?? 0), 0);
+  return `${descricao ? `${descricao}\n\n` : ''}PAUTA${total ? ` (${total} min)` : ''}\n${linhas.join('\n')}\n\nPauta acompanhada no NGA Nexus.`;
+}
+export const EsquemaEvento = z.object({projetoId:z.string().uuid(),titulo:z.string().trim().min(1).max(300),inicio:z.iso.datetime({offset:true}),fim:z.iso.datetime({offset:true}),descricao:z.string().max(5000).default(''),marcador:z.enum(['reuniao','prazo','audiencia','interno','cliente','lembrete']).default('reuniao'),criarMeet:z.boolean().default(true),convidados:z.array(z.string().trim().toLowerCase().email()).max(50).default([]),pauta:z.array(ItemDePauta).max(40).default([])}).refine((e)=>new Date(e.fim)>new Date(e.inicio),'O fim deve ser posterior ao início.');
 export function corpoEventoGoogle(id:string,e:z.infer<typeof EsquemaEvento>) {
-  return {id:id.replaceAll('-',''),summary:e.titulo,description:e.descricao,start:{dateTime:e.inicio,timeZone:'America/Sao_Paulo'},end:{dateTime:e.fim,timeZone:'America/Sao_Paulo'},colorId:({reuniao:'9',prazo:'11',audiencia:'6',interno:'8',cliente:'2',lembrete:'5'})[e.marcador],extendedProperties:{private:{ngaProjeto:e.projetoId,ngaMarcador:e.marcador}},
+  return {id:id.replaceAll('-',''),summary:e.titulo,description:descricaoComPauta(e.descricao,e.pauta??[]),start:{dateTime:e.inicio,timeZone:'America/Sao_Paulo'},end:{dateTime:e.fim,timeZone:'America/Sao_Paulo'},colorId:({reuniao:'9',prazo:'11',audiencia:'6',interno:'8',cliente:'2',lembrete:'5'})[e.marcador],extendedProperties:{private:{ngaProjeto:e.projetoId,ngaMarcador:e.marcador}},
     // Equipe do projeto e convidados extras recebem o convite do Google, como numa reunião marcada no próprio Meet; eles podem chamar outras pessoas.
     ...(e.convidados?.length?{attendees:e.convidados.map((email)=>({email})),guestsCanInviteOthers:true,guestsCanModify:false}:{}),...(e.criarMeet?{conferenceData:{createRequest:{requestId:id,conferenceSolutionKey:{type:'hangoutsMeet'}}}}:{})};
 }
@@ -143,7 +153,7 @@ export async function criarEvento(db:PoolClient,i:Identidade,e:z.infer<typeof Es
   const p=await projeto(db,e.projetoId); const id=crypto.randomUUID();
   const convidados=await convidadosDoProjeto(db,p.id,e.convidados??[]);
   // Save before dispatch. Retrying the same local event uses its stable Google ID.
-  await db.query('INSERT INTO google_eventos(id,organizacao_id,projeto_id,titulo,inicio,fim,descricao,marcador,criar_meet,criado_por,convidados) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)',[id,p.organizacao_id,p.id,e.titulo,e.inicio,e.fim,e.descricao,e.marcador,e.criarMeet,i.usuarioId,convidados]);
+  await db.query('INSERT INTO google_eventos(id,organizacao_id,projeto_id,titulo,inicio,fim,descricao,marcador,criar_meet,criado_por,convidados,pauta) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb)',[id,p.organizacao_id,p.id,e.titulo,e.inicio,e.fim,e.descricao,e.marcador,e.criarMeet,i.usuarioId,convidados,JSON.stringify(e.pauta??[])]);
   try { return await sincronizarEvento(db,id); }
   catch(error) {
     const message=(error as Error).message.slice(0,300);
@@ -165,7 +175,7 @@ export async function sincronizarEvento(db:PoolClient,id:string) {
   const {rows}=await db.query('SELECT * FROM google_eventos WHERE id=$1',[id]);const r=rows[0];
   if(!r)throw new NaoEncontrado('Evento não encontrado.');if(r.google_id && (!r.criar_meet || r.meet_url))return r;
   const access=await token(db,r.organizacao_id);
-  const body=corpoEventoGoogle(id,{projetoId:r.projeto_id,titulo:r.titulo,inicio:new Date(r.inicio).toISOString(),fim:new Date(r.fim).toISOString(),descricao:r.descricao,marcador:r.marcador,criarMeet:r.criar_meet,convidados:r.convidados??[]});
+  const body=corpoEventoGoogle(id,{projetoId:r.projeto_id,titulo:r.titulo,inicio:new Date(r.inicio).toISOString(),fim:new Date(r.fim).toISOString(),descricao:r.descricao,marcador:r.marcador,criarMeet:r.criar_meet,convidados:r.convidados??[],pauta:r.pauta??[]});
   const base='https://www.googleapis.com/calendar/v3/calendars/primary/events';
   let remote:Record<string,any>;
   try {remote=r.google_id?await googleJson(access,base+'/'+encodeURIComponent(r.google_id)):await googleJson(access,base+'?conferenceDataVersion=1&sendUpdates=all',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});}
@@ -178,6 +188,24 @@ export async function sincronizarEvento(db:PoolClient,id:string) {
   const meet=linkDoMeet(remote);
   await db.query('UPDATE google_eventos SET google_id=$2,meet_url=$3,google_url=$4,erro=NULL WHERE id=$1',[id,remote.id,meet,remote.htmlLink]);
   return {id,...remote,meet_url:meet};
+}
+export const EsquemaPauta = z.object({ pauta: z.array(ItemDePauta).max(40) });
+/**
+ * Atualiza a pauta (itens, feito e decisões). Se o texto dos itens mudou e o evento já está no Google,
+ * a descrição do convite é reescrita para todos verem a pauta nova. Falha no Google não perde o que foi salvo.
+ */
+export async function atualizarPauta(db:PoolClient,id:string,pauta:Pauta,i:Identidade) {
+  const {rows}=await db.query('SELECT * FROM google_eventos WHERE id=$1',[id]); const r=rows[0]; if(!r)throw new NaoEncontrado('Evento não encontrado.');
+  const antes=JSON.stringify((r.pauta??[]).map((p:Record<string,unknown>)=>[p.texto,p.responsavel,p.minutos]));
+  await db.query('UPDATE google_eventos SET pauta=$2::jsonb,pauta_atualizada_em=now() WHERE id=$1',[id,JSON.stringify(pauta)]);
+  await auditar(db,{organizacaoId:r.organizacao_id,usuarioId:i.usuarioId,acao:'reuniao.pauta_atualizada',entidade:'google_evento',entidadeId:id,depois:{itens:pauta.length,feitos:pauta.filter((p)=>p.feito).length}});
+  let google:'atualizado'|'sem_mudanca'|'fora'|string='sem_mudanca';
+  if(antes!==JSON.stringify(pauta.map((p)=>[p.texto,p.responsavel,p.minutos]))){
+    if(!r.google_id) google='fora';
+    else { try{ const access=await token(db,r.organizacao_id); await googleJson(access,'https://www.googleapis.com/calendar/v3/calendars/primary/events/'+encodeURIComponent(r.google_id)+'?sendUpdates=all',{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify({description:descricaoComPauta(r.descricao??'',pauta)})}); google='atualizado'; }
+      catch(error){ google=`não foi possível atualizar o convite: ${(error as Error).message.slice(0,160)}`; } }
+  }
+  return {ok:true,google};
 }
 export async function listarEventos(db:PoolClient,projetoId?:string) {
   return (await db.query('SELECT * FROM google_eventos WHERE ($1::uuid IS NULL OR projeto_id=$1) ORDER BY inicio',[projetoId??null])).rows;
