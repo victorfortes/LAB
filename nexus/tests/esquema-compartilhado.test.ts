@@ -30,7 +30,7 @@ beforeAll(async () => {
 }, 180_000);
 afterAll(async () => { await banco?.encerrar(); await dono?.end(); await pg?.stop(); await rm(dir, { recursive: true, force: true }); });
 
-describe('NGA LAB num banco compartilhado, em schema próprio', () => {
+describe('NGA Nexus num banco compartilhado, em schema próprio', () => {
   test('não toca na tabela homônima do outro app em public', async () => {
     const r = await dono.query('SELECT dado_do_gerador_de_relatorios FROM public.projetos');
     expect(r.rows).toEqual([{ dado_do_gerador_de_relatorios: 'intocavel' }]);

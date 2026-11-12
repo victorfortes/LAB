@@ -16,7 +16,7 @@ import { atualizarLateral, navegar } from '../shell.js';
 const TITULOS = { inicio: 'Visão geral', andamento: 'Andamento', documentos: 'Documentos', faturas: 'Faturas', plano: 'Plano de pagamento', caixa: 'Fluxo de caixa', atas: 'Atas de reunião', relatorios: 'Relatórios' };
 const SUB = {
   andamento: 'O que aconteceu em cada processo, em linguagem simples.', documentos: 'O que a NGA precisa de você e o que já foi conferido.',
-  faturas: 'Honorários e despesas, com o comprovante de cada pagamento.', plano: 'Cada parcela do plano aprovado, com vencimento e situação.',
+  faturas: 'Honorários e despesas, com o comprovante de cada pagamento.', plano: 'As obrigações do plano de recuperação judicial aprovado, com credor, valor e vencimento.',
   caixa: 'Previsto e realizado, lado a lado.', atas: 'Pauta, decisões e encaminhamentos de cada reunião.', relatorios: 'Acompanhamento mensal e quadros preparados para você.',
 };
 const SIT = { pendente: ['', 'Pendente'], enviado: ['info', 'Enviado'], em_analise: ['info', 'Em análise'], aprovado: ['ok', 'Aprovado'], rejeitado: ['erro', 'Rejeitado'], complementacao: ['aviso', 'Complementar'], nao_aplicavel: ['', 'Não se aplica'] };
@@ -45,6 +45,8 @@ export default async function portal({ aba }) {
 }
 
 const bloqueado = (o) => ({ html: html`<section class="card glass up">${vazio('lock', 'Área não habilitada', `O escritório não liberou ${o} para o seu acesso. Se precisar, fale com a NGA pelo grupo de WhatsApp.`)}</section>` });
+/** O plano de pagamento só existe para quem está em recuperação judicial. */
+export const ehRJ = (p) => p?.tipo === 'recuperacao_judicial';
 const botaoWhats = (p, classe = 'btn btn--accent') => p.whatsapp_grupo_url ? html`<a class="${classe}" href="${p.whatsapp_grupo_url}" target="_blank" rel="noopener noreferrer">${icone('comment')}Entrar no grupo do WhatsApp</a>` : '';
 
 // ------------------------------------------------------------------ início ---
@@ -53,7 +55,7 @@ async function inicio(p) {
   const [hub, catalogo, check, ob, procs, negs, visao, fat] = await Promise.all([
     api.get(`/api/projetos/${p.projeto_id}`).catch(() => null), api.get('/api/projetos/fases').catch(() => []),
     api.get(`/api/projetos/${p.projeto_id}/checklist`).catch(() => null),
-    p.mostra_obrigacoes ? api.get(`/api/projetos/${p.projeto_id}/obrigacoes`).catch(() => null) : null,
+    p.mostra_obrigacoes && ehRJ(p) ? api.get(`/api/projetos/${p.projeto_id}/obrigacoes`).catch(() => null) : null,
     api.get('/api/processos').catch(() => []),
     api.get(`/api/portal/projetos/${p.projeto_id}/negociacoes`).catch(() => []),
     api.get(`/api/projetos/${p.projeto_id}/visao`).catch(() => ({ marcos: [] })),
@@ -65,7 +67,7 @@ async function inicio(p) {
   const pr = check?.progresso; const falta = check?.itens.filter((i) => i.aguardaVoce) ?? [];
   const pagas = ob?.resumo.total ? Math.round((ob.resumo.pagas / ob.resumo.total) * 100) : null;
   const proxParcela = ob?.obrigacoes?.find((x) => !x.pago);
-  const prox = fat?.resumo.proxima ?? null; const rf = fat?.resumo;
+  const prox = fat?.resumo.proxima ?? null; const rf = fat?.resumo; const hon = rf?.proximaHonorarios ?? null;
   const marcos = (visao.marcos ?? []).slice(0, 6);
   // O andamento mais recente, dos processos liberados (até 3, em paralelo).
   const movs = (await Promise.all(meus.slice(0, 3).map((x) => api.get(`/api/processos/${x.id}`).catch(() => null))))
@@ -87,16 +89,16 @@ async function inicio(p) {
       <div class="nx-hero__acts">${botaoWhats(p)}<a class="btn btn--ghost" href="#/documentos">${icone('upload')}Enviar documentos</a>${p.whatsapp_grupo_url ? '' : html`<small class="dica">O grupo de WhatsApp será liberado pela equipe.</small>`}</div>
     </section>
 
-    <div class="nx-kpis">
+    <div class="nx-kpis${ehRJ(p) ? '' : ' nx-kpis--3'}">
       <a class="nx-kpi up" href="#/documentos"><span class="nx-kpi__label">Documentação</span>
         <span class="nx-kpi__ring"><span class="pring" style="--s:64px">${raw(anel(pr?.percentualAprovado ?? 0, { tam: 64, traco: 6, cor: 'var(--lab-amber)' }))}<b class="pring__val" style="font-size:14px">${pr ? `${pr.percentualAprovado}%` : '—'}</b></span></span>
         <b class="nx-kpi__big">${pr ? `${pr.aprovados}/${pr.obrigatorios}` : '—'}</b><small>${pr ? 'documentos aprovados' : 'lista ainda não montada'}</small></a>
-      <a class="nx-kpi up ${prox?.status === 'vencida' ? 'is-alert' : ''}" href="#/faturas"><span class="nx-kpi__label">Próxima fatura</span>
-        ${prox ? html`<b class="nx-kpi__big">${brl(prox.valorFormatado)}</b><small>${prox.descricao}</small><span class="selo ${STATUS_FATURA[prox.status][0]}">${prazoRotulo(prox)}</span>`
-          : html`<b class="nx-kpi__big">—</b><small>${fat ? (rf.pagas ? 'Tudo em dia. Obrigado!' : 'Nenhuma fatura emitida') : 'Não liberada'}</small>`}</a>
-      <a class="nx-kpi up" href="#/plano"><span class="nx-kpi__label">Plano de pagamento</span>
-        ${pagas === null ? html`<b class="nx-kpi__big">—</b><small>${p.mostra_obrigacoes ? 'Ainda não há plano cadastrado' : 'Não liberado'}</small>`
-          : html`<b class="nx-kpi__big">${ob.resumo.pagas}/${ob.resumo.total}</b><small>${proxParcela ? `próxima: ${dataBR(proxParcela.vencimento)}` : 'parcelas pagas'}</small>${ob.resumo.vencidas ? html`<span class="selo erro">${ob.resumo.vencidas} vencida(s)</span>` : html`<span class="selo ok">em dia</span>`}`}</a>
+      <a class="nx-kpi up ${hon?.status === 'vencida' ? 'is-alert' : ''}" href="#/faturas"><span class="nx-kpi__label">Próxima parcela de honorários</span>
+        ${hon ? html`<b class="nx-kpi__big">${brl(hon.valorFormatado)}</b><small>vence em ${dataBR(hon.vencimento)}${rf.honorarios.total > 1 ? ` · ${rf.honorarios.pagas} de ${rf.honorarios.total} pagas` : ''}</small><span class="selo ${STATUS_FATURA[hon.status][0]}">${prazoRotulo(hon)}</span>`
+          : html`<b class="nx-kpi__big">—</b><small>${fat ? (rf.honorarios.pagas ? 'Honorários em dia. Obrigado!' : 'Nenhuma parcela lançada') : 'Não liberada'}</small>`}</a>
+      ${ehRJ(p) ? html`<a class="nx-kpi up" href="#/plano"><span class="nx-kpi__label">Plano de recuperação</span>
+        ${pagas === null ? html`<b class="nx-kpi__big">—</b><small>${p.mostra_obrigacoes ? 'O plano aprovado ainda não foi cadastrado' : 'Não liberado'}</small>`
+          : html`<b class="nx-kpi__big">${ob.resumo.pagas}/${ob.resumo.total}</b><small>${proxParcela ? `próxima obrigação: ${dataBR(proxParcela.vencimento)}` : 'obrigações cumpridas'}</small>${ob.resumo.vencidas ? html`<span class="selo erro">${ob.resumo.vencidas} vencida(s)</span>` : html`<span class="selo ok">em dia</span>`}`}</a>` : ''}
       <a class="nx-kpi up" href="#/andamento"><span class="nx-kpi__label">Processos</span><b class="nx-kpi__big">${meus.length}</b><small>${movs[0] ? `última movimentação em ${dataBR(movs[0].data)}` : 'acompanhe o andamento'}</small></a>
     </div>
 
@@ -119,8 +121,9 @@ async function inicio(p) {
         ${prox ? html`<section class="card glass up nx-fatura-card ${prox.status === 'vencida' ? 'is-alert' : ''}"><header class="card__head"><div><h2 class="card__title">Próxima fatura</h2><p class="card__sub">${prox.numero} · ${prox.rotuloDoTipo}</p></div><span class="selo ${STATUS_FATURA[prox.status][0]}">${prazoRotulo(prox)}</span></header>
           <b class="nx-money">${brl(prox.valorFormatado)}</b><p class="dica">${prox.descricao} · vencimento ${dataBR(prox.vencimento)}</p>
           <div class="flex"><a class="btn btn--accent" href="#/faturas">${icone('upload')}Anexar comprovante</a>${rf.emAberto > 1 ? html`<small class="dica">+ ${rf.emAberto - 1} em aberto</small>` : ''}</div></section>` : ''}
-        <section class="card glass up nx-whats"><span class="nx-whats__ico">${icone('comment')}</span><div><h2 class="card__title">Fale com a NGA</h2>
-          <p class="dica">${p.whatsapp_grupo_url ? 'Dúvidas, avisos e pedidos acontecem no grupo de WhatsApp do seu caso.' : 'O grupo de WhatsApp do seu caso será liberado pela equipe.'}</p>${botaoWhats(p, 'btn btn--accent btn--sm')}</div></section>
+        <section class="card glass up nx-whats"><span class="nx-whats__ico">${icone('comment')}</span><div><h2 class="card__title">Grupo do WhatsApp</h2>
+          ${p.whatsapp_grupo_url ? html`<a class="nx-whats__link" href="${p.whatsapp_grupo_url}" target="_blank" rel="noopener noreferrer">${p.whatsapp_grupo_url.replace(/^https?:\/\//, '')} ↗</a>`
+            : html`<p class="dica">O link do grupo do seu caso será informado pela equipe.</p>`}</div></section>
       </aside>
     </div>`,
   };
@@ -206,9 +209,10 @@ async function documentos(p) {
       </summary>
       <p class="dica mt">Envie cada arquivo no item correspondente. O escritório confere e responde aqui.</p>
       ${check.itens.length ? [...porCat].map(([cat, itens]) => html`<h3 class="mini-h">${cat}</h3>${itens.map((i) => html`<div class="check-row${i.situacao === 'nao_aplicavel' ? ' na' : ''}"><span class="sit-dot ${i.situacao}"></span>
-        <div><b>${i.titulo}${i.obrigatorio ? '' : html` <span class="muted">(opcional)</span>`}</b><small>${i.fundamento ?? ''}</small>${i.atribuicao ? html`<span class="atrib">${String(i.atribuicao).split('/').map((x) => html`<i>${x.trim()}</i>`)}</span>` : ''}${i.observacao ? html`<small class="obs">${i.observacao}</small>` : ''}</div>
-        <span class="selo ${SIT[i.situacao]?.[0] ?? ''}">${i.rotuloDaSituacao}</span>
-        ${['pendente', 'rejeitado', 'complementacao'].includes(i.situacao) ? html`<label class="btn btn--accent" style="cursor:pointer">${icone('upload')}Enviar<input type="file" hidden data-req="${i.id}" data-t="${i.titulo}" data-c="${i.categoria}"></label>` : ''}</div>`)}`)
+        <div><b>${i.titulo}${i.obrigatorio ? '' : html` <span class="muted">(opcional)</span>`}</b><small>${i.fundamento ?? ''}</small>${i.atribuicao ? html`<span class="atrib">${String(i.atribuicao).split('/').map((x) => html`<i>${x.trim()}</i>`)}</span>` : ''}${i.observacao ? html`<small class="obs">${i.observacao}</small>` : ''}
+          ${i.documentos?.length ? html`<ul class="req-arquivos">${i.documentos.map((d) => html`<li>${icone('doc')}<span>${d.titulo}</span><small>${tamanho(d.tamanho_bytes)} · ${dataBR(d.enviado_em)}</small></li>`)}</ul>` : ''}</div>
+        <span class="selo ${SIT[i.situacao]?.[0] ?? ''}">${i.rotuloDaSituacao}${i.documentos?.length > 1 ? ` · ${i.documentos.length} arquivos` : ''}</span>
+        ${['pendente', 'rejeitado', 'complementacao', 'enviado', 'em_analise'].includes(i.situacao) ? html`<label class="btn ${i.documentos?.length && !['rejeitado', 'complementacao'].includes(i.situacao) ? 'btn--ghost' : 'btn--accent'}" style="cursor:pointer" title="Pode escolher vários arquivos de uma vez">${icone('upload')}${i.documentos?.length ? 'Adicionar arquivos' : 'Enviar'}<input type="file" hidden multiple data-req="${i.id}" data-t="${i.titulo}" data-c="${i.categoria}"></label>` : ''}</div>`)}`)
         : vazio('doc', 'A lista ainda não foi montada', 'Assim que o escritório definir o que precisa, os itens aparecem aqui.')}</details>
       <section class="card glass up mt"><header class="card__head"><div><h2 class="card__title">Documentos do escritório para você</h2></div></header>
         ${docs.filter((d) => d.visibilidade === 'publicado').length ? html`<ul class="lista">${docs.filter((d) => d.visibilidade === 'publicado').map((d) => html`<li>${icone('doc')}<div><b>${d.titulo}</b><small>${d.categoria ?? ''} · ${tamanho(d.tamanho_bytes)} · publicado ${relativo(d.publicado_em)}</small></div>
@@ -232,9 +236,15 @@ async function documentos(p) {
       drop.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); entrada.click(); } });
       ouvir(el, 'click', '[data-baixar]', async (b) => { try { const r = await api.post(`/api/documentos/${b.dataset.baixar}/link`); window.open(r.url, '_blank', 'noopener'); } catch (e) { erroDe(e); } });
       el.addEventListener('change', async (e) => {
-        const inp = e.target.closest('input[data-req]'); if (!inp?.files[0]) return;
-        const fd = new FormData(); fd.append('arquivo', inp.files[0]); fd.append('titulo', inp.dataset.t); fd.append('categoria', inp.dataset.c); fd.append('requisitoId', inp.dataset.req);
-        try { await api.enviar(`/api/projetos/${p.projeto_id}/documentos`, fd); toast('Documento enviado. O escritório vai conferir.'); navegar(); } catch (er) { erroDe(er); }
+        const inp = e.target.closest('input[data-req]'); if (!inp?.files?.length) return;
+        const arquivos = [...inp.files]; let ok = 0;
+        for (const f of arquivos) {
+          // Com vários arquivos, cada um leva o próprio nome junto do item ("Balanço · 2023.pdf").
+          const titulo = arquivos.length > 1 ? `${inp.dataset.t} · ${f.name.replace(/\.[^.]+$/, '')}` : inp.dataset.t;
+          const fd = new FormData(); fd.append('arquivo', f); fd.append('titulo', titulo); fd.append('categoria', inp.dataset.c); fd.append('requisitoId', inp.dataset.req);
+          try { await api.enviar(`/api/projetos/${p.projeto_id}/documentos`, fd); ok++; } catch (er) { erroDe(er); }
+        }
+        if (ok) { toast(ok > 1 ? `${ok} arquivos enviados. O escritório vai conferir.` : 'Documento enviado. O escritório vai conferir.'); navegar(); }
       });
     },
   };
@@ -243,14 +253,30 @@ async function documentos(p) {
 // -------------------------------------------------------------- plano/caixa ---
 
 async function plano(p) {
+  if (!ehRJ(p)) return { html: html`<section class="card glass up">${vazio('scale', 'Sem plano de recuperação neste caso', 'O plano de pagamento existe só nos casos de recuperação judicial, depois que o plano é aprovado. As parcelas de honorários ficam em Faturas.')}</section>` };
   if (!p.mostra_obrigacoes) return bloqueado('o plano de pagamento');
   const o = await api.get(`/api/projetos/${p.projeto_id}/obrigacoes`);
+  const hoje = hojeISO();
+  const lista = o.obrigacoes.map((x) => ({ ...x, vencida: !x.pago && x.vencimento < hoje }));
+  const prox = lista.find((x) => !x.pago);
+  const pct = o.resumo.total ? Math.round((o.resumo.pagas / o.resumo.total) * 100) : 0;
+  const porAno = new Map(); for (const x of lista) { const ano = x.vencimento.slice(0, 4); porAno.set(ano, [...(porAno.get(ano) ?? []), x]); }
   return {
-    resumo: [{ rotulo: 'Parcelas', valor: o.resumo.total }, { rotulo: 'Pagas', valor: o.resumo.pagas }, { rotulo: 'Vencidas', valor: o.resumo.vencidas, tom: o.resumo.vencidas ? 'warn' : '' }],
-    html: html`<section class="card glass up">${o.obrigacoes.length ? html`<div class="tbl-wrap"><table class="tbl"><thead><tr><th>#</th><th>Credor</th><th>Vencimento</th><th class="num">Valor (R$)</th><th></th></tr></thead>
-      <tbody>${o.obrigacoes.map((x) => html`<tr class="${!x.pago && x.vencida ? 'vencido' : ''}"><td class="mono-sm">${x.numero}</td><td>${x.credor}</td><td>${dataBR(x.vencimento)}</td><td class="num">${x.valorFormatado ?? x.valor}</td>
-        <td>${x.pago ? html`<span class="selo ok">Paga</span>` : x.vencida ? html`<span class="selo erro">Vencida</span>` : html`<span class="selo">A vencer</span>`}</td></tr>`)}</tbody></table></div>`
-      : vazio('money', 'Sem parcelas ainda', 'O plano aprovado aparece aqui com cada vencimento.')}</section>`,
+    resumo: [{ rotulo: 'Obrigações', valor: o.resumo.total }, { rotulo: 'Cumpridas', valor: o.resumo.pagas }, { rotulo: 'Vencidas', valor: o.resumo.vencidas, tom: o.resumo.vencidas ? 'warn' : '' }],
+    html: lista.length ? html`
+      <section class="card glass up plano-topo">
+        <div><span class="nx-eyebrow">Plano de recuperação judicial a cumprir</span>
+          <p class="dica">Cada linha é um pagamento que a empresa assumiu com um credor no plano aprovado em juízo. Deixar de pagar no prazo pode levar à convolação em falência (art. 61, §1º, e art. 73, IV, da Lei 11.101/2005), por isso o que vence primeiro aparece em destaque.</p>
+          <div class="plano-barra" aria-label="${pct}% das obrigações cumpridas"><i style="width:${pct}%"></i></div>
+          <small class="dica">${o.resumo.pagas} de ${o.resumo.total} obrigações cumpridas · total do plano R$ ${o.resumo.valorTotal}${o.resumo.vencidas ? ` · R$ ${o.resumo.valorVencido} vencido` : ''}</small></div>
+        ${prox ? html`<div class="plano-prox ${prox.vencida ? 'is-alert' : ''}"><span class="nx-eyebrow">${prox.vencida ? 'Vencida, regularize' : 'Próxima obrigação'}</span><b class="nx-money">R$ ${prox.valorFormatado}</b><small>${prox.credor} · ${dataBR(prox.vencimento)}</small></div>`
+          : html`<div class="plano-prox"><span class="nx-eyebrow">Situação</span><b>Plano cumprido</b></div>`}
+      </section>
+      ${[...porAno].map(([ano, itens]) => html`<section class="card glass up mt"><header class="card__head"><div><h2 class="card__title">${ano}</h2><p class="card__sub">${itens.filter((x) => x.pago).length} de ${itens.length} cumpridas</p></div></header>
+        <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Vencimento</th><th>Credor</th><th class="num">Parcela</th><th class="num">Valor (R$)</th><th>Situação</th></tr></thead>
+        <tbody>${itens.map((x) => html`<tr class="${x.vencida ? 'vencido' : ''}"><td>${dataBR(x.vencimento)}</td><td>${x.credor}</td><td class="num mono-sm">${x.numero}</td><td class="num">${x.valorFormatado}</td>
+          <td>${x.pago ? html`<span class="selo ok">Cumprida</span>` : x.vencida ? html`<span class="selo erro">Vencida</span>` : html`<span class="selo">A vencer</span>`}</td></tr>`)}</tbody></table></div></section>`)}`
+      : html`<section class="card glass up">${vazio('scale', 'O plano ainda não foi cadastrado', 'Assim que o plano de recuperação for aprovado, cada obrigação aparece aqui com credor, valor e vencimento.')}</section>`,
   };
 }
 

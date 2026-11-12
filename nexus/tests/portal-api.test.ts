@@ -105,6 +105,19 @@ describe('envio e análise: enviar não é aprovar', () => {
     expect(corpo.rotulo).toBe('Recebido, aguardando análise');
   });
 
+  test('o mesmo item aceita vários arquivos (balanço de cada exercício)', async () => {
+    const t = await entrar('dir@grupox.com');
+    const r = await req(t, `/api/projetos/${projeto}/documentos`, {
+      method: 'POST',
+      body: JSON.stringify({ requisitoId, titulo: 'Balanço 2024', caminho: '/doc/2', tipoMime: 'application/pdf' }),
+    });
+    expect(r.status).toBe(201);
+    const item = (await (await req(t, `/api/projetos/${projeto}/checklist`)).json()).itens.find((i: { id: string }) => i.id === requisitoId);
+    expect(item.situacao).toBe('enviado');
+    // O cliente vê o nome do que mandou, mesmo sem ler a linha interna de `documentos`.
+    expect(item.documentos.map((d: { titulo: string }) => d.titulo)).toEqual(['Balanço 2025', 'Balanço 2024']);
+  });
+
   test('o progresso de ENVIADO sobe, o de APROVADO não', async () => {
     const t = await entrar('dir@grupox.com');
     const p = (await (await req(t, `/api/projetos/${projeto}/checklist`)).json()).progresso;
@@ -123,9 +136,8 @@ describe('envio e análise: enviar não é aprovar', () => {
   test('mas chegou para a NGA', async () => {
     const t = await entrar('adv@nga.adv.br');
     const docs = await (await req(t, `/api/projetos/${projeto}/documentos`)).json();
-    expect(docs).toHaveLength(1);
-    expect(docs[0].titulo).toBe('Balanço 2025');
-    expect(docs[0].visibilidade).toBe('interno');
+    expect(docs.map((d: { titulo: string }) => d.titulo).sort()).toEqual(['Balanço 2024', 'Balanço 2025']);
+    expect(docs.every((d: { visibilidade: string }) => d.visibilidade === 'interno')).toBe(true);
   });
 
   test('o cliente não consegue aprovar o próprio documento', async () => {

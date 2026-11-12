@@ -1,5 +1,5 @@
 #!/bin/bash
-# Instala o NGA LAB como serviço do usuário, no mesmo padrão dos demais
+# Instala o NGA Nexus como serviço do usuário, no mesmo padrão dos demais
 # sistemas do Lab: launchd, caffeinate para o Mac não dormir no meio de uma
 # requisição, e log em ~/Library/Logs.
 #

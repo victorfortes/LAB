@@ -17,7 +17,7 @@ describe('design system', () => {
     }
   });
 
-  test('as fontes do NGA Lab estão preservadas', () => {
+  test('as fontes do NGA Nexus estão preservadas', () => {
     expect(FONTES.sans).toContain('Barlow');
     expect(FONTES.cond).toContain('Barlow Condensed');
     expect(FONTES.mono).toContain('JetBrains Mono');
@@ -25,7 +25,7 @@ describe('design system', () => {
     expect(css).toContain('JetBrains Mono');
   });
 
-  test('o fundo é o azul quase preto do NGA Lab, não um cinza qualquer', () => {
+  test('o fundo é o azul quase preto do NGA Nexus, não um cinza qualquer', () => {
     expect(CORES.bg).toBe('#03050A');
   });
 

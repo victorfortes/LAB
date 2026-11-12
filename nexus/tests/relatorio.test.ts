@@ -28,7 +28,7 @@ describe('o arquivo é um PDF de verdade', () => {
     const t = textoDoPdf(pdf);
     expect(t).toContain('Relatório mensal de acompanhamento');
     expect(t).toContain('NGA');
-    expect(t).toContain('LAB');
+    expect(t).toContain('NEXUS');
     expect(t).toContain('1 de 1');
     expect(t).toContain('02/11/2026');
     expect(t).toContain('Sócio de Demonstração');

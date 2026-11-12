@@ -33,8 +33,10 @@ export default async function calendario() {
   const prazos = agenda.itens.filter((z) => z.vencimento.startsWith(ref));
   const vencidosAntes = agenda.itens.filter((z) => z.vencido && z.vencimento < `${ref}-01`);
   const tarefas = tar.tarefas.filter((t) => t.prazo && t.prazo.startsWith(ref) && t.status !== 'concluida');
+  const filtro = guardado.ler('calFiltro', 'tudo');
+  const grupoDe = (tipo) => (tipo === 'tarefa' ? 'tarefas' : tipo === 'prazo' || tipo === 'vencido' ? 'prazos' : 'reunioes');
   const porDia = new Map();
-  const push = (d, e) => porDia.set(d, [...(porDia.get(d) ?? []), e]);
+  const push = (d, e) => { if (filtro !== 'tudo' && grupoDe(e.tipo) !== filtro) return; porDia.set(d, [...(porDia.get(d) ?? []), e]); };
   for (const z of prazos) push(z.vencimento, { tipo: z.vencido ? 'vencido' : 'prazo', rotulo: z.titulo, dica: `${z.numero}${z.projeto ? ` · ${z.projeto}` : ''}`, alvo: z.projeto_id ? `projetos/${z.projeto_id}/processos` : 'projetos' });
   for (const e of eventos) {
     const dia = new Date(e.inicio).toLocaleDateString('sv-SE');
@@ -57,7 +59,7 @@ export default async function calendario() {
     titulo: 'Calendário',
     html: html`${cabecalho({
       titulo: 'Calendário', sub: `${MESES[mes]} de ${ano} · prazos contados em dias úteis forenses`,
-      acoes: html`${pode('tarefa.escrever') ? html`<button type="button" class="btn btn--accent" data-evento-novo="${hoje}">${icone('plus')}Novo evento</button>` : ''}<button type="button" class="btn btn--ghost" data-google>${google?.conectado ? 'Google conectado' : google?.reconectar ? 'Renovar Google' : 'Conectar Google'}</button><div class="seg" role="group"><span class="seg__pill" aria-hidden="true"></span>
+      acoes: html`${pode('tarefa.escrever') ? html`<button type="button" class="btn btn--accent" data-evento-novo="${hoje}">${icone('plus')}Novo evento</button>` : ''}<button type="button" class="btn btn--ghost" data-google>${google?.conectado ? 'Google conectado' : google?.reconectar ? 'Renovar Google' : 'Conectar Google'}</button><div class="seg" role="group" aria-label="Mostrar"><span class="seg__pill" aria-hidden="true"></span>${[['tudo', 'Tudo'], ['reunioes', 'Reuniões'], ['tarefas', 'Tarefas'], ['prazos', 'Prazos']].map(([v, t]) => html`<button type="button" class="seg__btn" data-cal-filtro="${v}" aria-pressed="${filtro === v}"><span>${t}</span></button>`)}</div><div class="seg" role="group"><span class="seg__pill" aria-hidden="true"></span>
         <button type="button" class="seg__btn" data-nav="-1" aria-pressed="false">${icone('chevronLeft')}</button>
         <button type="button" class="seg__btn" data-nav="0" aria-pressed="false"><span>Hoje</span></button>
         <button type="button" class="seg__btn" data-nav="1" aria-pressed="false">${icone('chevron')}</button></div>`,
@@ -87,6 +89,7 @@ export default async function calendario() {
         const v = Number(b.dataset.nav);
         if (v === 0) { guardado.gravar('calMes', null); navegar(); } else nav(v);
       });
+      ouvir(raiz, 'click', '[data-cal-filtro]', (b) => { guardado.gravar('calFiltro', b.dataset.calFiltro); navegar(); });
       ouvir(raiz, 'click', '[data-evento-novo]', (b) => novoEvento(b.dataset.eventoNovo, google));
       ouvir(raiz, 'click', '[data-google]', () => conectarGoogle(google));
       ouvir(raiz, 'click', '[data-evento]', (b) => abrirEvento(eventos.find((e) => e.id === b.dataset.evento)));
@@ -114,13 +117,14 @@ async function novoEvento(dia, google) {
     { nome:'inicio',rotulo:'Início',tipo:'datetime-local',valor:`${dia}T09:00`,obrigatorio:true,metade:true },
     { nome:'fim',rotulo:'Término',tipo:'datetime-local',valor:`${dia}T10:00`,obrigatorio:true,metade:true },
     { nome:'marcador',rotulo:'Marcador',tipo:'select',opcoes:[{v:'reuniao',t:'Reunião'},{v:'audiencia',t:'Audiência'},{v:'prazo',t:'Prazo'},{v:'lembrete',t:'Lembrete'},{v:'cliente',t:'Cliente'},{v:'interno',t:'Interno'}] },
+    { nome:'convidados',rotulo:'Outros participantes',tipo:'textarea',placeholder:'email@cliente.com.br, outra@empresa.com.br',dica:'A equipe do projeto já recebe o convite. Acrescente aqui quem mais deve participar, separando os e-mails por vírgula.' },
     { nome:'meet',rotulo:'Google Meet',tipo:'select',valor:google?.conectado ? 'sim' : 'nao',opcoes:[{v:'sim',t:'Criar link de reunião'},{v:'nao',t:'Sem videoconferência'}] },
     { nome:'descricao',rotulo:'Descrição',tipo:'textarea' }],
-    enviar:async (v) => { const inicio = new Date(v.inicio), fim = new Date(v.fim); if (fim <= inicio) throw new Error('O término deve ser depois do início.'); if (v.meet === 'sim' && !google?.conectado) throw new Error('Conecte o Google antes de solicitar um link Meet.'); const r = await api.post('/api/google/eventos', { projetoId:v.projetoId,titulo:v.titulo,inicio:inicio.toISOString(),fim:fim.toISOString(),marcador:v.marcador,descricao:v.descricao,criarMeet:v.meet === 'sim' }); if (r.pendente) toast(`Evento salvo no LAB, mas não foi para o Google: ${r.erro ?? 'tente de novo em instantes.'}`, 'aviso'); else if (v.meet === 'sim' && !r.meet_url) toast('Evento criado. O link do Meet aparece em instantes.'); else toast('Evento criado'); },
+    enviar:async (v) => { const inicio = new Date(v.inicio), fim = new Date(v.fim); if (fim <= inicio) throw new Error('O término deve ser depois do início.'); if (v.meet === 'sim' && !google?.conectado) throw new Error('Conecte o Google antes de solicitar um link Meet.'); const convidados = String(v.convidados ?? '').split(/[\s,;]+/).map((x) => x.trim()).filter(Boolean); const invalido = convidados.find((x) => !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x)); if (invalido) throw new Error(`E-mail inválido: ${invalido}`); const r = await api.post('/api/google/eventos', { projetoId:v.projetoId,titulo:v.titulo,inicio:inicio.toISOString(),fim:fim.toISOString(),marcador:v.marcador,descricao:v.descricao,criarMeet:v.meet === 'sim',convidados }); if (r.pendente) toast(`Evento salvo no Nexus, mas não foi para o Google: ${r.erro ?? 'tente de novo em instantes.'}`, 'aviso'); else if (v.meet === 'sim' && !r.meet_url) toast('Evento criado. O link do Meet aparece em instantes.'); else toast('Evento criado'); },
   }); if (ok) navegar();
 }
 
 async function abrirEvento(e) {
   if (!e) return;
-  await modal({ titulo:e.titulo, corpo:String(html`<p>${dataBR(e.inicio)} · ${new Date(e.inicio).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})} — ${new Date(e.fim).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</p><span class="selo info">${e.marcador}</span><p class="dica" style="white-space:pre-wrap">${e.descricao ?? ''}</p>${e.meet_url ? html`<a class="btn btn--accent" href="${e.meet_url}" target="_blank" rel="noopener noreferrer">Entrar no Meet ↗</a>` : ''}${e.google_url ? html`<a class="btn btn--ghost" href="${e.google_url}" target="_blank" rel="noopener noreferrer">Abrir no Google Calendar ↗</a>` : html`<p class="dica">Ainda não sincronizado com o Google. ${e.erro ?? ''}</p>`}`), acoes:[{id:'projeto',rotulo:'Abrir projeto'},{id:'ok',rotulo:'Fechar'}], aoAbrir(el) { el.addEventListener('acao', (ev) => { el.fechar(true); if (ev.detail.id === 'projeto') ir(`projetos/${e.projeto_id}`); }); } });
+  await modal({ titulo:e.titulo, corpo:String(html`<p>${dataBR(e.inicio)} · ${new Date(e.inicio).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})} — ${new Date(e.fim).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</p><span class="selo info">${e.marcador}</span><p class="dica" style="white-space:pre-wrap">${e.descricao ?? ''}</p>${e.convidados?.length ? html`<p class="dica"><b>Convidados:</b> ${e.convidados.join(', ')}</p>` : ''}${e.meet_url ? html`<a class="btn btn--accent" href="${e.meet_url}" target="_blank" rel="noopener noreferrer">Entrar no Meet ↗</a>` : ''}${e.google_url ? html`<a class="btn btn--ghost" href="${e.google_url}" target="_blank" rel="noopener noreferrer">Abrir no Google Calendar ↗</a>` : html`<p class="dica">Ainda não sincronizado com o Google. ${e.erro ?? ''}</p>`}`), acoes:[{id:'projeto',rotulo:'Abrir projeto'},{id:'ok',rotulo:'Fechar'}], aoAbrir(el) { el.addEventListener('acao', (ev) => { el.fechar(true); if (ev.detail.id === 'projeto') ir(`projetos/${e.projeto_id}`); }); } });
 }

@@ -28,7 +28,6 @@ export { novoProcessoSolto } from './projeto_extra.js';
 
 const ABAS = [
   { id: 'visao', rotulo: 'Visão geral', icone: 'home' },
-  { id: 'pesquisa', rotulo: 'Pesquisa', icone: 'search', perm: 'documento.ler' },
   { id: 'diagnostico', rotulo: 'Diagnóstico', icone: 'sparkle', perm: 'analise.executar' },
   { id: 'tarefas', rotulo: 'Tarefas', icone: 'check', perm: 'tarefa.ler', n: (c) => c.tarefas_abertas },
   { id: 'negociacoes', rotulo: 'Negociações', icone: 'target', perm: 'negociacao.ler' },
@@ -43,7 +42,7 @@ const ABAS = [
 ];
 
 const MODULOS = {
-  visao: abaVisao, pesquisa: abaPesquisa, diagnostico: abaDiagnostico, negociacoes: abaNegociacoes, tarefas: abaTarefas, creditos: abaCreditos, processos: extra.abaProcessos,
+  visao: abaVisao, diagnostico: abaDiagnostico, negociacoes: abaNegociacoes, tarefas: abaTarefas, creditos: abaCreditos, processos: extra.abaProcessos,
   documentos: extra.abaDocumentos, portal: extra.abaPortal, plano: extra.abaPlano,
   relatorios: extra.abaRelatorios, equipe: abaEquipe, atas: abaAtas,
 };
@@ -62,7 +61,7 @@ export default async function projeto({ id, aba }) {
   const encerrado = h.situacao === 'encerrado';
   const pr = h.progresso;
 
-  const acoes = html`${pode('tarefa.escrever') && !encerrado ? html`<button type="button" class="btn btn--ghost" data-act="tarefa">${icone('plus')}Nova tarefa</button>` : ''}
+  const acoes = html`${pode('documento.ler') ? html`<form class="proj-busca" data-pesquisa-projeto role="search"><label class="proj-filtros__busca">${icone('search')}<input class="input" name="q" type="search" placeholder="Pesquisar neste projeto" aria-label="Pesquisar nos documentos e no caderno deste projeto" autocomplete="off"></label></form>` : ''}${pode('tarefa.escrever') && !encerrado ? html`<button type="button" class="btn btn--ghost" data-act="tarefa">${icone('plus')}Nova tarefa</button>` : ''}
     ${pode('projeto.escrever') ? html`<button type="button" class="ibtn" data-act="mais" aria-label="Mais ações" title="Mais ações">${icone('dots')}</button>` : ''}`;
 
   return {
@@ -80,6 +79,7 @@ export default async function projeto({ id, aba }) {
           { rotulo: 'Pendências', valor: Number(h.contagens.creditos_a_validar) + Number(h.contagens.requisitos_a_analisar), tom: 'warn' },
         ],
       })}
+      <div id="pesquisa-projeto" class="mt" hidden></div>
       <section class="card glass up mt" aria-label="Fase do processo">
         <header class="card__head"><div><h2 class="card__title">Fase do procedimento</h2>
           <p class="card__sub">${encerrado ? 'Projeto encerrado.' : pode('projeto.escrever') ? 'Clique numa fase para movimentar o projeto. Avance um passo por vez ou volte para uma fase anterior.' : 'Marcos legais do procedimento.'}</p></div>
@@ -101,6 +101,19 @@ export default async function projeto({ id, aba }) {
       ouvir(raiz, 'pointerover', '[data-aba]', (b) => (quente[b.dataset.aba] ?? []).forEach((u) => api.aquecer(u)));
       ouvir(raiz, 'click', '[data-act=tarefa]', () => novaTarefa(() => (ctx.aba === 'tarefas' ? ctx.recarregar() : atualizarBadges(ctx)), id));
       ouvir(raiz, 'click', '[data-act=mais]', (b) => menuMais(b, ctx));
+      // A pesquisa fica no topo, junto dos totalizadores: abre o caderno e os resultados logo abaixo, sem trocar de aba.
+      $('[data-pesquisa-projeto]', raiz)?.addEventListener('submit', async (e) => {
+        e.preventDefault(); const q = e.target.elements.q.value.trim(); const alvo = $('#pesquisa-projeto', raiz);
+        try {
+          const r = await abaPesquisa(ctx);
+          alvo.innerHTML = String(html`<div class="flex" style="justify-content:flex-end;margin-bottom:8px"><button type="button" class="btn btn--ghost btn--sm" data-fechar-pesquisa>Fechar pesquisa</button></div>`) + String(r.html);
+          alvo.hidden = false; r.depois?.(alvo);
+          const f = $('[data-busca-pesquisa]', alvo);
+          if (q && f) { f.elements.consulta.value = q; f.requestSubmit(); }
+          alvo.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        } catch (er) { erroDe(er); }
+      });
+      ouvir(raiz, 'click', '[data-fechar-pesquisa]', () => { const alvo = $('#pesquisa-projeto', raiz); alvo.hidden = true; alvo.innerHTML = ''; });
       ouvir(raiz, 'click', '[data-fase]', (b) => mudarFase(ctx, b.dataset.fase));
       ctx.recarregar = async () => { await atualizarBadges(ctx); await desenhar(ctx); };
       ctx.irParaAba = (a) => abrirAba(ctx, a);
@@ -209,30 +222,38 @@ export async function atualizarBadges(ctx) {
 
 async function abaVisao(ctx) {
   const { h } = ctx;
-  const [neg, mensagens, visao] = await Promise.all([pode('negociacao.ler') ? api.get(`/api/projetos/${ctx.id}/negociacoes`).catch(() => null) : null, api.get(`/api/projetos/${ctx.id}/mensagens`), api.get(`/api/projetos/${ctx.id}/visao`)]); const c = h.contagens; const pr = h.progresso;
+  const [neg, visao] = await Promise.all([pode('negociacao.ler') ? api.get(`/api/projetos/${ctx.id}/negociacoes`).catch(() => null) : null, api.get(`/api/projetos/${ctx.id}/visao`)]); const c = h.contagens; const pr = h.progresso;
   const pend = [];
   if (Number(c.achados_criticos)) pend.push(['shield', `${c.achados_criticos} achado(s) crítico(s) em aberto`, 'Análise documental', 'erro', 'documentos']);
   if (Number(c.creditos_a_validar)) pend.push(['scale', `${c.creditos_a_validar} crédito(s) sem classe validada`, 'Validação humana exigida', 'aviso', 'creditos']);
   if (Number(c.requisitos_a_analisar)) pend.push(['doc', `${c.requisitos_a_analisar} documento(s) do cliente para analisar`, 'Portal do cliente', 'info', 'portal']);
   if (Number(c.prazos_abertos)) pend.push(['calendar', `${c.prazos_abertos} prazo(s) aberto(s)`, 'Processos e prazos', 'aviso', 'processos']);
   const doc = c.requisitos_obrigatorios ? Math.round((c.requisitos_aprovados / c.requisitos_obrigatorios) * 100) : null;
+  const nNeg = neg ? Number(neg.resumo.total ?? (Number(neg.resumo.emNegociacao) + Number(neg.resumo.standBy) + Number(neg.resumo.concluidas))) : 0;
+  const editaProjeto = pode('projeto.escrever') && h.situacao !== 'encerrado';
   return {
-    html: html`${cardsVisao(h,visao)}<div class="grid-hub mt">
-      <div style="display:grid;gap:var(--gap)">
+    html: html`<div class="pv-masonry mt">
         <section class="card glass up">
           <header class="card__head"><div><h2 class="card__title">Andamento</h2><p class="card__sub">${h.resumo ?? h.rotuloDoTipo}</p></div></header>
           <div class="cliente-hero">
-            <span class="pring" style="--s:112px">${raw(anel(pr?.percentual ?? 0, { tam: 112, traco: 9, cor: 'var(--hue, var(--lab-amber))' }))}<b class="pring__val" style="font-size:24px">${pr ? `${pr.percentual}%` : '—'}</b></span>
+            <span class="pring" style="--s:96px">${raw(anel(pr?.percentual ?? 0, { tam: 96, traco: 8, cor: 'var(--hue, var(--lab-amber))' }))}<b class="pring__val" style="font-size:21px">${pr ? `${pr.percentual}%` : '—'}</b></span>
             <div class="grow"><small class="muted">${pr?.proxima ? 'PRÓXIMA FASE' : 'FASE'}</small>
-              <h3 style="margin:4px 0;font:700 24px var(--font-display)">${pr?.proxima?.nome ?? h.faseAtual?.nome ?? '—'}</h3>
+              <h3 style="margin:4px 0;font:700 21px var(--font-display)">${pr?.proxima?.nome ?? h.faseAtual?.nome ?? '—'}</h3>
               <p class="dica" style="margin:0">${pr?.proxima?.marco ?? h.faseAtual?.marco ?? ''}</p>
               ${(pr?.proxima?.fundamento ?? h.faseAtual?.fundamento) ? html`<span class="mono-sm">${pr?.proxima?.fundamento ?? h.faseAtual?.fundamento}</span>` : ''}</div>
           </div>
           <div class="grid3 mt" style="grid-template-columns:repeat(3,minmax(0,1fr))">
-            ${mini('QGC', c.creditos, 'creditos')}${mini('Processos', c.processos, 'processos')}${mini('Documentos', c.documentos, 'documentos')}
+            ${pode('negociacao.ler') ? mini('Negociações', nNeg, 'negociacoes') : mini('Tarefas', c.tarefas_abertas, 'tarefas')}${mini('Processos', c.processos, 'processos')}${mini('Documentos', c.documentos, 'documentos')}
           </div>
         </section>
-        ${neg ? html`<section class="card glass up"><header class="card__head"><div><h2 class="card__title">Negociações</h2><p class="card__sub">${neg.resumo.acordos ? `${neg.resumo.acordos} acordo(s) fechado(s)` : 'Frentes com credores'}</p></div><button class="link" data-aba-ir="negociacoes">Abrir quadro →</button></header>
+        <section class="card glass up">
+          <header class="card__head"><div><h2 class="card__title">Pedindo atenção</h2></div></header>
+          ${pend.length ? html`<ul class="lista">${pend.map(([ic, t, s, tom, ab]) => html`<li style="cursor:pointer" data-aba-ir="${ab}"><span class="empty__ico" style="width:38px;height:38px;border-radius:12px">${icone(ic)}</span>
+            <div><b>${t}</b><small>${s}</small></div><div class="fim"><span class="selo ${tom}">${tom === 'erro' ? 'urgente' : tom === 'aviso' ? 'atenção' : 'rotina'}</span></div></li>`)}</ul>`
+            : vazio('check', 'Nada pendente', 'Sem crédito a validar, documento parado ou prazo aberto.')}
+        </section>
+        ${cardsVisao(h, visao)}
+        ${neg ? html`<section class="card glass up"><header class="card__head"><div><h2 class="card__title">Negociações</h2><p class="card__sub">${nNeg} criada(s)${neg.resumo.acordos ? ` · ${neg.resumo.acordos} acordo(s) fechado(s)` : ''}</p></div><button class="link" data-aba-ir="negociacoes">Abrir →</button></header>
           <div class="grid3" style="grid-template-columns:repeat(3,minmax(0,1fr))">
             <div class="stat"><span class="stat__label">Em negociação</span><span class="stat__value"><b data-n="${neg.resumo.emNegociacao}">0</b></span></div>
             <div class="stat"><span class="stat__label">Stand by</span><span class="stat__value"><b data-n="${neg.resumo.standBy}">0</b></span></div>
@@ -244,40 +265,25 @@ async function abaVisao(ctx) {
             : html`<div class="fase-card__bar" style="height:10px"><i data-w="${doc}" style="width:0;transition:width 1.1s var(--ease)"></i></div>
               <p class="mono-sm" style="margin-top:8px">${doc}% aprovado · ${c.documentos_publicados} publicado(s) no portal</p>`}
         </section>
-      </div>
-      <div style="display:grid;gap:var(--gap)">
-        <section class="card glass up">
-          <header class="card__head"><div><h2 class="card__title">Pedindo atenção</h2></div></header>
-          ${pend.length ? html`<ul class="lista">${pend.map(([ic, t, s, tom, ab]) => html`<li style="cursor:pointer" data-aba-ir="${ab}"><span class="empty__ico" style="width:38px;height:38px;border-radius:12px">${icone(ic)}</span>
-            <div><b>${t}</b><small>${s}</small></div><div class="fim"><span class="selo ${tom}">${tom === 'erro' ? 'urgente' : tom === 'aviso' ? 'atenção' : 'rotina'}</span></div></li>`)}</ul>`
-            : vazio('check', 'Nada pendente', 'Sem crédito a validar, documento parado ou prazo aberto.')}
-        </section>
         <section class="card glass up">
           <header class="card__head"><div><h2 class="card__title">Próximos prazos</h2></div><button class="link" data-aba-ir="processos">Processos →</button></header>
           ${h.proximosPrazos?.length ? html`<ul class="lista">${h.proximosPrazos.map((z) => html`<li><div><b>${z.titulo}</b><small>${z.numero}</small></div>
             <div class="fim"><span class="mono-sm">${dataBR(z.vencimento)}</span></div></li>`)}</ul>` : html`<p class="dica">Nenhum prazo aberto.</p>`}
         </section>
-        <section class="card glass up"><header class="card__head"><div><h2 class="card__title">Conversa com o cliente</h2><p class="card__sub">Conversa exclusiva de ${h.nome}.</p></div><button class="link" data-atualizar-chat>Atualizar</button></header>
-          <div class="chat project-chat" data-chat-projeto>${[...mensagens].reverse().map((m) => html`<div class="msg ${m.lado === 'nga' ? 'meu' : ''}">${m.texto}<small>${m.autor ?? (m.lado === 'nga' ? 'NGA' : 'Cliente')} · ${relativo(m.criado_em)}</small></div>`)}</div>
-          <form class="chat-in" data-enviar-chat><input class="input" name="texto" placeholder="Escreva para este cliente…" aria-label="Mensagem ao cliente deste projeto" autocomplete="off" required><button class="btn btn--accent" type="submit">${icone('send')}Enviar</button></form>
-        </section>
+        <section class="card glass up nx-whats"><span class="nx-whats__ico">${icone('comment')}</span><div class="grow"><h2 class="card__title">Grupo do WhatsApp do cliente</h2>
+          ${h.whatsappGrupoUrl ? html`<a class="nx-whats__link" href="${h.whatsappGrupoUrl}" target="_blank" rel="noopener noreferrer">${String(h.whatsappGrupoUrl).replace(/^https?:\/\//, '')} ↗</a>` : html`<p class="dica">Sem link. Ele aparece no início do portal do cliente assim que for informado.</p>`}
+          ${editaProjeto ? html`<p><button type="button" class="btn btn--ghost btn--sm" data-whats-projeto>${h.whatsappGrupoUrl ? 'Trocar link' : 'Informar link'}</button></p>` : ''}</div></section>
         <section class="card glass up"><header class="card__head"><div><h2 class="card__title">Onboarding e Drive</h2><p class="card__sub">Kickoff com Meet e pastas em CLIENTES REESTRUTURAÇÃO ou CLIENTES CIVEL.</p></div></header>
           <div class="project-tools">${pode('tarefa.escrever') ? html`<button class="btn btn--accent" data-kickoff>Agendar kickoff</button>` : ''}<button class="btn btn--ghost" data-drive>Preparar pastas</button><button class="btn btn--ghost" data-drive-sync>Sincronizar documentos</button></div><p class="dica" data-drive-estado></p>
         </section>
-        <section class="card glass up">
-          <header class="card__head"><div><h2 class="card__title">Equipe</h2></div><button class="link" data-aba-ir="equipe">Gerenciar →</button></header>
-          <ul class="lista">${h.equipe.map((m) => html`<li>${avatar(m.nome, 'md')}<div><b>${m.nome}</b><small>${ROTULO_EQUIPE[m.papel] ?? m.papel}</small></div></li>`)}</ul>
-        </section>
-      </div></div>`,
+      </div>`,
     depois(el) {
       ligarVisao(el,ctx,visao);
       ouvir(el, 'click', '[data-aba-ir]', (b) => ctx.irParaAba(b.dataset.abaIr));
-      const chat = $('[data-chat-projeto]', el); chat.scrollTop = chat.scrollHeight;
-      ouvir(el, 'click', '[data-atualizar-chat]', () => ctx.recarregar());
-      $('[data-enviar-chat]', el).addEventListener('submit', async (e) => {
-        e.preventDefault(); const f = e.target, texto = f.elements.texto.value.trim(); if (!texto) return;
-        const b = f.querySelector('button'); b.disabled = true;
-        try { await api.post(`/api/projetos/${ctx.id}/mensagens`, { texto }); f.reset(); ctx.recarregar(); } catch (er) { erroDe(er); b.disabled = false; }
+      ouvir(el, 'click', '[data-whats-projeto]', async () => {
+        const ok = await formulario({ titulo: 'Grupo do WhatsApp do cliente', subtitulo: `${h.nome}. O link aparece no início do portal do cliente.`, rotulo: 'Salvar link', campos: [{ nome: 'url', rotulo: 'Link do grupo', tipo: 'url', valor: h.whatsappGrupoUrl ?? '', placeholder: 'https://chat.whatsapp.com/...', dica: 'Deixe em branco para remover.' }],
+          async enviar(v) { await api.patch(`/api/projetos/${ctx.id}/dados-do-cliente`, { whatsappGrupoUrl: v.url ?? '' }); } });
+        if (ok) { toast('Link do grupo salvo'); ctx.recarregar(); }
       });
       ouvir(el, 'click', '[data-kickoff]', () => formulario({ titulo: 'Agendar reunião de kickoff', subtitulo: h.nome, rotulo: 'Agendar', campos: [{ nome: 'data', rotulo: 'Data', tipo: 'date', obrigatorio: true, metade: true }, { nome: 'hora', rotulo: 'Início', tipo: 'time', obrigatorio: true, metade: true, valor: '10:00' }], async enviar(v) { const inicio = new Date(`${v.data}T${v.hora}:00-03:00`); const r = await api.post('/api/google/eventos', { projetoId: ctx.id, titulo: `Kickoff · ${h.nome}`, inicio: inicio.toISOString(), fim: new Date(inicio.getTime() + 3600000).toISOString(), descricao: 'Reunião inicial do projeto.', marcador: 'cliente', criarMeet: true }); if (r.pendente) throw new Error(r.erro ?? 'Google indisponível: confira a conexão em Ajustes.'); toast('Kickoff agendado'); } }).then((ok) => ok && ctx.recarregar()));
       ouvir(el, 'click', '[data-drive], [data-drive-sync]', async (b) => {
@@ -285,10 +291,6 @@ async function abaVisao(ctx) {
         try { const r = await api.post(`/api/google/projetos/${ctx.id}/${b.hasAttribute('data-drive-sync') ? 'documentos' : 'drive'}`); $('[data-drive-estado]', el).textContent = r.enviados !== undefined ? `${r.enviados} documento(s) enviado(s)${r.falhas ? ` · ${r.falhas} com falha: ${r.erro}` : ''} · ${r.url}` : `Pastas preparadas: ${r.url}`; toast(r.falhas ? 'Parte dos documentos não foi enviada' : 'Google Drive atualizado', r.falhas ? 'aviso' : undefined); }
         catch (er) { erroDe(er); } finally { b.disabled = false; }
       });
-      const t = setInterval(async () => {
-        if (!ctx.ativo || ctx.aba !== 'visao' || !el.isConnected) return clearInterval(t);
-        try { const novas = await api.get(`/api/projetos/${ctx.id}/mensagens`); if (ctx.ativo && novas[0]?.id !== mensagens[0]?.id) { clearInterval(t); ctx.recarregar(); } } catch { /* próxima consulta */ }
-      }, 8000); aoSair(() => clearInterval(t));
     },
   };
 }

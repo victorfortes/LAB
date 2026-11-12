@@ -126,14 +126,19 @@ export function resumir(faturas: ReturnType<typeof apresentar>[]) {
   const vencidas = abertas.filter((x) => x.status === 'vencida');
   const pagas = ativas.filter((x) => x.situacao === 'paga');
   const soma = (l: typeof ativas) => l.reduce((t, x) => t + x.valorCentavos, 0);
-  const proxima = [...abertas].sort((a, b) => a.vencimento.localeCompare(b.vencimento))[0] ?? null;
+  const porVencimento = [...abertas].sort((a, b) => a.vencimento.localeCompare(b.vencimento));
+  const proxima = porVencimento[0] ?? null;
+  // A parcela de honorários que o financeiro lançou e que vence primeiro: é o que o cliente vê na abertura do portal.
+  const proximaHonorarios = porVencimento.find((x) => x.tipo === 'honorarios') ?? null;
+  const honorarios = ativas.filter((x) => x.tipo === 'honorarios');
   return {
     emAberto: abertas.length, vencidas: vencidas.length, pagas: pagas.length,
     aConferir: pagas.filter((x) => !x.conferidoEm).length,
     totalAbertoCentavos: soma(abertas), totalAbertoFormatado: formatarReais(BigInt(soma(abertas))),
     totalVencidoFormatado: formatarReais(BigInt(soma(vencidas))),
     totalPagoFormatado: formatarReais(BigInt(soma(pagas))),
-    proxima,
+    proxima, proximaHonorarios,
+    honorarios: { total: honorarios.length, pagas: honorarios.filter((x) => x.situacao === 'paga').length },
   };
 }
 

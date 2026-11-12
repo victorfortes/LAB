@@ -78,7 +78,7 @@ export const MODULOS: readonly Modulo[] = Object.freeze([
     pendencia: 'Operacional e testado sem IA: classificação, CNPJ/CPF/processo com dígito verificador, conferência de citações e defesa contra injeção de prompt. A leitura por modelo está construída com o SDK oficial, mas NÃO foi exercitada contra a API real — falta chave Anthropic. Texto é extraído de arquivo .txt e .csv; de PDF e imagem, não: extrator e OCR não existem.' },
   { id: 'radar', ambiente: 'intelligence', nome: 'NGA Radar Concursal', estado: 'externo',
     descricao: 'Monitoramento de novas recuperações e falências.',
-    pendencia: 'Disponível no Judy Track Pro; coletor DJEN diário no Mac. Dados próprios não são automaticamente copiados para o LAB.' },
+    pendencia: 'Disponível no Judy Track Pro; coletor DJEN diário no Mac. Dados próprios não são automaticamente copiados para o Nexus.' },
   { id: 'atlas', ambiente: 'intelligence', nome: 'NGA Atlas', estado: 'nao_construido',
     descricao: 'Investigação patrimonial e societária.',
     pendencia: 'Não existe código nem consta da apresentação do NGA Nexus. É construção nova, não integração.' },

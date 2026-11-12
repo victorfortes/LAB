@@ -90,7 +90,7 @@ export function montarCasca() {
       <aside class="side glass glass--chrome" aria-label="Navegação">
         <a class="brand" href="#/${inicioPadrao()}" aria-label="NGA NEXUS">
           <img class="brand__logo" src="/img/nga.png" alt="NGA" width="91" height="35"><span class="brand__name"><em>NEXUS</em></span></a>
-        ${ehCliente() ? html`<div class="faixa-cliente" role="note"><i></i>Portal do cliente<small>${eu.organizacoes?.[0]?.nome ?? ''}</small></div>` : ''}
+        ${ehCliente() ? html`<div class="acesso-cliente" role="note"><span class="acesso-cliente__kicker">${icone('lock')}Portal do cliente</span><b title="${eu.organizacoes?.[0]?.nome ?? ''}">${eu.organizacoes?.[0]?.nome ?? ''}</b></div>` : ''}
         <nav class="nav" aria-label="Principal"><div class="nav__track"><span class="nav__lens" aria-hidden="true"></span>
           ${nav().map((n) => html`<a class="nav__item" href="#/${n.rota}" data-route="${n.rota}">${icone(n.icone)}<span>${n.rotulo}</span>${n.contagem ? html`<b class="nav__count" id="cnt-${n.contagem}" hidden></b>` : ''}</a>`)}
         </div></nav>
@@ -282,6 +282,8 @@ export async function atualizarLateral() {
         ouvir(fix, 'click', '[data-trocar]', (a, ev) => { ev.preventDefault(); guardado.gravar('projetoCliente', a.dataset.trocar); estado.projetoDoCliente = a.dataset.trocar; api.limparCache(); navegar(); });
       }
       const atual = estado.portal.find((p) => p.projeto_id === estado.projetoDoCliente);
+      // Plano de pagamento só aparece para o caso de recuperação judicial.
+      const itemPlano = $('.nav__item[data-route="plano"]'); if (itemPlano) itemPlano.hidden = atual?.tipo !== 'recuperacao_judicial';
       const cta = $('#cta-whats'); if (cta) { cta.hidden = !atual?.whatsapp_grupo_url; if (atual?.whatsapp_grupo_url) cta.href = atual.whatsapp_grupo_url; }
       if (estado.projetoDoCliente) {
         const [check, fat] = await Promise.all([

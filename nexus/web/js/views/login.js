@@ -17,7 +17,7 @@ export function mostrarLogin(aoEntrar) {
         <p class="login-cover__tag">Inteligência, organização e tecnologia<br>para o trabalho jurídico.</p>
         <p class="login-cover__description">Projetos, tarefas, documentos e ferramentas conectados. Um ambiente para a equipe e um portal exclusivo para cada cliente.</p>
         <div class="login-cover__actions"><button class="btn btn--accent" type="button" data-entrar>${icone('arrowUpRight')}Entrar no NGA NEXUS</button><span>Acesso da equipe e dos clientes</span></div>
-        <div class="login-cover__chips"><span>GESTÃO DE PROJETOS</span><span>FERRAMENTAS DO LAB</span><span>PORTAL DO CLIENTE</span></div>
+        <div class="login-cover__chips"><span>GESTÃO DE PROJETOS</span><span>FERRAMENTAS DO NEXUS</span><span>PORTAL DO CLIENTE</span></div>
       </section>
       <section class="login-cover__visual" aria-label="Ferramentas do ecossistema">
         ${lobbyOrbita({itens:orbitais,titulo:'Ecossistema NGA NEXUS',chave:'login',acessoRestrito:true})}

@@ -421,7 +421,7 @@ const TIPOS: Record<string, string> = {
   '.js': 'text/javascript; charset=utf-8',
 };
 
-// Gerador de Relatórios (monorepo: ../relatorios), servido sob /gerador/ para abrir dentro do NGA LAB.
+// Gerador de Relatórios (monorepo: ../relatorios), servido sob /gerador/ para abrir dentro do NGA Nexus.
 const gerador = servidorDoGerador(join(RAIZ, '../relatorios'));
 
 const servidor = Bun.serve({

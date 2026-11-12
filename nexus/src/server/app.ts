@@ -311,7 +311,7 @@ export function criarApp(ctx: Contexto) {
         if(!ferramentaSso.conferirServicoSso(d.data.ferramenta,bearer))return erro('Acesso negado.',403);
         const response=json(await banco.semContexto(db=>ferramentaSso.consumirAcessoSso(db,d.data.ferramenta,d.data.ticket,d.data.state)));response.headers.set('cache-control','no-store');return response;
       }
-      // A same-origin document restores Strict LAB cookies after returning from the tool.
+      // A same-origin document restores Strict Nexus cookies after returning from the tool.
       const relaySso=/^\/api\/ferramentas\/(prazos|sentinela)\/autorizar$/.exec(rota);
       if(relaySso&&metodo==='GET'){
         const ticket=url.searchParams.get('ticket')??'';const state=url.searchParams.get('state')??'';
@@ -1174,6 +1174,7 @@ export function criarApp(ctx: Contexto) {
       }
 
       if (rota === '/api/clientes' && metodo === 'GET') { if (ehCliente) return erro('acesso negado', 403); exigir(identidade.papeis, 'modulo.clientes'); return json(await como((db) => gestao.clientesDaCarteira(db))); }
+      if (rota === '/api/clientes/processos' && metodo === 'GET') { if (ehCliente) return erro('acesso negado', 403); exigir(identidade.papeis, 'modulo.clientes'); return json(await como((db) => gestao.processosDaCarteira(db, { cliente: url.searchParams.get('cliente') ?? '', q: url.searchParams.get('q') ?? '' }))); }
       if (rota === '/api/clientes/sem-etiqueta' && metodo === 'GET') { if (ehCliente) return erro('acesso negado', 403); exigir(identidade.papeis, 'modulo.clientes'); return json(await como((db) => gestao.semEtiqueta(db, url.searchParams.get('q') ?? ''))); }
       const mSemCnj = /^\/api\/projetos\/([0-9a-f-]{36})\/registros-astrea$/.exec(rota);
       if (mSemCnj && metodo === 'GET') { if (ehCliente) return erro('acesso negado', 403); exigir(identidade.papeis, 'processo.ler'); return json(await como((db) => gestao.registrosSemCnjDoProjeto(db, mSemCnj[1]!))); }

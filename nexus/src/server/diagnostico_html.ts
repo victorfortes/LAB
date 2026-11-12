@@ -1,6 +1,6 @@
 /**
  * Renderização do diagnóstico em HTML paisagem (A4 297x210 mm), a mesma página para a tela e para o PDF.
- * Visual do NGA Lab: fundo azul-marinho com gradiente radial, cards, acento âmbar. Sem tabelas pesadas.
+ * Visual do NGA Nexus: fundo azul-marinho com gradiente radial, cards, acento âmbar. Sem tabelas pesadas.
  */
 import type { RelatorioDiagnostico } from '../domain/diagnostico/relatorio.ts';
 import { semTravessao } from '../domain/diagnostico/analises.ts';
@@ -30,7 +30,7 @@ table{width:100%;border-collapse:collapse;font-size:8.5pt}th{color:#F2A93B;text-
 `;
 
 function pagina(r: RelatorioDiagnostico, n: number, total: number, corpo: string) {
-  return `<section class="pg"><div class="cab"><div class="logo"><b>NGA</b><i>LAB</i></div><div>Diagnóstico inicial · ${esc(r.capa.razaoSocial)}</div></div>${corpo}<div class="rod"><span>${esc(r.capa.confidencialidade)}</span><span>${n} / ${total}</span></div></section>`;
+  return `<section class="pg"><div class="cab"><div class="logo"><b>NGA</b><i>NEXUS</i></div><div>Diagnóstico inicial · ${esc(r.capa.razaoSocial)}</div></div>${corpo}<div class="rod"><span>${esc(r.capa.confidencialidade)}</span><span>${n} / ${total}</span></div></section>`;
 }
 const vazio = (pedir: string[]) => `<div class="vazio"><p><b>Sem documentos para esta análise.</b></p><p>Pedir: ${pedir.map(esc).join('; ')}.</p></div>`;
 const ref = (x?: { arquivo: string; local?: string }) => (x ? `<span class="lab"> · ${esc(x.arquivo)}${x.local ? `, ${esc(x.local)}` : ''}</span>` : '');
@@ -43,7 +43,7 @@ function barras(linhas: { rotulo: string; a: number; b: number }[]) {
 
 export function renderizarDiagnostico(r: RelatorioDiagnostico): string {
   const p: string[] = [];
-  p.push(`<section class="pg"><div style="margin-top:46mm"><div class="logo" style="font-size:15pt"><b style="font-size:26pt">NGA</b><i style="font-size:11pt">LAB</i></div><h1 style="font-size:34pt;margin-top:14mm">${esc(r.capa.titulo)}</h1><p style="font-size:15pt">${esc(r.capa.razaoSocial)}</p><p class="sub">Projeto ${esc(r.capa.projeto)} · ${esc(r.capa.escopo)}</p><p class="sub">Data-base ${esc(r.capa.dataBase)} · versão ${r.versao}</p><p class="sub" style="margin-top:20mm">${esc(r.capa.confidencialidade)}</p></div></section>`);
+  p.push(`<section class="pg"><div style="margin-top:46mm"><div class="logo" style="font-size:15pt"><b style="font-size:26pt">NGA</b><i style="font-size:11pt">NEXUS</i></div><h1 style="font-size:34pt;margin-top:14mm">${esc(r.capa.titulo)}</h1><p style="font-size:15pt">${esc(r.capa.razaoSocial)}</p><p class="sub">Projeto ${esc(r.capa.projeto)} · ${esc(r.capa.escopo)}</p><p class="sub">Data-base ${esc(r.capa.dataBase)} · versão ${r.versao}</p><p class="sub" style="margin-top:20mm">${esc(r.capa.confidencialidade)}</p></div></section>`);
   const R = r.resumo;
   p.push(`<div class="k">Resumo executivo</div><h2>${esc(R.titulo)}</h2><p>${esc(R.conclusao)}</p><div class="g g4" style="margin:4mm 0">${R.cards.map((c) => `<div class="card" style="border-color:${COR[c.status]}"><div class="num">${esc(c.valor)}</div><div class="lab">${esc(c.rotulo)}</div></div>`).join('')}</div>${R.achados.map((a) => `<div class="row"><b>${esc(a.rotulo)}</b><span>${esc(a.texto)} <span class="lab">(${a.natureza})</span></span></div>`).join('') || '<div class="vazio">Sem achados calculáveis com os documentos atuais.</div>'}<p class="sub" style="margin-top:4mm">${esc(r.aviso)}</p>`);
   const B = r.baseDocumental;

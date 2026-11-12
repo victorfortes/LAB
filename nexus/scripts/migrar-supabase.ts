@@ -1,5 +1,5 @@
 /**
- * Leva o banco do NGA LAB para um Postgres compartilhado (o Supabase do gerador de relatórios).
+ * Leva o banco do NGA Nexus para um Postgres compartilhado (o Supabase do gerador de relatórios).
  *
  * SEGURO POR PADRÃO:
  *   - Sem `--aplicar`, só LÊ metadados (versão, schemas, nomes de tabela) e mostra o que faria.

@@ -54,7 +54,7 @@ export function montarRelatorio(e: EntradaDoDiagnostico) {
 
   const relatorio = {
     versao: e.versao, geradoEm: e.dataBase, geradoPor: e.geradoPor, aviso: AVISO,
-    capa: { marca: 'NGA LAB', titulo: 'Diagnóstico inicial da documentação', razaoSocial: e.projeto.razaoSocial ?? e.projeto.nome, projeto: e.projeto.nome, escopo: 'Financeiro, contábil e patrimônio', dataBase: e.dataBase, posicao: e.projeto.posicao, confidencialidade: 'Confidencial. Sujeito a sigilo profissional.' },
+    capa: { marca: 'NGA Nexus', titulo: 'Diagnóstico inicial da documentação', razaoSocial: e.projeto.razaoSocial ?? e.projeto.nome, projeto: e.projeto.nome, escopo: 'Financeiro, contábil e patrimônio', dataBase: e.dataBase, posicao: e.projeto.posicao, confidencialidade: 'Confidencial. Sujeito a sigilo profissional.' },
     resumo: {
       titulo: riscos.some((r) => r.prioridade === 'Alta') ? 'Há pontos críticos a esclarecer antes de avançar' : 'Quadro inicial sem pontos críticos calculáveis',
       conclusao: e.projeto.posicao === 'credor'

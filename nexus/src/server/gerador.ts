@@ -1,8 +1,8 @@
 /**
  * Relatórios do Gerador de Relatórios, dentro do projeto.
  *
- * O Gerador (relatorios/) é onde o relatório nasce; o LAB não gera relatório por conta própria para o cliente.
- * Aqui a equipe escolhe uma emissão do Gerador, o LAB remonta o PDF a partir das partes guardadas no Supabase e o
+ * O Gerador (relatorios/) é onde o relatório nasce; o Nexus não gera relatório por conta própria para o cliente.
+ * Aqui a equipe escolhe uma emissão do Gerador, o Nexus remonta o PDF a partir das partes guardadas no Supabase e o
  * guarda no acervo DO PROJETO, interno. Publicar ao cliente continua sendo o ato explícito de sempre (§13).
  *
  * Duas salvaguardas: o tamanho remontado precisa bater com o declarado pela emissão (PDF truncado não entra), e a

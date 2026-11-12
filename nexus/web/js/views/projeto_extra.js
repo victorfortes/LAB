@@ -349,9 +349,10 @@ export async function abaPortal(ctx) {
           ${!pr.total && escreve ? html`<button type="button" class="btn btn--accent" data-modelo>Gerar do modelo</button>` : ''}</header>
           ${pr.total ? html`<details class="mt"><summary class="check-resumo"><span class="pct">${pr.percentualEnviado}%</span><span class="barra-m" aria-hidden="true"><i style="width:${pr.percentualEnviado}%"></i></span><small>entregue · ${pr.percentualAprovado}% aprovado</small></summary>` : ''}
           ${pr.total ? [...porCat].map(([cat, itens]) => html`<h3 class="mini-h">${cat}</h3>${itens.map((i) => html`<div class="check-row${i.situacao === 'nao_aplicavel' ? ' na' : ''}"><span class="sit-dot ${i.situacao}"></span>
-            <div><b>${i.titulo}${i.obrigatorio ? '' : html` <span class="muted">(opcional)</span>`}</b><small>${i.fundamento ?? ''}</small>${atribuicao(i.atribuicao)}${i.observacao ? html`<small class="obs">${i.observacao}</small>` : ''}</div>
-            <span class="selo ${SIT[i.situacao]?.[0] ?? ''}">${i.rotuloDaSituacao ?? SIT[i.situacao]?.[1]}</span>
-            ${i.documento_id ? html`<button type="button" class="ibtn ibtn--sm" data-baixar="${i.documento_id}" aria-label="Baixar" title="Baixar">${icone('download')}</button>` : ''}
+            <div><b>${i.titulo}${i.obrigatorio ? '' : html` <span class="muted">(opcional)</span>`}</b><small>${i.fundamento ?? ''}</small>${atribuicao(i.atribuicao)}${i.observacao ? html`<small class="obs">${i.observacao}</small>` : ''}
+              ${i.documentos?.length > 1 ? html`<ul class="req-arquivos">${i.documentos.map((d) => html`<li>${icone('doc')}<span>${d.titulo}</span><small>${dataBR(d.enviado_em)}</small><button type="button" class="ibtn ibtn--sm" data-baixar="${d.id}" aria-label="Baixar ${d.titulo}" title="Baixar">${icone('download')}</button></li>`)}</ul>` : ''}</div>
+            <span class="selo ${SIT[i.situacao]?.[0] ?? ''}">${i.rotuloDaSituacao ?? SIT[i.situacao]?.[1]}${i.documentos?.length > 1 ? ` · ${i.documentos.length} arquivos` : ''}</span>
+            ${i.documento_id && !(i.documentos?.length > 1) ? html`<button type="button" class="ibtn ibtn--sm" data-baixar="${i.documento_id}" aria-label="Baixar" title="Baixar">${icone('download')}</button>` : ''}
             ${analisa && (i.situacao === 'enviado' || i.situacao === 'em_analise') ? html`<button type="button" class="btn btn--accent" data-analisar-req="${i.id}" data-t="${i.titulo}">Analisar</button>` : ''}
             ${analisa && ['pendente', 'rejeitado', 'complementacao'].includes(i.situacao) ? html`<button type="button" class="btn btn--ghost" data-na="${i.id}" title="Marcar como não se aplica a este caso">N/A</button>` : ''}
             ${analisa && i.situacao === 'nao_aplicavel' ? html`<button type="button" class="btn btn--ghost" data-reativar="${i.id}">Reativar</button>` : ''}</div>`)}`) : vazio('check', 'Checklist ainda não gerado', 'Gerar do modelo cria a lista de documentos do procedimento deste projeto, cada item com o seu fundamento legal.')}
@@ -482,6 +483,25 @@ const rotuloMesRelatorio = (mes) => mes
   ? new Intl.DateTimeFormat('pt-BR', { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(mes + '-01T00:00:00Z'))
   : 'Sem competência informada';
 
+/**
+ * Acompanhamento mês a mês, como no Gerador: uma bolinha por competência.
+ * Verde: relatório publicado no portal. Âmbar: emitido, ainda não publicado.
+ * Vermelho: mês encerrado sem relatório. Cinza: mês corrente em aberto.
+ */
+function trilhaMensal(porMes, atual) {
+  const meses = [...porMes.keys()].filter(Boolean).sort().slice(-12);
+  const estado = (mes) => {
+    const itens = porMes.get(mes) ?? [];
+    if (itens.some(({ d }) => d?.visibilidade === 'publicado')) return ['ok', 'Publicado no portal'];
+    if (itens.length) return ['emitido', 'Emitido, falta publicar'];
+    return mes < atual ? ['falta', 'Sem relatório'] : ['aberto', 'Em aberto'];
+  };
+  const curto = (mes) => new Intl.DateTimeFormat('pt-BR', { month: 'short', timeZone: 'UTC' }).format(new Date(mes + '-01T00:00:00Z')).replace('.', '');
+  const contagem = meses.reduce((t, m) => { const [k] = estado(m); t[k] = (t[k] ?? 0) + 1; return t; }, {});
+  return html`<div class="rel-trilha" role="list" aria-label="Acompanhamento mensal dos relatórios">${meses.map((m) => { const [k, rotulo] = estado(m); return html`<div class="rel-trilha__mes ${k}${m === atual ? ' atual' : ''}" role="listitem" title="${rotuloMesRelatorio(m)}: ${rotulo}"><i></i><small>${curto(m)}</small><span>${m.slice(2, 4)}</span></div>`; })}</div>
+    <p class="rel-legenda"><span class="ok"><i></i>Publicado ${contagem.ok ?? 0}</span><span class="emitido"><i></i>Emitido ${contagem.emitido ?? 0}</span><span class="falta"><i></i>Sem relatório ${contagem.falta ?? 0}</span><span class="aberto"><i></i>Em aberto</span></p>`;
+}
+
 export async function abaRelatorios(ctx) {
   const base = `/api/projetos/${ctx.id}`;
   const [docs, ger] = await Promise.all([api.get(`${base}/documentos`), api.get(`${base}/gerador/emissoes`)]);
@@ -494,7 +514,7 @@ export async function abaRelatorios(ctx) {
   const hoje = hojeISO();
   const competenciaAtual = hoje.slice(0, 7);
   const mesInicial = new Date(competenciaAtual + '-01T00:00:00Z');
-  for (let i = 0; i < 6; i++) {
+  for (let i = 0; i < 12; i++) {
     const data = new Date(mesInicial);
     data.setUTCMonth(data.getUTCMonth() - i);
     porMes.set(data.toISOString().slice(0, 7), []);
@@ -510,6 +530,7 @@ export async function abaRelatorios(ctx) {
     html: html`<section class="card glass up"><header class="card__head"><div><h2 class="card__title">Entregas mensais de relatórios</h2>
       <p class="card__sub">Relatórios do Gerador vinculados aos nomes cadastrados para este cliente. Confira a competência e publique o PDF no portal.</p></div>
       <a class="btn btn--ghost" href="/gerador/" target="_blank" rel="noopener">Abrir o gerador ↗</a></header>
+      ${trilhaMensal(porMes, competenciaAtual)}
       ${[...porMes.keys()].sort().reverse().map(mes => {
         const itens = porMes.get(mes);
         const publicados = itens.filter(({d}) => d?.visibilidade === 'publicado').length;

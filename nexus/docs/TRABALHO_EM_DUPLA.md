@@ -45,7 +45,7 @@ pelo PR ou pelo bloco "Pedidos" no fim deste arquivo.
 **Compartilhados (cuidado)**
 - `src/server/app.ts`: cada frente registra suas rotas num arquivo próprio
   (`rotas_frente_a.ts`, `rotas_frente_b.ts`) e toca `app.ts` só para importar.
-- Migrações: números reservados. A usa 047 a 059; B usa 060 a 079. Nunca renumerar
+- Migrações: números reservados. A usa 047 a 059 (já usadas: 047, 048, 049); B usa 060 a 079. Nunca renumerar
   migração já juntada.
 - `scripts/demo.ts`, `web/js/main.js`, `web/js/shell.js`: mudança mínima, uma linha por vez.
 
@@ -62,17 +62,19 @@ pelo PR ou pelo bloco "Pedidos" no fim deste arquivo.
 
 | Item | Frente | Situação |
 |---|---|---|
-| Rebrand NGA Nexus | A | pendente |
-| Portal: tag, multi-documento, faturas, plano RJ, WhatsApp, próxima parcela | A | parte feita na rodada de 09/11 |
-| Visibilidade por equipe e coordenação | A | pendente |
-| Calendário: convites, filtros, conta ngaa@ | A | pendente (conta depende do Victor) |
-| Clientes e Projetos: filtros e busca | A | pendente |
-| Responsáveis da planilha e usuários | A | aguardando planilha |
-| Visão do projeto, negociações, relatórios, atas | A | pendente |
+| Rebrand NGA Nexus | A | feito (frente-a) |
+| Portal: tag, multi-documento, faturas, plano RJ, WhatsApp, próxima parcela | A | feito (frente-a), migração 047 |
+| Visibilidade por equipe e coordenação | A | feito (frente-a), migração 048 |
+| Calendário: convites, filtros, conta ngaa@ | A | convites e filtros feitos (migração 049); conta ngaa@ depende do Victor conectar |
+| Clientes e Projetos: filtros e busca | A | feito (frente-a) |
+| Responsáveis da planilha e usuários | A | planilha lida; aguardando e-mail e papel de cada pessoa |
+| Visão do projeto, negociações, relatórios, atas | A | feito (frente-a) |
 | Diagnóstico automático e PDF | B | base versionada feita em 10/11; leitura de PDF e PDF final pendentes |
 | QGC preliminar do balancete, automático x validado | B | pendente |
 | ERP financeiro do cliente | B | pendente |
 
 ## Pedidos entre frentes
 
-(vazio)
+- A → B: a 048 põe trava de equipe em toda tabela com `projeto_id` criada até ela. Tabela nova da Frente B com `projeto_id` precisa da mesma política (`<tabela>_equipe_restrita`, ver 048).
+- A → B: testes que montam projeto direto no banco recebem equipe automática (`tests/apoio/postgres.ts`); para testar visibilidade use `bancoDeTeste({ equipeAutomatica: false })`.
+- A fez na B, só troca de marca: `src/server/diagnostico_html.ts` e `src/domain/diagnostico/relatorio.ts` (NGA LAB → NGA Nexus).

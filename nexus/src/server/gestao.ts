@@ -1,5 +1,5 @@
 /**
- * Gestão financeira da recuperanda, PRJ Studio, PMT, atas, chat e acompanhamento do LAB.
+ * Gestão financeira da recuperanda, PRJ Studio, PMT, atas, chat e acompanhamento do Nexus.
  *
  * Quem separa os dados é o RLS: o escritório só LÊ o financeiro autorizado no portal, e o
  * lançamento exige ser da organização do cliente. Cálculo vem só dos motores determinísticos.
@@ -234,7 +234,7 @@ export const marcarLidas = async (db: PoolClient, projetoId: string, lado: 'nga'
   return { ok: true };
 };
 
-// -------------------------------------------------------- entregas do LAB ---
+// -------------------------------------------------------- entregas do Nexus ---
 /** Restrito por e-mail no servidor: esconder só o menu não protegeria nada. */
 export const podeVerEntregas = (email: string): boolean => (process.env.NGA_EMAILS_DONO ?? 'victor@nga.adv.br').split(',').map((e) => e.trim().toLowerCase()).includes(email.toLowerCase());
 
@@ -281,6 +281,22 @@ export async function clientesDaCarteira(db: PoolClient) {
   const { rows: equipes } = await db.query<{ equipe: string; n: number }>(`SELECT coalesce(equipe,'Sem equipe') equipe, count(*)::int n FROM astrea_registros GROUP BY 1 ORDER BY 2 DESC`);
   const { rows: pessoas } = await db.query<{ responsavel: string; n: number; ativos: number }>(`SELECT responsavel, count(*)::int n, count(*) FILTER (WHERE NOT lower(coalesce(fase,'')) ~ 'arquivado|encerrado')::int ativos FROM astrea_registros GROUP BY 1 ORDER BY 2 DESC`);
   return { clientes: rows.map((c) => ({ etiqueta: c.etiqueta, projetoId: c.projeto_id, tipo: c.tipo, registros: c.registros, processos: c.processos, arquivados: c.arquivados, equipes: c.equipes, prazosAbertos: c.prazos_abertos, whatsappGrupoUrl: c.whatsapp_grupo_url, responsaveis: resp.filter((x) => x.etiqueta === c.etiqueta).sort((a, b) => b.n - a.n).slice(0, 3) })), semEtiqueta: s, equipes, pessoas };
+}
+/** Processos da carteira por cliente e/ou busca livre (nome, título, número, ação). Respeita o RLS de quem pergunta. */
+export async function processosDaCarteira(db: PoolClient, f: { cliente?: string; q?: string }) {
+  const cliente = (f.cliente ?? '').slice(0, 200); const q = (f.q ?? '').trim().slice(0, 100);
+  const digitos = q.replace(/\D/g, '');
+  const { rows } = await db.query(`SELECT r.id, r.cliente_etiqueta AS cliente, r.projeto_id AS "projetoId", p.nome AS projeto, r.processo_id AS "processoId",
+      r.tipo, r.titulo, r.numero_original AS numero, r.acao, r.fase, r.responsavel, r.papel_cliente AS "papelCliente", r.vara, r.foro, r.ultimo_historico AS "ultimoHistorico",
+      lower(coalesce(r.fase,'')) ~ 'arquivado|encerrado' AS arquivado
+    FROM astrea_registros r LEFT JOIN projetos p ON p.id = r.projeto_id
+   WHERE ($1 = '' OR r.cliente_etiqueta = $1)
+     AND ($2 = '' OR r.cliente_etiqueta ILIKE '%'||$2||'%' OR r.cliente_nome ILIKE '%'||$2||'%' OR r.titulo ILIKE '%'||$2||'%' OR r.acao ILIKE '%'||$2||'%' OR p.nome ILIKE '%'||$2||'%'
+          OR ($3 <> '' AND regexp_replace(coalesce(r.numero_original,''), '\\D', '', 'g') LIKE '%'||$3||'%'))
+   ORDER BY arquivado, r.cliente_etiqueta NULLS LAST, r.ultimo_historico DESC NULLS LAST, r.titulo
+   LIMIT 500`, [cliente, q, digitos.length >= 5 ? digitos : '']);
+  const porTipo = new Map<string, number>(); for (const r of rows) porTipo.set(r.acao || r.tipo || 'Sem tipo', (porTipo.get(r.acao || r.tipo || 'Sem tipo') ?? 0) + 1);
+  return { processos: rows, tipos: [...porTipo].map(([tipo, n]) => ({ tipo, n })).sort((a, b) => b.n - a.n) };
 }
 export async function semEtiqueta(db: PoolClient, q: string) {
   return (await db.query(`SELECT cliente_nome, count(*)::int n, max(responsavel) responsavel, array_remove(array_agg(DISTINCT equipe),NULL) equipes FROM astrea_registros WHERE cliente_etiqueta IS NULL AND ($1 = '' OR cliente_nome ILIKE '%'||$1||'%' OR titulo ILIKE '%'||$1||'%' OR numero_original ILIKE '%'||$1||'%') GROUP BY 1 ORDER BY 2 DESC, 1 LIMIT 100`, [q.slice(0, 100)])).rows;
