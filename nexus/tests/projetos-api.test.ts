@@ -16,7 +16,7 @@ const SENHA = 'uma-senha-bem-longa';
 let projeto: string, empresa: string;
 
 beforeAll(async () => {
-  pg = await bancoDeTeste();
+  pg = await bancoDeTeste({ equipeAutomatica: false });
   const db = pg.dono;
   await db.query(`ALTER ROLE nga_app PASSWORD 'nga_app'`);
   banco = new Banco({ host: 'localhost', port: pg.porta, user: 'nga_app', password: 'nga_app', database: 'nga_teste' });

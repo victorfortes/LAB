@@ -46,6 +46,7 @@ export const ICONES = {
  "chart": "<path d=\"M5 20V10M12 20V4M19 20v-7\"/>",
  "settings": "<circle cx=\"12\" cy=\"12\" r=\"3\"/><path d=\"M12 3.5v2M12 18.5v2M3.5 12h2M18.5 12h2M6 6l1.4 1.4M16.6 16.6 18 18M18 6l-1.4 1.4M7.4 16.6 6 18\"/>",
  "x": "<path d=\"M6 6l12 12M18 6 6 18\"/>",
+ "edit": "<path d=\"M4 20h4L18.5 9.5a2.1 2.1 0 0 0-4-4L4 16v4Z\"/><path d=\"m13.5 6.5 4 4\"/>",
  "trash": "<path d=\"M5 7h14M10 7V4.5h4V7M7 7l.8 12.5h8.4L17 7\"/>",
  "send": "<path d=\"M4 12 20 4l-4 16-4.5-6.5z\"/>",
  "upload": "<path d=\"M12 16V5M7.5 9 12 4.5 16.5 9\"/><path d=\"M5 19.5h14\"/>",

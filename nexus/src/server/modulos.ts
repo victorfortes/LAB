@@ -36,7 +36,7 @@ export const MODULOS: readonly Modulo[] = Object.freeze([
     descricao: 'Cronograma de pagamento por classe, com deságio, carência e juros.' },
   { id: 'agc', ambiente: 'office', nome: 'Assembleias', estado: 'operacional', rota: '/agc',
     descricao: 'Apuração de quórum pelos arts. 45 e 58, § 1º, com registro imutável.' },
-  { id: 'integracoes', ambiente: 'office', nome: 'Integrações do NGA Lab', estado: 'em_obra', rota: '/integracoes',
+  { id: 'integracoes', ambiente: 'office', nome: 'Integrações do NGA Nexus', estado: 'em_obra', rota: '/integracoes',
     descricao: 'Credencial com escopo para as aplicações do Lab entregarem processo, prazo e documento.',
     pendencia: 'O lado receptor está pronto e testado: credencial, escopo, idempotência e RLS. O NGA Sentinela já entrega, exercitado de ponta a ponta. Falta ligar o NGA Prazos e o NGA Íntegra, que é trabalho dentro do repositório de cada um.' },
   { id: 'auditoria', ambiente: 'office', nome: 'Auditoria', estado: 'operacional', rota: '/auditoria',
@@ -60,9 +60,9 @@ export const MODULOS: readonly Modulo[] = Object.freeze([
   { id: 'relatorios', ambiente: 'office', nome: 'Gerador de Relatórios NGA', estado: 'operacional', rota: '/relatorios',
     descricao: 'Gerador jurídico original integrado por /gerador/. Os PDFs podem ser anexados e publicados no projeto correspondente.',
     pendencia: 'Operacional. O PDF usa Helvetica e Courier (fontes padrão), porque Barlow e JetBrains Mono exigiriam os arquivos de fonte, que não estão no repositório.' },
-  { id: 'financeiro', ambiente: 'office', nome: 'Financeiro do escritório', estado: 'nao_construido',
-    descricao: 'Honorários, receitas, despesas e fluxo de caixa.',
-    pendencia: 'Parcialmente iniciado: o cálculo de honorários (fixo, mensal, êxito) e o teto do administrador judicial do art. 24 da LREF estão prontos e testados em src/domain/financeiro/honorarios.ts. Falta tudo o resto — schema, faturamento, apontamento de horas, API e tela. O Nexus atual tem costs/project_pricing/time_entries a migrar.' },
+  { id: 'financeiro', ambiente: 'office', nome: 'Financeiro', estado: 'em_obra', rota: '/financeiro',
+    descricao: 'Faturas e guias de custas por projeto, com comprovante de pagamento anexado pelo cliente, conferência pelo financeiro e documentos do financeiro. Perfil Financeiro restrito aos projetos em que está na equipe.',
+    pendencia: 'Operacional: faturas, guias, comprovantes (o banco recusa fatura paga sem comprovante) e portal do cliente com próxima fatura. Falta o financeiro do próprio escritório (receitas, despesas, fluxo de caixa, rentabilidade por projeto), que já tem a aba reservada, e a emissão de boleto/PIX integrada. O cálculo de honorários e o teto do administrador judicial (art. 24) seguem prontos em src/domain/financeiro/honorarios.ts.' },
 
   // --- NGA INTELLIGENCE ---
   { id: 'integra', ambiente: 'intelligence', nome: 'NGA Íntegra', estado: 'externo',
@@ -78,13 +78,13 @@ export const MODULOS: readonly Modulo[] = Object.freeze([
     pendencia: 'Operacional e testado sem IA: classificação, CNPJ/CPF/processo com dígito verificador, conferência de citações e defesa contra injeção de prompt. A leitura por modelo está construída com o SDK oficial, mas NÃO foi exercitada contra a API real — falta chave Anthropic. Texto é extraído de arquivo .txt e .csv; de PDF e imagem, não: extrator e OCR não existem.' },
   { id: 'radar', ambiente: 'intelligence', nome: 'NGA Radar Concursal', estado: 'externo',
     descricao: 'Monitoramento de novas recuperações e falências.',
-    pendencia: 'Disponível no Judy Track Pro; coletor DJEN diário no Mac. Dados próprios não são automaticamente copiados para o LAB.' },
+    pendencia: 'Disponível no Judy Track Pro; coletor DJEN diário no Mac. Dados próprios não são automaticamente copiados para o Nexus.' },
   { id: 'atlas', ambiente: 'intelligence', nome: 'NGA Atlas', estado: 'nao_construido',
     descricao: 'Investigação patrimonial e societária.',
-    pendencia: 'Não existe código nem consta da apresentação do NGA Lab. É construção nova, não integração.' },
+    pendencia: 'Não existe código nem consta da apresentação do NGA Nexus. É construção nova, não integração.' },
   { id: 'orbit', ambiente: 'intelligence', nome: 'NGA Orbit', estado: 'nao_construido',
     descricao: 'Assistente executivo sobre os dados autorizados da plataforma.',
-    pendencia: 'Não existe código nem consta da apresentação do NGA Lab. É construção nova, não integração.' },
+    pendencia: 'Não existe código nem consta da apresentação do NGA Nexus. É construção nova, não integração.' },
 
   // --- NGA CLIENT ---
   { id: 'portal', ambiente: 'client', nome: 'Portal do cliente', estado: 'operacional', rota: '/portal',

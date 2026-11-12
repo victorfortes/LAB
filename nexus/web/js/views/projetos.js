@@ -38,7 +38,9 @@ export function cartaoProjeto(p) {
   const prazo = p.proximo_prazo; const fim = p.previsao_fim;
   const tf = Number(p.tarefas_total); const tc = Number(p.tarefas_concluidas);
   const pend = Number(p.creditos_a_validar) + Number(p.a_analisar);
-  return html`<article class="pcard glass hue--${hue} up" data-proj="${p.id}">
+  const resp = p.lider ?? p.responsavel;
+  const busca = [p.nome, p.cliente, p.resumo, p.rotuloDoTipo, ...(p.equipe ?? []).map((e) => e.nome), resp].filter(Boolean).join(' ').toLowerCase();
+  return html`<article class="pcard glass hue--${hue} up" data-proj="${p.id}" data-busca="${busca}" data-tipo="${p.tipo}" data-pessoas="${(p.equipe ?? []).map((e) => e.usuarioId).join(' ')}">
     <div class="pcard__top">
       <span class="picon picon--lg hue--${hue}">${icone(ICONE_DO_TIPO[p.tipo] ?? 'folder')}</span>
       <div class="pcard__id"><h3 class="pcard__name"><a class="pcard__link" href="#/projetos/${p.id}">${p.nome}</a></h3>
@@ -46,6 +48,7 @@ export function cartaoProjeto(p) {
       <button type="button" class="ibtn ibtn--sm pstar" data-pin="${p.id}" aria-pressed="${estaFixado(p.id)}" aria-label="Fixar" title="Fixar na lateral">${icone('pin')}</button>
     </div>
     <p class="pcard__sum">${p.resumo ?? (p.cliente ? `${p.rotuloDoTipo} · ${p.cliente}` : p.rotuloDoTipo)}</p>
+    ${resp ? html`<p class="pcard__resp">${avatar(resp, 'xs')}<span><small>Responsável</small>${resp}</span></p>` : html`<p class="pcard__resp pcard__resp--vazio"><span><small>Responsável</small>não definido</span></p>`}
     <div class="pcard__mid">
       <span class="pring">${raw(anel(pr?.percentual ?? 0, { tam: 64, traco: 6, cor: 'var(--hue)' }))}<b class="pring__val">${pr ? `${pr.percentual}%` : '—'}</b></span>
       <div class="pcard__next"><small>${proxima ? 'Próxima fase' : p.situacao === 'encerrado' ? 'Encerrado' : 'Fase final'}</small>
@@ -91,7 +94,15 @@ export default async function projetos() {
   } else if (visao === 'quadro') {
     corpo = quadro(lista, catalogo, grupo);
   } else {
-    corpo = visiveis.length ? html`<div class="pgrid">${visiveis.map(cartaoProjeto)}</div>`
+    const tipos = [...new Map(lista.map((p) => [p.tipo, p.rotuloDoTipo])).entries()].sort((a, b) => String(a[1]).localeCompare(String(b[1])));
+    const pessoas = [...new Map(lista.flatMap((p) => p.equipe ?? []).map((e) => [e.usuarioId, e.nome])).entries()].sort((a, b) => a[1].localeCompare(b[1]));
+    corpo = visiveis.length ? html`<div class="proj-filtros up" role="search">
+        <label class="proj-filtros__busca">${icone('search')}<input class="input" type="search" data-f="q" placeholder="Buscar por projeto, cliente ou pessoa" aria-label="Buscar projeto" autocomplete="off"></label>
+        <select class="input" data-f="tipo" aria-label="Filtrar por tipo"><option value="">Todos os tipos</option>${tipos.map(([v, t]) => html`<option value="${v}">${t}</option>`)}</select>
+        ${pessoas.length > 1 ? html`<select class="input" data-f="pessoa" aria-label="Filtrar por responsável ou equipe"><option value="">Toda a equipe</option>${estado.eu?.usuario?.id ? html`<option value="${estado.eu.usuario.id}">Só os meus</option>` : ''}${pessoas.map(([v, t]) => html`<option value="${v}">${t}</option>`)}</select>` : ''}
+        <small class="dica" data-f-contagem>${plural(visiveis.length)}</small></div>
+      <div class="pgrid">${visiveis.map(cartaoProjeto)}</div>
+      <section class="card glass up" data-f-vazio hidden>${vazio('search', 'Nenhum projeto encontrado', 'Tente outro nome, cliente ou pessoa.')}</section>`
       : html`<section class="card glass up">${vazio('folder', 'Nada neste filtro', 'Troque o filtro para ver os outros projetos.')}</section>`;
   }
 
@@ -108,6 +119,21 @@ export default async function projetos() {
     })}<div class="mt">${corpo}</div>`,
     depois(raiz) {
       ouvir(raiz, 'click', '[data-seg]', (b) => { guardado.gravar(b.dataset.seg === 'visao' ? 'projVisao' : 'projFiltro', b.dataset.v); navegar(); });
+      const filtrar = () => {
+        const q = (raiz.querySelector('[data-f=q]')?.value ?? '').toLowerCase().trim().split(/\s+/).filter(Boolean);
+        const tipo = raiz.querySelector('[data-f=tipo]')?.value ?? ''; const pessoa = raiz.querySelector('[data-f=pessoa]')?.value ?? '';
+        let n = 0;
+        raiz.querySelectorAll('.pgrid .pcard').forEach((c) => {
+          const ok = q.every((t) => c.dataset.busca.includes(t)) && (!tipo || c.dataset.tipo === tipo) && (!pessoa || c.dataset.pessoas.split(' ').includes(pessoa));
+          c.hidden = !ok; if (ok) n++;
+        });
+        const cont = raiz.querySelector('[data-f-contagem]'); if (cont) cont.textContent = plural(n);
+        const vz = raiz.querySelector('[data-f-vazio]'); if (vz) vz.hidden = n > 0;
+        guardado.gravar('projBusca', { q: raiz.querySelector('[data-f=q]')?.value ?? '', tipo, pessoa });
+      };
+      const salvo = guardado.ler('projBusca', null);
+      if (salvo) { for (const [k, v] of Object.entries(salvo)) { const e = raiz.querySelector(`[data-f=${k}]`); if (e) e.value = v; } filtrar(); }
+      raiz.querySelectorAll('[data-f]').forEach((e) => e.addEventListener('input', filtrar));
       ouvir(raiz, 'click', '[data-grupo]', (b) => { guardado.gravar('projGrupo', b.dataset.grupo); navegar(); });
       ouvir(raiz, 'click', '[data-act=novo]', () => novoProjeto());
       ouvir(raiz, 'click', '.pcard', (c, ev) => { if (!ev.target.closest('a, button')) ir(`projetos/${c.dataset.proj}`); });

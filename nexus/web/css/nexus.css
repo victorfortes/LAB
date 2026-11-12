@@ -1,0 +1,170 @@
+/* ==========================================================================
+   NGA NEXUS — camada de composição.
+
+   O lab.css traz a paleta e os componentes soltos; este arquivo traz a ORDEM:
+   como os blocos se alinham numa tela. Três regras valem para todas as telas:
+     1. uma coluna de leitura com o mesmo respiro entre blocos (--gap);
+     2. grades que se alinham pelo topo e esticam os cartões à mesma altura;
+     3. título → resumo → conteúdo, sempre nessa sequência, sem blocos soltos.
+   ========================================================================== */
+
+:root { --gap: 18px; --nx-radius: 22px; }
+
+/* ---------------------------------------------------------- ritmo vertical ---- */
+.view-root { display: block; max-width: 1480px; margin-inline: auto; }
+.view-root > .head { margin-bottom: 6px; }
+.view-root .mt { margin-top: var(--gap); }
+.nx-page { display: grid; gap: var(--gap); align-content: start; }
+.nx-page > .mt { margin-top: 0; }
+.nx-trail { margin: 0; font: 600 11px var(--font); letter-spacing: .14em; text-transform: uppercase; color: var(--text-3); }
+.nx-trail span::before { content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--lab-cy); margin-right: 8px; vertical-align: 1px; }
+
+/* grades que esticam: cartões lado a lado têm a mesma altura e o mesmo alinhamento */
+.grid2, .grid3 { align-items: stretch; }
+.grid2 > .card, .grid3 > .card { height: 100%; }
+.nx-col { display: grid; gap: var(--gap); align-content: start; min-width: 0; }
+.nx-grid { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(300px, 1fr); gap: var(--gap); align-items: start; }
+@media (max-width: 1080px) { .nx-grid { grid-template-columns: 1fr; } }
+.grid-hub { align-items: start; }
+
+/* cabeçalho de cartão: título à esquerda, ação à direita, sempre na mesma linha de base */
+.card__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; flex-wrap: wrap; margin-bottom: 14px; }
+.card__head > div:first-child { min-width: 0; flex: 1 1 220px; }
+.card__head .link { white-space: nowrap; font-size: 13px; }
+.card__title { margin: 0; font-size: 19px; }
+.btn--sm { padding: 6px 11px; font-size: 12.5px; min-height: 0; border-radius: 11px; }
+.btn--sm .ico { width: 15px; height: 15px; }
+.nx-acts { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; align-items: center; }
+.btn.is-on { background: var(--accent-soft); border-color: var(--lab-amber); color: var(--lab-amber-2); }
+
+/* ------------------------------------------------------------ barra lateral ---- */
+.nav__count--alerta { background: var(--lab-red) !important; color: #200 !important; }
+.side__cta { display: flex; align-items: center; gap: 10px; margin: 12px 10px 0; padding: 11px 13px; border-radius: 16px; text-decoration: none; color: #0b2a17;
+  background: linear-gradient(135deg, #2EE6A0, #1fb97f); box-shadow: 0 8px 24px #2EE6A033; transition: transform .25s var(--ease), filter .2s; }
+.side__cta:hover { transform: translateY(-2px); filter: brightness(1.06); }
+.side__cta[hidden] { display: none; }
+.side__cta .ico { width: 22px; height: 22px; flex: none; stroke: #0b2a17; }
+.side__cta b { display: block; font-size: 13.5px; line-height: 1.15; }
+.side__cta small { display: block; font-size: 11px; opacity: .75; }
+.side__cta span { min-width: 0; }
+
+/* ----------------------------------------------------------------- portal ---- */
+.nx-eyebrow { display: block; font: 600 11px var(--font-mono); letter-spacing: .2em; text-transform: uppercase; color: var(--lab-cy); }
+.nx-hero { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 24px; flex-wrap: wrap; padding: 30px 34px; border-radius: 28px; overflow: hidden;
+  background: radial-gradient(900px 260px at 0% 0%, #F0A32E26, transparent 60%), radial-gradient(700px 260px at 100% 100%, #4CC9F01f, transparent 60%), color-mix(in srgb, var(--glass-solid) 86%, transparent);
+  border: 1px solid var(--sep); box-shadow: 0 1px 0 #ffffff14 inset, 0 24px 60px #00000040; }
+.nx-hero h1 { margin: 6px 0 4px; font: 700 clamp(30px, 4vw, 46px) var(--font-display); letter-spacing: .005em; line-height: 1.05; }
+.nx-hero__proj { margin: 0 0 14px; font-size: 16px; color: var(--text-2); }
+.nx-hero__proj b { color: var(--text); font-weight: 600; }
+.nx-hero__proj i { font-style: normal; opacity: .5; margin: 0 4px; }
+.nx-hero__chips { display: flex; gap: 8px; flex-wrap: wrap; }
+.nx-hero__acts { display: grid; gap: 10px; justify-items: stretch; min-width: 230px; }
+.nx-hero__acts .btn { justify-content: center; }
+.nx-hero__acts small { text-align: center; }
+.nx-hero .btn--accent { background: linear-gradient(135deg, #2EE6A0, #1fb97f); color: #062014; box-shadow: 0 10px 28px #2EE6A02e; }
+
+.nx-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--gap); }
+.nx-kpis--3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 1100px) { .nx-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 560px) { .nx-kpis, .nx-kpis--3 { grid-template-columns: 1fr; } .nx-hero { padding: 22px; } }
+.nx-kpi { position: relative; display: flex; flex-direction: column; gap: 4px; padding: 18px 20px; border-radius: var(--nx-radius); text-decoration: none; color: inherit; min-height: 132px;
+  background: linear-gradient(172deg, #ffffff12, transparent 40%), color-mix(in srgb, var(--glass-solid) 84%, transparent); border: 1px solid var(--sep); transition: transform .3s var(--ease), border-color .3s; }
+a.nx-kpi:hover { transform: translateY(-3px); border-color: #F0A32E66; }
+.nx-kpi__label { font: 600 11px var(--font); letter-spacing: .14em; text-transform: uppercase; color: var(--text-3); }
+.nx-kpi__big { font: 700 30px var(--font-display); line-height: 1.1; font-variant-numeric: tabular-nums; margin-top: 2px; }
+.nx-kpi small { color: var(--text-3); font-size: 12.5px; line-height: 1.35; }
+.nx-kpi .selo { align-self: flex-start; margin-top: auto; }
+.nx-kpi__ring { position: absolute; right: 16px; top: 16px; }
+.nx-kpi.is-alert { border-color: #FF6B6B66; background: linear-gradient(172deg, #FF6B6B18, transparent 55%), color-mix(in srgb, var(--glass-solid) 84%, transparent); }
+.nx-kpi.is-alert .nx-kpi__big { color: var(--lab-red); }
+
+.nx-money { display: block; font: 700 28px var(--font-display); font-variant-numeric: tabular-nums; letter-spacing: .01em; }
+.nx-money--xl { font-size: 44px; margin: 4px 0; }
+.nx-neg { color: var(--lab-red); } .nx-pos { color: var(--lab-green); }
+.nx-fatura-card .nx-money { margin: 2px 0 6px; }
+.nx-fatura-card.is-alert, .nx-fat.is-alert, .nx-destaque.is-alert { border-color: #FF6B6B55; }
+.nx-whats { display: flex; align-items: flex-start; gap: 14px; background: linear-gradient(135deg, #2EE6A01f, transparent 70%), color-mix(in srgb, var(--glass-solid) 84%, transparent); }
+.nx-whats__ico { flex: none; width: 46px; height: 46px; display: grid; place-items: center; border-radius: 15px; background: #2EE6A022; }
+.nx-whats__ico .ico { width: 24px; height: 24px; stroke: var(--lab-green); }
+.nx-whats .dica { margin: 4px 0 12px; }
+.nx-whats .btn--accent { background: linear-gradient(135deg, #2EE6A0, #1fb97f); color: #062014; }
+
+.nx-destaque { display: flex; align-items: center; justify-content: space-between; gap: 22px; flex-wrap: wrap; padding: 24px 28px; }
+.nx-destaque__soma { text-align: right; display: grid; gap: 2px; }
+.nx-destaque__soma b { font: 700 24px var(--font-display); }
+.nx-fat { display: flex; align-items: stretch; justify-content: space-between; gap: 18px; flex-wrap: wrap; padding: 18px 22px; margin-bottom: 10px; }
+.nx-fat__main { flex: 1 1 280px; min-width: 0; }
+.nx-fat__main h3 { margin: 4px 0 4px; font: 700 19px var(--font-display); }
+.nx-fat__main p { margin: 0; }
+.nx-fat__side { display: grid; gap: 8px; justify-items: end; align-content: space-between; }
+.nx-fat__acts { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.nx-linha { word-break: break-all; margin-top: 6px !important; padding: 6px 10px; border-radius: 10px; background: var(--fill); display: inline-block; }
+.nota { margin: 8px 0 0; padding: 9px 12px; border-radius: 12px; background: #F0A32E1a; color: var(--lab-amber-2); font-size: 13px; }
+
+/* ---------------------------------------------------------- financeiro / BI ---- */
+.nx-resumo-fin { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--gap); }
+.nx-resumo-fin > div { padding: 16px 20px; border-radius: var(--nx-radius); border: 1px solid var(--sep); background: color-mix(in srgb, var(--glass-solid) 80%, transparent); display: grid; gap: 2px; }
+.nx-resumo-fin small { color: var(--text-3); font: 600 11px var(--font); letter-spacing: .12em; text-transform: uppercase; }
+.nx-resumo-fin b { font: 700 26px var(--font-display); font-variant-numeric: tabular-nums; }
+@media (max-width: 640px) { .nx-resumo-fin { grid-template-columns: 1fr; } }
+.seg { display: inline-flex; gap: 2px; padding: 3px; border-radius: 14px; position: relative; }
+.seg button { padding: 6px 12px; border: 0; background: none; color: var(--text-2); border-radius: 11px; cursor: pointer; font: 600 12.5px var(--font); }
+.seg button[aria-pressed=true] { background: var(--accent-soft); color: var(--lab-amber-2); }
+.nx-bars { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.nx-bars li { display: grid; grid-template-columns: minmax(80px, 1.1fr) minmax(0, 2fr) 34px; align-items: center; gap: 10px; font-size: 13px; }
+.nx-bars__nome { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); }
+.nx-bars__trilho { height: 10px; border-radius: 99px; background: var(--fill); overflow: hidden; }
+.nx-bars__bar { display: block; height: 100%; border-radius: 99px; transition: width 1s var(--ease); }
+.nx-bars__bar--amber { background: linear-gradient(90deg, #F0A32E, #FFD08A); } .nx-bars__bar--cy { background: linear-gradient(90deg, #4CC9F0, #8be1f7); } .nx-bars__bar--green { background: linear-gradient(90deg, #2EE6A0, #8af0c9); }
+.nx-bars b { text-align: right; font-family: var(--font-mono); font-size: 12.5px; }
+
+/* ------------------------------------------------------------------ ajustes ---- */
+.nx-matriz th.nx-c, .nx-matriz td.nx-c { text-align: center; }
+.nx-matriz th { white-space: nowrap; }
+.nx-sim { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: #2EE6A022; color: var(--lab-green); }
+.nx-sim .ico { width: 13px; height: 13px; stroke-width: 2.6; }
+.nx-nao { color: var(--text-3); opacity: .5; }
+.nx-matriz tr.nx-sep td { padding-top: 22px; font: 600 11px var(--font); letter-spacing: .14em; text-transform: uppercase; color: var(--text-3); border-bottom: 1px solid var(--sep); }
+.nx-modelo { display: grid; gap: 10px; align-content: space-between; }
+.nx-modelo h3 { margin: 0; font: 700 18px var(--font-display); }
+.nx-editor .nx-toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px 12px; margin-bottom: 12px; border-radius: 16px; background: var(--fill); }
+.nx-toolbar__sep { width: 1px; height: 22px; background: var(--sep); margin: 0 4px; }
+.nx-canvas { overflow: auto; max-height: 68vh; border-radius: 18px; border: 1px solid var(--sep); background:
+  radial-gradient(circle at 1px 1px, #ffffff1c 1px, transparent 0) 0 0 / 24px 24px, #060b14; touch-action: none; }
+.nx-canvas svg { display: block; user-select: none; -webkit-user-select: none; }
+.nx-etapas { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; counter-reset: e; position: relative; }
+.nx-etapa { display: grid; grid-template-columns: 34px 1fr; gap: 14px; align-items: start; }
+.nx-etapa__n { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 50%; background: var(--lab-amber); color: #1d1203; font: 700 14px var(--font-mono); box-shadow: 0 0 0 5px #F0A32E22; }
+.nx-etapa__corpo { display: grid; gap: 8px; padding: 14px; border-radius: 16px; background: var(--fill); }
+.nx-switch { position: relative; display: inline-block; width: 40px; height: 22px; }
+.nx-switch input { opacity: 0; width: 0; height: 0; }
+.nx-switch span { position: absolute; inset: 0; border-radius: 99px; background: var(--fill-2); transition: background .2s; cursor: pointer; }
+.nx-switch span::after { content: ""; position: absolute; width: 16px; height: 16px; left: 3px; top: 3px; border-radius: 50%; background: #fff; transition: transform .2s; }
+.nx-switch input:checked + span { background: var(--lab-green); } .nx-switch input:checked + span::after { transform: translateX(18px); }
+.nx-switch input:disabled + span { opacity: .5; cursor: not-allowed; }
+
+/* -------------------------------------------------------- telas da equipe ---- */
+/* barras de filtro e abas: uma linha só, alinhadas pelo topo, sem estourar a largura */
+.tk-bar { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; padding: 14px 16px; border-radius: var(--nx-radius); }
+.tk-bar .field { min-width: 150px; }
+.tk-bar .field.grow { flex: 1 1 220px; }
+.tabs { max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+.tbl-wrap { max-width: 100%; }
+.head__actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.entrega-grupo { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: var(--gap); align-items: stretch; }
+.entrega-grupo > .card { display: grid; align-content: start; gap: 6px; }
+
+/* anel de progresso em linha: o <span> precisa ser bloco para respeitar o tamanho */
+.pring { display: block; }
+/* a partir de 1360px a barra de ferramentas flutua no canto; o herói desce abaixo dela */
+@media (width >= 1360px) { .nx-page .nx-hero { margin-top: 64px; } }
+.nx-contents { display: contents; }
+
+/* lista estreita (coluna lateral): título em cima, situação embaixo; nada de título espremido em 4 linhas */
+.nx-grid aside .check-row { display: grid; grid-template-columns: 14px minmax(0, 1fr); gap: 4px 10px; align-items: start; }
+.nx-grid aside .check-row .selo { grid-column: 2; justify-self: start; }
+.nx-grid aside .check-row .btn { grid-column: 2; justify-self: start; }
+
+/* o cabeçalho sempre se organiza por áreas nomeadas: título, resumo e ações nunca disputam a mesma célula */
+.head__lead { grid-area: lead; } .head__stats { grid-area: stats; justify-self: start; } .head__actions { grid-area: actions; }
+.tbl td.mono-sm, .tbl td.num { white-space: nowrap; }

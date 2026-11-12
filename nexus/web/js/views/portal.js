@@ -1,5 +1,5 @@
 /**
- * O painel do cliente — o mesmo visual do Lab, com o que é do cliente.
+ * O painel do cliente — o mesmo visual do Nexus, com o que é do cliente.
  *
  * Aqui não há botão que o servidor vá recusar por causa de papel: a navegação
  * só oferece o que o cliente pode fazer. Mas quem garante o isolamento é o RLS
@@ -13,8 +13,20 @@ import { cabecalho, erroDe, formulario, toast, vazio } from '../ui.js';
 import { painelFinanceiroProjeto } from './projeto_financeiro.js';
 import { atualizarLateral, navegar } from '../shell.js';
 
-const TITULOS = { inicio: 'Início', andamento: 'Andamento', documentos: 'Documentos', plano: 'Plano de pagamento', caixa: 'Fluxo de caixa', atas: 'Atas de reunião', relatorios: 'Relatórios', mensagens: 'Mensagens' };
+const TITULOS = { inicio: 'Visão geral', andamento: 'Andamento', documentos: 'Documentos', faturas: 'Faturas', plano: 'Plano de pagamento', caixa: 'Financeiro', atas: 'Atas de reunião', relatorios: 'Relatórios' };
+const SUB = {
+  andamento: 'O que aconteceu em cada processo, em linguagem simples.', documentos: 'O que a NGA precisa de você e o que já foi conferido.',
+  faturas: 'Honorários e despesas, com o comprovante de cada pagamento.', plano: 'As obrigações do plano de recuperação judicial aprovado, com credor, valor e vencimento.',
+  caixa: 'O fechamento de cada mês e a saúde financeira da empresa.', atas: 'Pauta, decisões e encaminhamentos de cada reunião.', relatorios: 'Acompanhamento mensal e quadros preparados para você.',
+};
 const SIT = { pendente: ['', 'Pendente'], enviado: ['info', 'Enviado'], em_analise: ['info', 'Em análise'], aprovado: ['ok', 'Aprovado'], rejeitado: ['erro', 'Rejeitado'], complementacao: ['aviso', 'Complementar'], nao_aplicavel: ['', 'Não se aplica'] };
+const STATUS_FATURA = {
+  a_vencer: ['info', 'A vencer'], vencida: ['erro', 'Vencida'], paga_em_conferencia: ['aviso', 'Paga · em conferência'], paga: ['ok', 'Paga'], cancelada: ['', 'Cancelada'],
+};
+const brl = (v) => `R$ ${v}`;
+const primeiroNome = () => String(estado.eu?.usuario?.nome ?? '').split(/\s+/)[0] || 'cliente';
+const saudacao = () => { const h = new Date().getHours(); return h < 12 ? 'Bom dia' : h < 18 ? 'Boa tarde' : 'Boa noite'; };
+const prazoRotulo = (f) => (f.status === 'vencida' ? `venceu há ${Math.abs(f.diasParaVencer)} dia(s)` : f.diasParaVencer === 0 ? 'vence hoje' : f.diasParaVencer === 1 ? 'vence amanhã' : `vence em ${f.diasParaVencer} dias`);
 
 export default async function portal({ aba }) {
   const projetos = estado.portal.length ? estado.portal : await api.get('/api/portal/projetos');
@@ -24,62 +36,135 @@ export default async function portal({ aba }) {
       <p>Seu acesso está ativo, mas o escritório ainda não vinculou um projeto a você.</p></div>` };
   }
   const corpo = await ABAS[aba](proj);
+  const cab = aba === 'inicio' ? '' : cabecalho({ titulo: TITULOS[aba], sub: `${SUB[aba] ?? ''}`, resumo: corpo.resumo ?? [] });
   return {
     titulo: TITULOS[aba],
-    html: html`<div class="portal-workspace" data-projeto-portal="${proj.projeto_id}"><section class="portal-project-identity glass">${avatar(proj.nome,'lg')}<div class="grow"><small>NGA LAB · Portal do cliente</small><h2>${proj.nome}</h2><p class="dica">Seu espaço de documentos, andamento e conversa com a equipe.</p></div><span class="selo ok">Acesso pessoal</span></section>${cabecalho({ titulo: TITULOS[aba], sub: proj.nome, resumo: corpo.resumo ?? [] })}<div class="mt">${corpo.html}</div></div>`,
+    html: html`<div class="nx-page" data-projeto-portal="${proj.projeto_id}">${aba === 'inicio' ? '' : html`<p class="nx-trail"><span>${proj.nome}</span></p>`}${cab}<div class="${aba === 'inicio' ? 'nx-contents' : 'mt'}">${corpo.html}</div></div>`,
     depois: (el) => corpo.depois?.(el, proj),
   };
 }
 
-const bloqueado = (o) => ({ html: html`<section class="card glass up">${vazio('lock', 'Área não habilitada', `O escritório não liberou ${o} para o seu acesso. Se precisar, fale com a NGA na aba Mensagens.`)}</section>` });
+const bloqueado = (o) => ({ html: html`<section class="card glass up">${vazio('lock', 'Área não habilitada', `O escritório não liberou ${o} para o seu acesso. Se precisar, fale com a NGA pelo grupo de WhatsApp.`)}</section>` });
+/** O plano de pagamento só existe para quem está em recuperação judicial. */
+export const ehRJ = (p) => p?.tipo === 'recuperacao_judicial';
+const botaoWhats = (p, classe = 'btn btn--accent') => p.whatsapp_grupo_url ? html`<a class="${classe}" href="${p.whatsapp_grupo_url}" target="_blank" rel="noopener noreferrer">${icone('comment')}Entrar no grupo do WhatsApp</a>` : '';
 
 // ------------------------------------------------------------------ início ---
 
 async function inicio(p) {
-  const [hub, catalogo, check, ob, procs, msgs, negs, visao] = await Promise.all([
+  const [hub, catalogo, check, ob, procs, negs, visao, fat] = await Promise.all([
     api.get(`/api/projetos/${p.projeto_id}`).catch(() => null), api.get('/api/projetos/fases').catch(() => []),
     api.get(`/api/projetos/${p.projeto_id}/checklist`).catch(() => null),
-    p.mostra_obrigacoes ? api.get(`/api/projetos/${p.projeto_id}/obrigacoes`).catch(() => null) : null,
+    p.mostra_obrigacoes && ehRJ(p) ? api.get(`/api/projetos/${p.projeto_id}/obrigacoes`).catch(() => null) : null,
     api.get('/api/processos').catch(() => []),
-    api.get(`/api/projetos/${p.projeto_id}/mensagens`).catch(() => []),
     api.get(`/api/portal/projetos/${p.projeto_id}/negociacoes`).catch(() => []),
-    api.get(`/api/projetos/${p.projeto_id}/visao`).catch(() => ({marcos:[]})),
+    api.get(`/api/projetos/${p.projeto_id}/visao`).catch(() => ({ marcos: [] })),
+    p.mostra_faturas === false ? null : api.get(`/api/faturas?projeto=${p.projeto_id}`).catch(() => null),
   ]);
   const meus = procs.filter((x) => x.projeto_id === p.projeto_id);
   const fases = hub ? (catalogo.find((c) => c.tipo === hub.tipo)?.fases ?? []) : [];
   const atual = hub ? fases.findIndex((f) => f.id === hub.fase) : -1;
   const pr = check?.progresso; const falta = check?.itens.filter((i) => i.aguardaVoce) ?? [];
   const pagas = ob?.resumo.total ? Math.round((ob.resumo.pagas / ob.resumo.total) * 100) : null;
-  const ultima = msgs[0];
+  const proxParcela = ob?.obrigacoes?.find((x) => !x.pago);
+  const prox = fat?.resumo.proxima ?? null; const rf = fat?.resumo; const hon = rf?.proximaHonorarios ?? null;
+  const marcos = (visao.marcos ?? []).slice(0, 6);
+  // O andamento mais recente, dos processos liberados (até 3, em paralelo).
+  const movs = (await Promise.all(meus.slice(0, 3).map((x) => api.get(`/api/processos/${x.id}`).catch(() => null))))
+    .flatMap((d) => (d?.movimentacoes ?? []).map((m) => ({ ...m, numero: d.numero, classe: d.classe }))).sort((a, b) => String(b.data).localeCompare(String(a.data))).slice(0, 4);
+
   return {
-    resumo: [{ rotulo: 'Documentos aprovados', valor: pr ? pr.percentualAprovado : '—', sufixo: pr ? '%' : '' }, { rotulo: 'Aguardando você', valor: falta.length, tom: falta.length ? 'warn' : '' },
-      { rotulo: 'Processos', valor: meus.length }],
-    html: html`${visao.marcos?.length ? html`<section class="card glass up" style="margin-bottom:var(--gap)"><header class="card__head"><div><h2 class="card__title">Marcos do seu projeto</h2><p class="card__sub">Entregas compartilhadas pela equipe responsável</p></div></header><ul class="lista">${visao.marcos.map(m=>html`<li><span class="selo ${m.concluidoEm?'ok':'info'}">${m.concluidoEm?'Concluído':'Previsto'}</span><div><b>${m.titulo}</b>${m.descricao?html`<small>${m.descricao}</small>`:''}</div><span class="mono-sm">${m.dataPrevista?dataBR(m.dataPrevista):'Sem data'}</span></li>`)}</ul></section>`:''}${fases.length ? html`<section class="card glass up" style="margin-bottom:var(--gap)"><header class="card__head"><div><h2 class="card__title">Onde está o seu processo</h2>
-        <p class="card__sub">${hub.faseAtual?.nome ?? ''}${hub.faseAtual?.marco ? ` — ${hub.faseAtual.marco}` : ''}</p></div>${hub.progresso ? html`<span class="selo ok">${hub.progresso.percentual}% do caminho</span>` : ''}</header>
-        <ol class="trilha" style="list-style:none;margin:0">${fases.map((f, i) => html`<li class="passo ${i < atual ? 'feito' : i === atual ? 'atual' : 'futuro'}" title="${f.marco}"><span class="passo__no">${i < atual ? icone('check') : i + 1}</span><div class="passo__txt">${f.nome}</div></li>`)}</ol></section>` : ''}
-    ${negs.length ? html`<section class="card glass up" style="margin-bottom:var(--gap)"><header class="card__head"><div><h2 class="card__title">Negociações em andamento</h2>
-        <p class="card__sub">O que a NGA está tratando com credores em seu nome</p></div></header>
-        <div class="tk-board" style="grid-template-columns:repeat(3,minmax(0,1fr))">${[['em_negociacao', 'Em negociação', 'var(--lab-amber)'], ['stand_by', 'Stand by', 'var(--lab-cy)'], ['concluida', 'Concluídas', 'var(--lab-green)']].map(([id, nome, cor]) => {
-          const itens = negs.filter((n) => n.status === id);
-          return html`<div class="tk-col" style="padding:0"><header class="tk-col__head"><i class="tk-dot" style="background:${raw(cor)}"></i><h3 class="tk-col__name">${nome}</h3><span class="tk-col__count tnum">${itens.length}</span></header>
-            <div class="tk-col__list">${itens.map((n) => html`<article class="tk-card"><h3 class="tk-card__title"><span class="tk-card__text">${n.titulo}</span></h3>${n.contraparte ? html`<small class="muted">${n.contraparte}</small>` : ''}
-              ${n.desfecho ? html`<span class="selo ${n.desfecho === 'acordo' ? 'ok' : 'erro'}">${n.desfecho === 'acordo' ? 'Acordo fechado' : 'Sem acordo'}</span>` : ''}
-              <p class="dica" style="margin:6px 0 0">${n.resumo}</p></article>`)}</div></div>`;
-        })}</div></section>` : ''}
-    <div class="grid3">
-      <section class="card glass up"><header class="card__head"><div><h2 class="card__title">Sua documentação</h2><p class="card__sub">O que o escritório já conferiu</p></div></header>
-        <div class="cliente-hero"><span class="pring" style="--s:104px">${raw(anel(pr?.percentualAprovado ?? 0, { tam: 104, traco: 9, cor: 'var(--lab-amber)' }))}<b class="pring__val" style="font-size:22px">${pr ? `${pr.percentualAprovado}%` : '—'}</b></span>
-          <div><b>${pr ? `${pr.aprovados} de ${pr.obrigatorios}` : 'Sem lista'}</b><p class="dica" style="margin:4px 0 0">${pr ? 'documentos obrigatórios aprovados' : 'O escritório ainda vai montar a lista do que precisa.'}</p></div></div></section>
-      <section class="card glass up"><header class="card__head"><div><h2 class="card__title">Plano de pagamento</h2><p class="card__sub">Parcelas pagas</p></div></header>
-        ${pagas === null ? html`<p class="dica">${p.mostra_obrigacoes ? 'Ainda não há plano cadastrado.' : 'Não liberado para o seu acesso.'}</p>`
-          : html`<div class="cliente-hero"><span class="pring" style="--s:104px">${raw(anel(pagas, { tam: 104, traco: 9, cor: 'var(--lab-green)' }))}<b class="pring__val" style="font-size:22px">${pagas}%</b></span>
-            <div><b>${ob.resumo.pagas} de ${ob.resumo.total}</b><p class="dica" style="margin:4px 0 0">${ob.resumo.vencidas ? `${ob.resumo.vencidas} vencida(s)` : 'nenhuma vencida'}</p></div></div>`}</section>
-      <section class="card glass up"><header class="card__head"><div><h2 class="card__title">Última mensagem</h2></div><a class="link" href="#/mensagens">Abrir →</a></header>
-        ${ultima ? html`<div class="msg ${ultima.lado === 'cliente' ? 'meu' : ''}" style="max-width:100%">${ultima.texto}<small>${ultima.autor ?? 'NGA'} · ${relativo(ultima.criado_em)}</small></div>` : html`<p class="dica">Nenhuma mensagem ainda.</p>`}</section>
+    html: html`
+    <section class="nx-hero up">
+      <div class="nx-hero__text">
+        <span class="nx-eyebrow">Portal do cliente · NGA Advogados</span>
+        <h1>${saudacao()}, ${primeiroNome()}.</h1>
+        <p class="nx-hero__proj"><b>${p.nome}</b>${hub?.rotuloDoTipo ? html` <i>·</i> ${hub.rotuloDoTipo}` : ''}</p>
+        <div class="nx-hero__chips">
+          ${hub?.faseAtual ? html`<span class="selo aviso"><i></i>${hub.faseAtual.nome}</span>` : ''}
+          ${hub?.progresso ? html`<span class="selo ok">${hub.progresso.percentual}% do caminho</span>` : ''}
+          ${falta.length ? html`<span class="selo erro">${falta.length} item(ns) aguardam você</span>` : html`<span class="selo ok"><i></i>Nada pendente com você</span>`}
+        </div>
+      </div>
+      <div class="nx-hero__acts">${botaoWhats(p)}<a class="btn btn--ghost" href="#/documentos">${icone('upload')}Enviar documentos</a>${p.whatsapp_grupo_url ? '' : html`<small class="dica">O grupo de WhatsApp será liberado pela equipe.</small>`}</div>
+    </section>
+
+    <div class="nx-kpis${ehRJ(p) ? '' : ' nx-kpis--3'}">
+      <a class="nx-kpi up" href="#/documentos"><span class="nx-kpi__label">Documentação</span>
+        <span class="nx-kpi__ring"><span class="pring" style="--s:64px">${raw(anel(pr?.percentualAprovado ?? 0, { tam: 64, traco: 6, cor: 'var(--lab-amber)' }))}<b class="pring__val" style="font-size:14px">${pr ? `${pr.percentualAprovado}%` : '—'}</b></span></span>
+        <b class="nx-kpi__big">${pr ? `${pr.aprovados}/${pr.obrigatorios}` : '—'}</b><small>${pr ? 'documentos aprovados' : 'lista ainda não montada'}</small></a>
+      <a class="nx-kpi up ${hon?.status === 'vencida' ? 'is-alert' : ''}" href="#/faturas"><span class="nx-kpi__label">Próxima parcela de honorários</span>
+        ${hon ? html`<b class="nx-kpi__big">${brl(hon.valorFormatado)}</b><small>vence em ${dataBR(hon.vencimento)}${rf.honorarios.total > 1 ? ` · ${rf.honorarios.pagas} de ${rf.honorarios.total} pagas` : ''}</small><span class="selo ${STATUS_FATURA[hon.status][0]}">${prazoRotulo(hon)}</span>`
+          : html`<b class="nx-kpi__big">—</b><small>${fat ? (rf.honorarios.pagas ? 'Honorários em dia. Obrigado!' : 'Nenhuma parcela lançada') : 'Não liberada'}</small>`}</a>
+      ${ehRJ(p) ? html`<a class="nx-kpi up" href="#/plano"><span class="nx-kpi__label">Plano de recuperação</span>
+        ${pagas === null ? html`<b class="nx-kpi__big">—</b><small>${p.mostra_obrigacoes ? 'O plano aprovado ainda não foi cadastrado' : 'Não liberado'}</small>`
+          : html`<b class="nx-kpi__big">${ob.resumo.pagas}/${ob.resumo.total}</b><small>${proxParcela ? `próxima obrigação: ${dataBR(proxParcela.vencimento)}` : 'obrigações cumpridas'}</small>${ob.resumo.vencidas ? html`<span class="selo erro">${ob.resumo.vencidas} vencida(s)</span>` : html`<span class="selo ok">em dia</span>`}`}</a>` : ''}
+      <a class="nx-kpi up" href="#/andamento"><span class="nx-kpi__label">Processos</span><b class="nx-kpi__big">${meus.length}</b><small>${movs[0] ? `última movimentação em ${dataBR(movs[0].data)}` : 'acompanhe o andamento'}</small></a>
     </div>
-    <section class="card glass up mt"><header class="card__head"><div><h2 class="card__title">O que falta de você</h2><p class="card__sub">Itens que dependem do seu envio</p></div><a class="link" href="#/documentos">Enviar documentos →</a></header>
-      ${falta.length ? html`<div>${falta.slice(0, 6).map((i) => html`<div class="check-row"><span class="sit-dot ${i.situacao}"></span><div><b>${i.titulo}</b><small>${i.categoria}${i.observacao ? ` · ${i.observacao}` : ''}</small></div><span class="selo ${SIT[i.situacao]?.[0] ?? ''}">${i.rotuloDaSituacao}</span></div>`)}</div>`
-        : vazio('check', 'Nada pendente com você', 'Quando o escritório precisar de algo, aparece aqui.')}</section>`,
+
+    <div class="nx-grid">
+      <div class="nx-col">
+        ${fases.length ? html`<section class="card glass up"><header class="card__head"><div><h2 class="card__title">Onde está o seu processo</h2>
+          <p class="card__sub">${hub.faseAtual?.nome ?? ''}${hub.faseAtual?.marco ? ` — ${hub.faseAtual.marco}` : ''}</p></div></header>
+          <ol class="trilha" style="list-style:none;margin:0">${fases.map((f, i) => html`<li class="passo ${i < atual ? 'feito' : i === atual ? 'atual' : 'futuro'}" title="${f.marco}"><span class="passo__no">${i < atual ? icone('check') : i + 1}</span><div class="passo__txt">${f.nome}</div></li>`)}</ol></section>` : ''}
+        ${movs.length ? html`<section class="card glass up"><header class="card__head"><div><h2 class="card__title">Andamento recente</h2><p class="card__sub">O que a equipe publicou para você</p></div><a class="link" href="#/andamento">Ver tudo →</a></header>
+          <ul class="tl">${movs.map((m) => html`<li><time>${dataBR(m.data)}</time><p><b>${m.titulo}</b></p>${m.resumo_ao_cliente ? html`<p class="dica">${m.resumo_ao_cliente}</p>` : ''}<span class="mono-sm">${m.classe ?? ''} ${m.numero}</span></li>`)}</ul></section>` : ''}
+        ${marcos.length ? html`<section class="card glass up"><header class="card__head"><div><h2 class="card__title">Marcos do seu projeto</h2><p class="card__sub">Entregas compartilhadas pela equipe</p></div></header>
+          <ul class="lista">${marcos.map((m) => html`<li><span class="selo ${m.concluidoEm ? 'ok' : 'info'}">${m.concluidoEm ? 'Concluído' : 'Previsto'}</span><div><b>${m.titulo}</b>${m.descricao ? html`<small>${m.descricao}</small>` : ''}</div><span class="mono-sm">${m.dataPrevista ? dataBR(m.dataPrevista) : 'Sem data'}</span></li>`)}</ul></section>` : ''}
+        ${negs.length ? html`<section class="card glass up"><header class="card__head"><div><h2 class="card__title">Negociações em andamento</h2><p class="card__sub">O que a NGA está tratando com credores em seu nome</p></div></header>
+          <ul class="lista">${negs.map((n) => html`<li><span class="selo ${n.status === 'concluida' ? 'ok' : n.status === 'stand_by' ? 'info' : 'aviso'}">${n.status === 'concluida' ? 'Concluída' : n.status === 'stand_by' ? 'Stand by' : 'Em negociação'}</span><div><b>${n.titulo}</b><small>${n.contraparte ?? ''}${n.resumo ? ` · ${n.resumo}` : ''}</small></div>${n.desfecho ? html`<span class="selo ${n.desfecho === 'acordo' ? 'ok' : 'erro'}">${n.desfecho === 'acordo' ? 'Acordo' : 'Sem acordo'}</span>` : ''}</li>`)}</ul></section>` : ''}
+      </div>
+      <aside class="nx-col">
+        <section class="card glass up"><header class="card__head"><div><h2 class="card__title">O que falta de você</h2><p class="card__sub">Itens que dependem do seu envio</p></div><a class="link" href="#/documentos">Enviar →</a></header>
+          ${falta.length ? html`<div>${falta.slice(0, 5).map((i) => html`<div class="check-row"><span class="sit-dot ${i.situacao}"></span><div><b>${i.titulo}</b><small>${i.categoria}${i.observacao ? ` · ${i.observacao}` : ''}</small></div><span class="selo ${SIT[i.situacao]?.[0] ?? ''}">${i.rotuloDaSituacao}</span></div>`)}${falta.length > 5 ? html`<p class="dica mt">e mais ${falta.length - 5} item(ns)</p>` : ''}</div>`
+            : vazio('check', 'Nada pendente com você', 'Quando o escritório precisar de algo, aparece aqui.')}</section>
+        ${prox ? html`<section class="card glass up nx-fatura-card ${prox.status === 'vencida' ? 'is-alert' : ''}"><header class="card__head"><div><h2 class="card__title">Próxima fatura</h2><p class="card__sub">${prox.numero} · ${prox.rotuloDoTipo}</p></div><span class="selo ${STATUS_FATURA[prox.status][0]}">${prazoRotulo(prox)}</span></header>
+          <b class="nx-money">${brl(prox.valorFormatado)}</b><p class="dica">${prox.descricao} · vencimento ${dataBR(prox.vencimento)}</p>
+          <div class="flex"><a class="btn btn--accent" href="#/faturas">${icone('upload')}Anexar comprovante</a>${rf.emAberto > 1 ? html`<small class="dica">+ ${rf.emAberto - 1} em aberto</small>` : ''}</div></section>` : ''}
+        <section class="card glass up nx-whats"><span class="nx-whats__ico">${icone('comment')}</span><div><h2 class="card__title">Grupo do WhatsApp</h2>
+          ${p.whatsapp_grupo_url ? html`<a class="nx-whats__link" href="${p.whatsapp_grupo_url}" target="_blank" rel="noopener noreferrer">${p.whatsapp_grupo_url.replace(/^https?:\/\//, '')} ↗</a>`
+            : html`<p class="dica">O link do grupo do seu caso será informado pela equipe.</p>`}</div></section>
+      </aside>
+    </div>`,
+  };
+}
+
+// --------------------------------------------------------------------- faturas ---
+
+async function faturas(p) {
+  if (p.mostra_faturas === false) return bloqueado('as faturas');
+  const { faturas: lista, resumo: r } = await api.get(`/api/faturas?projeto=${p.projeto_id}`);
+  const abertas = lista.filter((f) => f.situacao === 'aberta'); const outras = lista.filter((f) => f.situacao !== 'aberta');
+  const item = (f) => {
+    const [tom, rot] = STATUS_FATURA[f.status] ?? ['', f.status];
+    return html`<article class="nx-fat card glass up ${f.status === 'vencida' ? 'is-alert' : ''}" data-fatura="${f.id}">
+      <div class="nx-fat__main"><span class="mono-sm">${f.numero} · ${f.rotuloDoTipo}${f.competencia ? ` · ${f.competencia}` : ''}</span><h3>${f.descricao}</h3>
+        <p class="dica">Emitida em ${dataBR(f.emissao)} · vencimento ${dataBR(f.vencimento)}${f.situacao === 'aberta' ? ` · ${prazoRotulo(f)}` : ''}${f.pagoEm ? ` · pago em ${dataBR(f.pagoEm)}` : ''}</p>
+        ${f.linhaDigitavel ? html`<p class="mono-sm nx-linha" title="Linha digitável">${f.linhaDigitavel}</p>` : ''}
+        ${f.observacao && f.situacao === 'aberta' ? html`<p class="nota">${f.observacao}</p>` : ''}</div>
+      <div class="nx-fat__side"><b class="nx-money">${brl(f.valorFormatado)}</b><span class="selo ${tom}"><i></i>${rot}</span>
+        <div class="nx-fat__acts">
+          ${f.documentoId ? html`<button type="button" class="btn btn--ghost btn--sm" data-baixar="${f.documentoId}">${icone('download')}Boleto / guia</button>` : ''}
+          ${f.situacao === 'aberta' ? html`<label class="btn btn--accent btn--sm" style="cursor:pointer">${icone('upload')}Anexar comprovante<input type="file" hidden data-comprovante="${f.id}" accept=".pdf,.png,.jpg,.jpeg"></label>` : ''}
+          ${f.comprovanteId ? html`<button type="button" class="btn btn--ghost btn--sm" data-baixar="${f.comprovanteId}">${icone('doc')}Meu comprovante</button>` : ''}</div></div></article>`;
+  };
+  return {
+    resumo: [{ rotulo: 'Em aberto', valor: r.emAberto, tom: r.emAberto ? 'warn' : '' }, { rotulo: 'Vencidas', valor: r.vencidas, tom: r.vencidas ? 'alert' : '' }, { rotulo: 'Pagas', valor: r.pagas, tom: 'ok' }],
+    html: html`${r.proxima ? html`<section class="card glass up nx-destaque ${r.proxima.status === 'vencida' ? 'is-alert' : ''}"><div><span class="nx-eyebrow">Próxima fatura</span><b class="nx-money nx-money--xl">${brl(r.proxima.valorFormatado)}</b>
+        <p class="dica">${r.proxima.descricao} · vence em ${dataBR(r.proxima.vencimento)} (${prazoRotulo(r.proxima)})</p></div>
+        <div class="nx-destaque__soma"><small>Total em aberto</small><b>${brl(r.totalAbertoFormatado)}</b>${r.vencidas ? html`<small class="nx-neg">Vencido: ${brl(r.totalVencidoFormatado)}</small>` : ''}</div></section>` : ''}
+      ${lista.length ? html`<h2 class="mini-h mt">Em aberto</h2>${abertas.length ? abertas.map(item) : html`<section class="card glass up">${vazio('check', 'Nenhuma fatura em aberto', 'Tudo em dia.')}</section>`}
+        ${outras.length ? html`<h2 class="mini-h mt">Histórico</h2>${outras.map(item)}` : ''}`
+        : html`<section class="card glass up">${vazio('money', 'Nenhuma fatura emitida', 'As faturas e boletos do seu caso aparecem aqui. Para cada pagamento, anexe o comprovante: é ele que marca a fatura como paga.')}</section>`}
+      <p class="dica mt">A fatura passa a constar como <b>paga</b> assim que você anexa o comprovante; o financeiro da NGA confere em seguida e, se algo não bater, ela volta a ficar em aberto com o motivo.</p>`,
+    depois(el) {
+      ouvir(el, 'click', '[data-baixar]', async (b) => { try { const x = await api.post(`/api/documentos/${b.dataset.baixar}/link`); window.open(x.url, '_blank', 'noopener'); } catch (e) { erroDe(e); } });
+      el.addEventListener('change', async (e) => {
+        const inp = e.target.closest('input[data-comprovante]'); if (!inp?.files[0]) return;
+        const fd = new FormData(); fd.append('arquivo', inp.files[0]);
+        try { await api.enviar(`/api/faturas/${inp.dataset.comprovante}/comprovante`, fd); toast('Comprovante recebido. A fatura consta como paga e será conferida pelo financeiro.'); atualizarLateral(); navegar(); } catch (er) { erroDe(er); }
+      });
+    },
   };
 }
 
@@ -124,9 +209,10 @@ async function documentos(p) {
       </summary>
       <p class="dica mt">Envie cada arquivo no item correspondente. O escritório confere e responde aqui.</p>
       ${check.itens.length ? [...porCat].map(([cat, itens]) => html`<h3 class="mini-h">${cat}</h3>${itens.map((i) => html`<div class="check-row${i.situacao === 'nao_aplicavel' ? ' na' : ''}"><span class="sit-dot ${i.situacao}"></span>
-        <div><b>${i.titulo}${i.obrigatorio ? '' : html` <span class="muted">(opcional)</span>`}</b><small>${i.fundamento ?? ''}</small>${i.atribuicao ? html`<span class="atrib">${String(i.atribuicao).split('/').map((x) => html`<i>${x.trim()}</i>`)}</span>` : ''}${i.observacao ? html`<small class="obs">${i.observacao}</small>` : ''}</div>
-        <span class="selo ${SIT[i.situacao]?.[0] ?? ''}">${i.rotuloDaSituacao}</span>
-        ${['pendente', 'rejeitado', 'complementacao'].includes(i.situacao) ? html`<label class="btn btn--accent" style="cursor:pointer">${icone('upload')}Enviar<input type="file" hidden data-req="${i.id}" data-t="${i.titulo}" data-c="${i.categoria}"></label>` : ''}</div>`)}`)
+        <div><b>${i.titulo}${i.obrigatorio ? '' : html` <span class="muted">(opcional)</span>`}</b><small>${i.fundamento ?? ''}</small>${i.atribuicao ? html`<span class="atrib">${String(i.atribuicao).split('/').map((x) => html`<i>${x.trim()}</i>`)}</span>` : ''}${i.observacao ? html`<small class="obs">${i.observacao}</small>` : ''}
+          ${i.documentos?.length ? html`<ul class="req-arquivos">${i.documentos.map((d) => html`<li>${icone('doc')}<span>${d.titulo}</span><small>${tamanho(d.tamanho_bytes)} · ${dataBR(d.enviado_em)}</small></li>`)}</ul>` : ''}</div>
+        <span class="selo ${SIT[i.situacao]?.[0] ?? ''}">${i.rotuloDaSituacao}${i.documentos?.length > 1 ? ` · ${i.documentos.length} arquivos` : ''}</span>
+        ${['pendente', 'rejeitado', 'complementacao', 'enviado', 'em_analise'].includes(i.situacao) ? html`<label class="btn ${i.documentos?.length && !['rejeitado', 'complementacao'].includes(i.situacao) ? 'btn--ghost' : 'btn--accent'}" style="cursor:pointer" title="Pode escolher vários arquivos de uma vez">${icone('upload')}${i.documentos?.length ? 'Adicionar arquivos' : 'Enviar'}<input type="file" hidden multiple data-req="${i.id}" data-t="${i.titulo}" data-c="${i.categoria}"></label>` : ''}</div>`)}`)
         : vazio('doc', 'A lista ainda não foi montada', 'Assim que o escritório definir o que precisa, os itens aparecem aqui.')}</details>
       <section class="card glass up mt"><header class="card__head"><div><h2 class="card__title">Documentos do escritório para você</h2></div></header>
         ${docs.filter((d) => d.visibilidade === 'publicado').length ? html`<ul class="lista">${docs.filter((d) => d.visibilidade === 'publicado').map((d) => html`<li>${icone('doc')}<div><b>${d.titulo}</b><small>${d.categoria ?? ''} · ${tamanho(d.tamanho_bytes)} · publicado ${relativo(d.publicado_em)}</small></div>
@@ -150,9 +236,15 @@ async function documentos(p) {
       drop.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); entrada.click(); } });
       ouvir(el, 'click', '[data-baixar]', async (b) => { try { const r = await api.post(`/api/documentos/${b.dataset.baixar}/link`); window.open(r.url, '_blank', 'noopener'); } catch (e) { erroDe(e); } });
       el.addEventListener('change', async (e) => {
-        const inp = e.target.closest('input[data-req]'); if (!inp?.files[0]) return;
-        const fd = new FormData(); fd.append('arquivo', inp.files[0]); fd.append('titulo', inp.dataset.t); fd.append('categoria', inp.dataset.c); fd.append('requisitoId', inp.dataset.req);
-        try { await api.enviar(`/api/projetos/${p.projeto_id}/documentos`, fd); toast('Documento enviado. O escritório vai conferir.'); navegar(); } catch (er) { erroDe(er); }
+        const inp = e.target.closest('input[data-req]'); if (!inp?.files?.length) return;
+        const arquivos = [...inp.files]; let ok = 0;
+        for (const f of arquivos) {
+          // Com vários arquivos, cada um leva o próprio nome junto do item ("Balanço · 2023.pdf").
+          const titulo = arquivos.length > 1 ? `${inp.dataset.t} · ${f.name.replace(/\.[^.]+$/, '')}` : inp.dataset.t;
+          const fd = new FormData(); fd.append('arquivo', f); fd.append('titulo', titulo); fd.append('categoria', inp.dataset.c); fd.append('requisitoId', inp.dataset.req);
+          try { await api.enviar(`/api/projetos/${p.projeto_id}/documentos`, fd); ok++; } catch (er) { erroDe(er); }
+        }
+        if (ok) { toast(ok > 1 ? `${ok} arquivos enviados. O escritório vai conferir.` : 'Documento enviado. O escritório vai conferir.'); navegar(); }
       });
     },
   };
@@ -161,19 +253,35 @@ async function documentos(p) {
 // -------------------------------------------------------------- plano/caixa ---
 
 async function plano(p) {
+  if (!ehRJ(p)) return { html: html`<section class="card glass up">${vazio('scale', 'Sem plano de recuperação neste caso', 'O plano de pagamento existe só nos casos de recuperação judicial, depois que o plano é aprovado. As parcelas de honorários ficam em Faturas.')}</section>` };
   if (!p.mostra_obrigacoes) return bloqueado('o plano de pagamento');
   const o = await api.get(`/api/projetos/${p.projeto_id}/obrigacoes`);
+  const hoje = hojeISO();
+  const lista = o.obrigacoes.map((x) => ({ ...x, vencida: !x.pago && x.vencimento < hoje }));
+  const prox = lista.find((x) => !x.pago);
+  const pct = o.resumo.total ? Math.round((o.resumo.pagas / o.resumo.total) * 100) : 0;
+  const porAno = new Map(); for (const x of lista) { const ano = x.vencimento.slice(0, 4); porAno.set(ano, [...(porAno.get(ano) ?? []), x]); }
   return {
-    resumo: [{ rotulo: 'Parcelas', valor: o.resumo.total }, { rotulo: 'Pagas', valor: o.resumo.pagas }, { rotulo: 'Vencidas', valor: o.resumo.vencidas, tom: o.resumo.vencidas ? 'warn' : '' }],
-    html: html`<section class="card glass up">${o.obrigacoes.length ? html`<div class="tbl-wrap"><table class="tbl"><thead><tr><th>#</th><th>Credor</th><th>Vencimento</th><th class="num">Valor (R$)</th><th></th></tr></thead>
-      <tbody>${o.obrigacoes.map((x) => html`<tr class="${!x.pago && x.vencida ? 'vencido' : ''}"><td class="mono-sm">${x.numero}</td><td>${x.credor}</td><td>${dataBR(x.vencimento)}</td><td class="num">${x.valorFormatado ?? x.valor}</td>
-        <td>${x.pago ? html`<span class="selo ok">Paga</span>` : x.vencida ? html`<span class="selo erro">Vencida</span>` : html`<span class="selo">A vencer</span>`}</td></tr>`)}</tbody></table></div>`
-      : vazio('money', 'Sem parcelas ainda', 'O plano aprovado aparece aqui com cada vencimento.')}</section>`,
+    resumo: [{ rotulo: 'Obrigações', valor: o.resumo.total }, { rotulo: 'Cumpridas', valor: o.resumo.pagas }, { rotulo: 'Vencidas', valor: o.resumo.vencidas, tom: o.resumo.vencidas ? 'warn' : '' }],
+    html: lista.length ? html`
+      <section class="card glass up plano-topo">
+        <div><span class="nx-eyebrow">Plano de recuperação judicial a cumprir</span>
+          <p class="dica">Cada linha é um pagamento que a empresa assumiu com um credor no plano aprovado em juízo. Deixar de pagar no prazo pode levar à convolação em falência (art. 61, §1º, e art. 73, IV, da Lei 11.101/2005), por isso o que vence primeiro aparece em destaque.</p>
+          <div class="plano-barra" aria-label="${pct}% das obrigações cumpridas"><i style="width:${pct}%"></i></div>
+          <small class="dica">${o.resumo.pagas} de ${o.resumo.total} obrigações cumpridas · total do plano R$ ${o.resumo.valorTotal}${o.resumo.vencidas ? ` · R$ ${o.resumo.valorVencido} vencido` : ''}</small></div>
+        ${prox ? html`<div class="plano-prox ${prox.vencida ? 'is-alert' : ''}"><span class="nx-eyebrow">${prox.vencida ? 'Vencida, regularize' : 'Próxima obrigação'}</span><b class="nx-money">R$ ${prox.valorFormatado}</b><small>${prox.credor} · ${dataBR(prox.vencimento)}</small></div>`
+          : html`<div class="plano-prox"><span class="nx-eyebrow">Situação</span><b>Plano cumprido</b></div>`}
+      </section>
+      ${[...porAno].map(([ano, itens]) => html`<section class="card glass up mt"><header class="card__head"><div><h2 class="card__title">${ano}</h2><p class="card__sub">${itens.filter((x) => x.pago).length} de ${itens.length} cumpridas</p></div></header>
+        <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Vencimento</th><th>Credor</th><th class="num">Parcela</th><th class="num">Valor (R$)</th><th>Situação</th></tr></thead>
+        <tbody>${itens.map((x) => html`<tr class="${x.vencida ? 'vencido' : ''}"><td>${dataBR(x.vencimento)}</td><td>${x.credor}</td><td class="num mono-sm">${x.numero}</td><td class="num">${x.valorFormatado}</td>
+          <td>${x.pago ? html`<span class="selo ok">Cumprida</span>` : x.vencida ? html`<span class="selo erro">Vencida</span>` : html`<span class="selo">A vencer</span>`}</td></tr>`)}</tbody></table></div></section>`)}`
+      : html`<section class="card glass up">${vazio('scale', 'O plano ainda não foi cadastrado', 'Assim que o plano de recuperação for aprovado, cada obrigação aparece aqui com credor, valor e vencimento.')}</section>`,
   };
 }
 
 async function caixa(p) {
-  if (!p.mostra_financeiro) return bloqueado('o fluxo de caixa');
+  if (!p.mostra_financeiro) return bloqueado('o financeiro');
   const r = await painelFinanceiroProjeto(p.projeto_id, () => navegar()).catch(() => null);
   if (!r) return { resumo: [], html: html`<section class="card glass up">${vazio('chart', 'Fluxo de caixa indisponível', 'Tente de novo em alguns instantes.')}</section>` };
   return { resumo: [], html: r.html, depois: r.depois };
@@ -196,24 +304,4 @@ async function relatorios(p) {
   };
 }
 
-// --------------------------------------------------------------- mensagens ---
-
-async function mensagens(p) {
-  const msgs = (await api.get(`/api/projetos/${p.projeto_id}/mensagens`)).reverse();
-  if (msgs.some((m) => m.lado === 'nga' && !m.lida_em)) api.post(`/api/projetos/${p.projeto_id}/mensagens/lidas`, {}).catch(() => {});
-  guardado.gravar(`msgLidas.${p.projeto_id}`, new Date().toISOString()); atualizarLateral();
-  return {
-    html: html`<section class="card glass up"><header class="card__head"><div><h2 class="card__title">Conversa com a NGA</h2><p class="card__sub">Dúvidas, avisos e pedidos. A equipe responde aqui.</p></div></header>
-      <div class="chat" id="chat" style="max-height:520px">${msgs.length ? msgs.map((m) => html`<div class="msg ${m.lado === 'cliente' ? 'meu' : ''}">${m.texto}<small>${m.autor ?? (m.lado === 'nga' ? 'NGA' : 'Você')} · ${relativo(m.criado_em)}</small></div>`) : html`<p class="dica">Nenhuma mensagem ainda. Escreva a primeira.</p>`}</div>
-      <form class="chat-in" id="env"><input class="input" name="texto" placeholder="Escreva sua mensagem…" autocomplete="off" aria-label="Mensagem" required><button class="btn btn--accent" type="submit">${icone('send')}Enviar</button></form></section>`,
-    depois(el) {
-      const chat = $('#chat', el); chat.scrollTop = chat.scrollHeight;
-      $('#env', el).addEventListener('submit', async (e) => {
-        e.preventDefault(); const f = e.target; const texto = f.texto.value.trim(); if (!texto) return; f.querySelector('button').disabled = true;
-        try { await api.post(`/api/projetos/${p.projeto_id}/mensagens`, { texto }); navegar(); } catch (er) { erroDe(er); f.querySelector('button').disabled = false; }
-      });
-    },
-  };
-}
-
-const ABAS = { inicio, andamento, documentos, plano, caixa, relatorios, mensagens, atas };
+const ABAS = { inicio, andamento, documentos, faturas, plano, caixa, relatorios, atas };

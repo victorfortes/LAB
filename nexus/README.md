@@ -1,12 +1,12 @@
-# NGA LAB
+# NGA Nexus
 
-Ecossistema NGA LAB: as ferramentas do Lab (Prazos, Sentinela, Íntegra, Radar), a
+Ecossistema NGA Nexus: as ferramentas do Nexus (Prazos, Sentinela, Íntegra, Radar), a
 **gestão de projetos** que administra tudo, o **painel do advogado** e o **painel do
 cliente**, numa só plataforma. Construída a partir do inventário em
 [`INVENTARIO.md`](INVENTARIO.md).
 
 **Front-end** (`web/`): sem etapa de build, módulos ES. O visual é o design system do
-LexPane (vidro, cartões, quadro kanban, anéis de progresso) com a paleta do NGA LAB
+LexPane (vidro, cartões, quadro kanban, anéis de progresso) com a paleta do NGA Nexus
 (azul quase preto, âmbar, ciano). A gestão de projetos é o centro: cada projeto tem um
 hub com fase do procedimento, tarefas, créditos, processos e prazos, documentos, portal
 do cliente, plano e caixa, relatórios e equipe. O cliente entra pela mesma porta e vê só
@@ -29,7 +29,7 @@ Tudo abaixo foi executado nesta máquina. Nada está marcado como pronto sem tes
 | Domínio: classificação de créditos (arts. 41, 49) | ✅ 12 testes. Inclui o desdobramento do art. 41, § 2º. |
 | Domínio: quórum de AGC (arts. 45, 58 § 1º) | ✅ 14 testes. Determinístico, sem IA. Cram down com os três incisos. |
 | Domínio: cronograma do plano | ✅ 22 testes. Price, SAC e sem juros; o saldo fecha em zero sempre. |
-| Design system NGA Lab | ✅ 7 testes. Token único; CSS e TS conferidos um contra o outro. |
+| Design system NGA Nexus | ✅ 7 testes. Token único; CSS e TS conferidos um contra o outro. |
 | Schema + migrations | ✅ 16 migrations, aplicadas em PostgreSQL real a cada teste. |
 | Isolamento entre clientes (RLS) | ✅ 14 testes contra PostgreSQL real, com papel de aplicação sem bypass. |
 | Autenticação e sessão | ✅ Argon2id; token só em hash; cookie HttpOnly/SameSite. |
@@ -62,7 +62,7 @@ Tudo abaixo foi executado nesta máquina. Nada está marcado como pronto sem tes
 | Processos: cadastro, partes, andamento e prazos | ✅ 24 testes de API. Número conferido pelo dígito do CNJ; agenda da controladoria com vencidos em primeiro lugar. |
 | Acompanhamento processual no portal | ✅ Movimentação nasce invisível; publicar exige resumo escrito por gente e usa a mesma permissão de publicar documento. Verificado no navegador dos dois lados. |
 | Calendário de feriado local e suspensão do tribunal | ⛔ Não integrado. Entra informado por quem cadastra o prazo, e toda data sai com ressalva. |
-| Integração com o NGA Lab: lado receptor | ✅ 21 testes. Credencial com escopo, usuário de serviço sob RLS, idempotência por identificador de origem. |
+| Integração com o NGA Nexus: lado receptor | ✅ 21 testes. Credencial com escopo, usuário de serviço sob RLS, idempotência por identificador de origem. |
 | Integração: NGA Sentinela → Nexus | ✅ 13 testes no Sentinela + entrega exercitada de ponta a ponta contra este servidor. Só sai correspondência confirmada por pessoa. |
 | Integração: NGA Prazos e Íntegra | ⛔ Ainda não chamam as rotas. O contrato existe e está testado do lado do Nexus. |
 | Relatórios: motor de PDF | ✅ 16 testes. Quebra de linha, paginação com cabeçalho repetido e codificação conferidos abrindo o PDF gerado, não só contando bytes. |
@@ -143,7 +143,7 @@ vazar uma coisa e travar a outra.
 `src/server/modulos.ts` declara o estado real de cada módulo e a interface mostra
 esse estado — inclusive "não existe código".
 
-**As aplicações do NGA Lab continuam separadas, e integram por artefato.**
+**As aplicações do NGA Nexus continuam separadas, e integram por artefato.**
 O Sentinela entrega processo e movimentação, o NGA Prazos entrega prazo lido do
 Astrea, o Íntegra entrega as partes do PDF dos autos. Cada uma tem credencial
 própria, com escopo próprio — a do Sentinela não grava documento — e um
@@ -250,7 +250,7 @@ src/security/   senha, sessão, RBAC
 src/store/      acesso ao banco com RLS por requisição; acervo de arquivos
 src/server/     API e catálogo de módulos
 src/relatorio/  motor de PDF: medição de texto, folha A4, modelo do relatório
-ui/tokens/      design system NGA Lab (fonte única)
+ui/tokens/      design system NGA Nexus (fonte única)
 web/            Command Center
 ```
 

@@ -133,14 +133,17 @@ async function projeto(db: PoolClient,id:string) {
   const { rows }=await db.query<{id:string;organizacao_id:string;nome:string;tipo:string;cliente:string}>(`SELECT p.id,p.organizacao_id,p.nome,p.tipo,coalesce((SELECT o.nome FROM portais po JOIN organizacoes o ON o.id=po.organizacao_cliente_id WHERE po.projeto_id=p.id AND po.ativo ORDER BY po.criado_em LIMIT 1),p.nome) AS cliente FROM projetos p WHERE p.id=$1`,[id]);
   if (!rows[0]) throw new NaoEncontrado('Projeto não encontrado.'); return rows[0];
 }
-export const EsquemaEvento = z.object({projetoId:z.string().uuid(),titulo:z.string().trim().min(1).max(300),inicio:z.iso.datetime({offset:true}),fim:z.iso.datetime({offset:true}),descricao:z.string().max(5000).default(''),marcador:z.enum(['reuniao','prazo','audiencia','interno','cliente','lembrete']).default('reuniao'),criarMeet:z.boolean().default(true)}).refine((e)=>new Date(e.fim)>new Date(e.inicio),'O fim deve ser posterior ao início.');
+export const EsquemaEvento = z.object({projetoId:z.string().uuid(),titulo:z.string().trim().min(1).max(300),inicio:z.iso.datetime({offset:true}),fim:z.iso.datetime({offset:true}),descricao:z.string().max(5000).default(''),marcador:z.enum(['reuniao','prazo','audiencia','interno','cliente','lembrete']).default('reuniao'),criarMeet:z.boolean().default(true),convidados:z.array(z.string().trim().toLowerCase().email()).max(50).default([])}).refine((e)=>new Date(e.fim)>new Date(e.inicio),'O fim deve ser posterior ao início.');
 export function corpoEventoGoogle(id:string,e:z.infer<typeof EsquemaEvento>) {
-  return {id:id.replaceAll('-',''),summary:e.titulo,description:e.descricao,start:{dateTime:e.inicio,timeZone:'America/Sao_Paulo'},end:{dateTime:e.fim,timeZone:'America/Sao_Paulo'},colorId:({reuniao:'9',prazo:'11',audiencia:'6',interno:'8',cliente:'2',lembrete:'5'})[e.marcador],extendedProperties:{private:{ngaProjeto:e.projetoId,ngaMarcador:e.marcador}},...(e.criarMeet?{conferenceData:{createRequest:{requestId:id,conferenceSolutionKey:{type:'hangoutsMeet'}}}}:{})};
+  return {id:id.replaceAll('-',''),summary:e.titulo,description:e.descricao,start:{dateTime:e.inicio,timeZone:'America/Sao_Paulo'},end:{dateTime:e.fim,timeZone:'America/Sao_Paulo'},colorId:({reuniao:'9',prazo:'11',audiencia:'6',interno:'8',cliente:'2',lembrete:'5'})[e.marcador],extendedProperties:{private:{ngaProjeto:e.projetoId,ngaMarcador:e.marcador}},
+    // Equipe do projeto e convidados extras recebem o convite do Google, como numa reunião marcada no próprio Meet; eles podem chamar outras pessoas.
+    ...(e.convidados?.length?{attendees:e.convidados.map((email)=>({email})),guestsCanInviteOthers:true,guestsCanModify:false}:{}),...(e.criarMeet?{conferenceData:{createRequest:{requestId:id,conferenceSolutionKey:{type:'hangoutsMeet'}}}}:{})};
 }
 export async function criarEvento(db:PoolClient,i:Identidade,e:z.infer<typeof EsquemaEvento>) {
   const p=await projeto(db,e.projetoId); const id=crypto.randomUUID();
+  const convidados=await convidadosDoProjeto(db,p.id,e.convidados??[]);
   // Save before dispatch. Retrying the same local event uses its stable Google ID.
-  await db.query('INSERT INTO google_eventos(id,organizacao_id,projeto_id,titulo,inicio,fim,descricao,marcador,criar_meet,criado_por) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',[id,p.organizacao_id,p.id,e.titulo,e.inicio,e.fim,e.descricao,e.marcador,e.criarMeet,i.usuarioId]);
+  await db.query('INSERT INTO google_eventos(id,organizacao_id,projeto_id,titulo,inicio,fim,descricao,marcador,criar_meet,criado_por,convidados) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)',[id,p.organizacao_id,p.id,e.titulo,e.inicio,e.fim,e.descricao,e.marcador,e.criarMeet,i.usuarioId,convidados]);
   try { return await sincronizarEvento(db,id); }
   catch(error) {
     const message=(error as Error).message.slice(0,300);
@@ -148,16 +151,24 @@ export async function criarEvento(db:PoolClient,i:Identidade,e:z.infer<typeof Es
     return {id,projeto_id:e.projetoId,titulo:e.titulo,inicio:e.inicio,fim:e.fim,marcador:e.marcador,pendente:true,erro:message};
   }
 }
+/** Todos os envolvidos no projeto (equipe ativa e responsável) mais os extras, sem repetição. */
+export async function convidadosDoProjeto(db:PoolClient,projetoId:string,extras:string[]) {
+  const {rows}=await db.query<{email:string}>(`SELECT DISTINCT lower(u.email) AS email FROM usuarios u
+     WHERE u.id IN (SELECT pe.usuario_id FROM projeto_equipe pe WHERE pe.projeto_id=$1 AND pe.ate IS NULL
+                    UNION SELECT p.responsavel_id FROM projetos p WHERE p.id=$1 AND p.responsavel_id IS NOT NULL)
+       AND u.email IS NOT NULL`,[projetoId]);
+  return [...new Set([...rows.map((r)=>r.email),...extras.map((x)=>x.toLowerCase())])].slice(0,100);
+}
 export const linkDoMeet=(e:Record<string,any>):string|null=>e.hangoutLink??e.conferenceData?.entryPoints?.find((x:any)=>x.entryPointType==='video')?.uri??null;
 export const precisaPedirMeet=(criar:boolean,e:Record<string,any>)=>criar&&!linkDoMeet(e)&&e.conferenceData?.createRequest?.status?.statusCode!=='pending';
 export async function sincronizarEvento(db:PoolClient,id:string) {
   const {rows}=await db.query('SELECT * FROM google_eventos WHERE id=$1',[id]);const r=rows[0];
   if(!r)throw new NaoEncontrado('Evento não encontrado.');if(r.google_id && (!r.criar_meet || r.meet_url))return r;
   const access=await token(db,r.organizacao_id);
-  const body=corpoEventoGoogle(id,{projetoId:r.projeto_id,titulo:r.titulo,inicio:new Date(r.inicio).toISOString(),fim:new Date(r.fim).toISOString(),descricao:r.descricao,marcador:r.marcador,criarMeet:r.criar_meet});
+  const body=corpoEventoGoogle(id,{projetoId:r.projeto_id,titulo:r.titulo,inicio:new Date(r.inicio).toISOString(),fim:new Date(r.fim).toISOString(),descricao:r.descricao,marcador:r.marcador,criarMeet:r.criar_meet,convidados:r.convidados??[]});
   const base='https://www.googleapis.com/calendar/v3/calendars/primary/events';
   let remote:Record<string,any>;
-  try {remote=r.google_id?await googleJson(access,base+'/'+encodeURIComponent(r.google_id)):await googleJson(access,base+'?conferenceDataVersion=1',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});}
+  try {remote=r.google_id?await googleJson(access,base+'/'+encodeURIComponent(r.google_id)):await googleJson(access,base+'?conferenceDataVersion=1&sendUpdates=all',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});}
   catch(error){
     if(!(error as Error).message.includes('HTTP 409'))throw error;
     remote=await googleJson(access,base+'/'+id.replaceAll('-',''));

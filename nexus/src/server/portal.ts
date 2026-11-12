@@ -51,8 +51,9 @@ export const EsquemaMensagem = z.object({
 /** Projetos que o usuário alcança pelo portal, com o que cada um expõe. */
 export async function meusPortais(db: PoolClient) {
   const { rows } = await db.query(
-    `SELECT po.projeto_id, po.mostra_documentos, po.mostra_obrigacoes, po.mostra_financeiro,
-            pr.nome, pr.tipo, pr.situacao, pr.iniciado_em
+    `SELECT po.projeto_id, po.mostra_documentos, po.mostra_obrigacoes, po.mostra_financeiro, po.mostra_faturas,
+            pr.nome, pr.tipo, pr.situacao, pr.iniciado_em, pr.whatsapp_grupo_url, pr.resumo,
+            (SELECT o.nome FROM organizacoes o WHERE o.id = po.organizacao_cliente_id) AS organizacao
        FROM portais po JOIN projetos pr ON pr.id = po.projeto_id
       WHERE po.ativo AND po.projeto_id IN (SELECT app_projetos_do_portal())
       ORDER BY pr.nome`);
@@ -76,10 +77,17 @@ export async function checklist(db: PoolClient, projetoId: string) {
     situacao: r.situacao, obrigatorio: r.obrigatorio,
   }));
 
+  const { rows: anexos } = await db.query<{ requisito_id: string; id: string; titulo: string; tamanho_bytes: number | null; enviado_em: Date }>(
+    `SELECT requisito_id, documento_id AS id, titulo, tamanho_bytes, enviado_em
+       FROM requisito_documentos WHERE projeto_id = $1 ORDER BY enviado_em`, [projetoId]);
+  const porRequisito = new Map<string, typeof anexos>();
+  for (const a of anexos) porRequisito.set(a.requisito_id, [...(porRequisito.get(a.requisito_id) ?? []), a]);
+
   return {
     progresso: calcularProgresso(itens),
     itens: rows.map((r) => ({
       ...r,
+      documentos: (porRequisito.get(r.id) ?? []).map(({ requisito_id: _, ...d }) => d),
       rotuloDaSituacao: ROTULO_DA_SITUACAO[r.situacao],
       // O cliente precisa saber de quem é a vez.
       aguardaVoce: ['pendente', 'rejeitado', 'complementacao'].includes(r.situacao),
@@ -176,11 +184,17 @@ export async function vincularAoRequisito(
 
   // A máquina de situações é quem decide se o envio cabe agora — e quem pode
   // marcar o quê. Enviar é ato do cliente; aprovar, nunca.
-  const nova = transicionar(requisito.situacao, 'enviado', lado);
+  // Arquivo a mais num item já em análise (outro exercício do balanço, por
+  // exemplo) não volta o item para "enviado": só soma à lista.
+  const nova = requisito.situacao === 'em_analise' ? 'em_analise' : transicionar(requisito.situacao, 'enviado', lado);
 
   await db.query(
-    `UPDATE requisitos SET situacao=$2, documento_id=$3, observacao=NULL, atualizado_em=now()
+    `UPDATE requisitos SET situacao=$2, documento_id=$3, observacao=CASE WHEN $2='em_analise' THEN observacao END, atualizado_em=now()
       WHERE id=$1`, [requisitoId, nova, documentoId]);
+  await db.query(
+    `INSERT INTO requisito_documentos (requisito_id, documento_id, organizacao_id, projeto_id, enviado_por)
+     SELECT id, $2, organizacao_id, projeto_id, $3 FROM requisitos WHERE id=$1
+     ON CONFLICT DO NOTHING`, [requisitoId, documentoId, identidade.usuarioId]);
 
   await auditar(db, {
     organizacaoId: requisito.organizacao_id, usuarioId: identidade.usuarioId,

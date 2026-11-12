@@ -66,10 +66,11 @@ export function fundo() {
   const cv = $('#fx'); if (!cv) return;
   // Celular/tablet: leve por padrão (sem canvas animado), a menos que a pessoa tenha escolhido outro modo.
   const celular = matchMedia('(pointer: coarse)').matches || innerWidth < 900;
-  const modo = guardado.ler('efeitos', celular ? 'leve' : 'equilibrado');
+  const modo = guardado.ler('efeitos', celular ? 'leve' : 'animado');
   if (modo === 'completo') document.documentElement.classList.add('cheio');
   if (modo === 'leve') { document.documentElement.classList.add('leve'); return; }
-  const animado = modo === 'animado'; if (animado) document.documentElement.classList.add('animado');
+  // O fundo se mexe em todos os modos, menos no leve. Antes, o padrão desenhava um único quadro parado.
+  const animado = modo !== 'leve'; if (animado) document.documentElement.classList.add('animado');
   const ctx = cv.getContext('2d'); let w, h, nos = [], mouse = { x: -999, y: -999 }, vivo = true;
   const ajustar = () => {
     const dpr = 1;   // fundo é ornamento: meia resolução em tela Retina custa 4x de pintura sem ganho visível

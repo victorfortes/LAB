@@ -1,9 +1,9 @@
 /**
- * As ferramentas do NGA LAB, com o estado real de cada uma.
+ * As ferramentas do NGA NEXUS, com o estado real de cada uma.
  *
  * O servidor sonda cada aplicação com tempo limite e cruza com o uso da
  * credencial de integração. Nada aqui é decorativo: "no ar" significa que a
- * aplicação respondeu agora; "ligada ao Lab" significa que ela já entregou algo
+ * aplicação respondeu agora; "ligada ao Nexus" significa que ela já entregou algo
  * pela API de integração.
  */
 import { api } from '../api.js';
@@ -22,9 +22,9 @@ export default async function ferramentas({ id }) {
   return {
     titulo: 'Ferramentas',
     html: html`${cabecalho({
-      titulo: 'Ferramentas', sub: `As aplicações do ecossistema NGA LAB · verificado ${relativo(r.verificadoEm)}`,
+      titulo: 'Ferramentas', sub: `As aplicações do ecossistema NGA NEXUS · verificado ${relativo(r.verificadoEm)}`,
       acoes: html`<button type="button" class="btn btn--ghost" data-act="rever">${icone('refresh')}Verificar de novo</button>`,
-      resumo: [{ rotulo: 'No ar', valor: noAr }, { rotulo: 'Ligadas ao Lab', valor: r.ferramentas.filter((f) => f.ligadaAoLab).length }, { rotulo: 'Total', valor: r.ferramentas.length }],
+      resumo: [{ rotulo: 'No ar', valor: noAr }, { rotulo: 'Ligadas ao Nexus', valor: r.ferramentas.filter((f) => f.ligadaAoLab).length }, { rotulo: 'Total', valor: r.ferramentas.length }],
     })}
     <div class="grid2 mt">${r.ferramentas.map((f) => {
       const remota = ferramentaRemota(f); const abrirDireto = f.semIncorporar || f.independente || (remota && !f.noAr);
@@ -32,8 +32,8 @@ export default async function ferramentas({ id }) {
       return html`<section class="card glass up tool"><div class="tool__top"><span class="tool__ico">${icone(ICONE[f.id] ?? 'bolt')}</span><div><h3>${f.nome}</h3>
         <div class="tool__st"><span class="selo ${f.noAr ? 'ok' : f.semInterface ? 'info' : remota ? 'aviso' : 'erro'}"><i></i>${f.noAr ? `No ar · ${f.latenciaMs} ms` : f.semInterface ? 'Sem interface' : remota ? 'Disponibilidade não confirmada' : 'Fora do ar'}</span><span class="selo ${tom}">${rot}</span></div></div></div>
         <p>${f.descricao}</p>
-        <p class="mono-sm">${f.independente ? 'Independente: login e dados próprios (Supabase), sem entrega ao Lab' : f.ligadaAoLab ? `Ligada ao Lab · ${f.entregas} entrega(s)${f.ultimaEntrega ? ` · última ${relativo(f.ultimaEntrega)}` : ''}`
-          : f.credencialCriada ? 'Credencial criada, ainda sem entregas' : 'Ainda não entrega dados ao Lab'}</p>
+        <p class="mono-sm">${f.independente ? 'Independente: login e dados próprios (Supabase), sem entrega ao Nexus' : f.ligadaAoLab ? `Ligada ao Lab · ${f.entregas} entrega(s)${f.ultimaEntrega ? ` · última ${relativo(f.ultimaEntrega)}` : ''}`
+          : f.credencialCriada ? 'Credencial criada, ainda sem entregas' : 'Ainda não entrega dados ao Nexus'}</p>
         <div class="tool__acts">${f.noAr || remota ? (abrirDireto
           ? html`<a class="btn btn--accent" href="${remota ? f.url : f.caminho ?? f.url}" target="_blank" rel="noopener">${icone('arrowUpRight')}Abrir</a>`
           : html`<button type="button" class="btn btn--accent" data-embutir="${f.id}">${icone('expand')}Abrir aqui</button>

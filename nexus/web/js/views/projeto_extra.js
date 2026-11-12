@@ -335,10 +335,10 @@ const atribuicao = (a) => (a ? html`<span class="atrib">${String(a).split('/').m
 const SIT = { pendente: ['', 'Pendente'], enviado: ['info', 'Enviado'], em_analise: ['info', 'Em análise'], aprovado: ['ok', 'Aprovado'], rejeitado: ['erro', 'Rejeitado'], complementacao: ['aviso', 'Complementar'], nao_aplicavel: ['', 'Não se aplica'] };
 
 export async function abaPortal(ctx) {
-  const [portal, check, msgs] = await Promise.all([api.get(`/api/projetos/${ctx.id}/portal`), api.get(`/api/projetos/${ctx.id}/checklist`), api.get(`/api/projetos/${ctx.id}/mensagens`)]);
-  const publica = pode('portal.publicar'); const escreve = pode('projeto.escrever'); const analisa = pode('documento.escrever') && escreve;
+  const [portal, check] = await Promise.all([api.get(`/api/projetos/${ctx.id}/portal`), api.get(`/api/projetos/${ctx.id}/checklist`)]);
+  const publica = pode('portal.acessos'); const escreve = pode('projeto.escrever'); const analisa = pode('documento.escrever') && escreve;
   const porCat = new Map(); for (const i of check.itens) { if (!porCat.has(i.categoria)) porCat.set(i.categoria, []); porCat.get(i.categoria).push(i); }
-  const pr = check.progresso; const cron = [...msgs].reverse();
+  const pr = check.progresso; const whats = ctx.h.whatsappGrupoUrl ?? '';
   const toggle = (k, rot) => html`<label class="toggle"><input type="checkbox" data-mostra="${k}" ${portal.mostra?.[k] ? raw('checked') : ''} ${publica ? '' : raw('disabled')}><span></span>${rot}</label>`;
 
   return {
@@ -349,24 +349,25 @@ export async function abaPortal(ctx) {
           ${!pr.total && escreve ? html`<button type="button" class="btn btn--accent" data-modelo>Gerar do modelo</button>` : ''}</header>
           ${pr.total ? html`<details class="mt"><summary class="check-resumo"><span class="pct">${pr.percentualEnviado}%</span><span class="barra-m" aria-hidden="true"><i style="width:${pr.percentualEnviado}%"></i></span><small>entregue · ${pr.percentualAprovado}% aprovado</small></summary>` : ''}
           ${pr.total ? [...porCat].map(([cat, itens]) => html`<h3 class="mini-h">${cat}</h3>${itens.map((i) => html`<div class="check-row${i.situacao === 'nao_aplicavel' ? ' na' : ''}"><span class="sit-dot ${i.situacao}"></span>
-            <div><b>${i.titulo}${i.obrigatorio ? '' : html` <span class="muted">(opcional)</span>`}</b><small>${i.fundamento ?? ''}</small>${atribuicao(i.atribuicao)}${i.observacao ? html`<small class="obs">${i.observacao}</small>` : ''}</div>
-            <span class="selo ${SIT[i.situacao]?.[0] ?? ''}">${i.rotuloDaSituacao ?? SIT[i.situacao]?.[1]}</span>
-            ${i.documento_id ? html`<button type="button" class="ibtn ibtn--sm" data-baixar="${i.documento_id}" aria-label="Baixar" title="Baixar">${icone('download')}</button>` : ''}
+            <div><b>${i.titulo}${i.obrigatorio ? '' : html` <span class="muted">(opcional)</span>`}</b><small>${i.fundamento ?? ''}</small>${atribuicao(i.atribuicao)}${i.observacao ? html`<small class="obs">${i.observacao}</small>` : ''}
+              ${i.documentos?.length > 1 ? html`<ul class="req-arquivos">${i.documentos.map((d) => html`<li>${icone('doc')}<span>${d.titulo}</span><small>${dataBR(d.enviado_em)}</small><button type="button" class="ibtn ibtn--sm" data-baixar="${d.id}" aria-label="Baixar ${d.titulo}" title="Baixar">${icone('download')}</button></li>`)}</ul>` : ''}</div>
+            <span class="selo ${SIT[i.situacao]?.[0] ?? ''}">${i.rotuloDaSituacao ?? SIT[i.situacao]?.[1]}${i.documentos?.length > 1 ? ` · ${i.documentos.length} arquivos` : ''}</span>
+            ${i.documento_id && !(i.documentos?.length > 1) ? html`<button type="button" class="ibtn ibtn--sm" data-baixar="${i.documento_id}" aria-label="Baixar" title="Baixar">${icone('download')}</button>` : ''}
             ${analisa && (i.situacao === 'enviado' || i.situacao === 'em_analise') ? html`<button type="button" class="btn btn--accent" data-analisar-req="${i.id}" data-t="${i.titulo}">Analisar</button>` : ''}
             ${analisa && ['pendente', 'rejeitado', 'complementacao'].includes(i.situacao) ? html`<button type="button" class="btn btn--ghost" data-na="${i.id}" title="Marcar como não se aplica a este caso">N/A</button>` : ''}
             ${analisa && i.situacao === 'nao_aplicavel' ? html`<button type="button" class="btn btn--ghost" data-reativar="${i.id}">Reativar</button>` : ''}</div>`)}`) : vazio('check', 'Checklist ainda não gerado', 'Gerar do modelo cria a lista de documentos do procedimento deste projeto, cada item com o seu fundamento legal.')}
           ${pr.total ? raw('</details>') : ''}
         </section>
-        <section class="card glass up"><header class="card__head"><div><h2 class="card__title">Conversa com o cliente</h2><p class="card__sub">O cliente vê estas mensagens no portal.</p></div></header>
-          <div class="chat" id="chat">${cron.length ? cron.map((m) => html`<div class="msg ${m.lado === 'nga' ? 'meu' : ''}">${m.texto}<small>${m.autor ?? (m.lado === 'nga' ? 'NGA' : 'Cliente')} · ${relativo(m.criado_em)}</small></div>`) : html`<p class="dica">Sem mensagens ainda.</p>`}</div>
-          <form class="chat-in" id="enviar-msg"><input class="input" name="texto" placeholder="Escreva para o cliente…" autocomplete="off" aria-label="Mensagem" required><button class="btn btn--accent" type="submit">${icone('send')}Enviar</button></form>
-        </section>
+        <section class="card glass up"><header class="card__head"><div><h2 class="card__title">Grupo de WhatsApp do cliente</h2><p class="card__sub">O portal mostra o botão “Entrar no grupo” com este link. É por ele que a equipe e o cliente conversam.</p></div>${whats ? html`<span class="selo ok"><i></i>Configurado</span>` : html`<span class="selo aviso"><i></i>Sem link</span>`}</header>
+          <form class="flex" data-whats-form><label class="field grow"><span>Link do grupo</span><input class="input" name="url" type="url" value="${whats}" placeholder="https://chat.whatsapp.com/..." ${escreve ? '' : raw('disabled')}></label>
+            ${escreve ? html`<button class="btn btn--accent" type="submit">${icone('check')}Salvar link</button>` : ''}${whats ? html`<a class="btn btn--ghost" href="${whats}" target="_blank" rel="noopener noreferrer">${icone('arrowUpRight')}Abrir grupo</a>` : ''}</form>
+          <p class="dica">No WhatsApp: Info. do grupo → Convidar por link → Copiar link.</p></section>
       </div>
       <div style="display:grid;gap:var(--gap)">
         <section class="card glass up"><header class="card__head"><div><h2 class="card__title">Acesso do cliente</h2><p class="card__sub">${portal.existe ? portal.organizacao : 'Ainda não há portal para este projeto.'}</p></div>
           ${portal.existe ? html`<span class="selo ${portal.ativo ? 'ok' : 'erro'}"><i></i>${portal.ativo ? 'Ativo' : 'Suspenso'}</span>` : ''}</header>
           ${portal.existe ? html`<div style="display:grid;gap:8px;margin-bottom:14px"><p class="dica" style="margin:0">O que o cliente enxerga:</p>
-            ${toggle('documentos', 'Documentos publicados')}${toggle('obrigacoes', 'Plano de pagamento')}${toggle('financeiro', 'Fluxo de caixa')}${toggle('processos', 'Andamento processual (só o publicado)')}
+            ${toggle('documentos', 'Documentos publicados')}${toggle('faturas', 'Faturas e comprovantes')}${toggle('obrigacoes', 'Plano de pagamento')}${toggle('financeiro', 'Fluxo de caixa')}${toggle('processos', 'Andamento processual (só o publicado)')}
             ${publica ? html`<label class="toggle"><input type="checkbox" data-ativo ${portal.ativo ? raw('checked') : ''}><span></span>Portal ativo</label>` : ''}</div>
             <p class="mini-h" style="margin-top:0">Pessoas de ${portal.organizacao} · todas veem o mesmo conteúdo</p><ul class="lista">${portal.usuarios.map((u) => html`<li>${avatar(u.nome, 'md')}<div><b>${u.nome}</b><small>${u.email} · ${u.ultimoAcesso ? `último acesso ${relativo(u.ultimoAcesso)}` : 'nunca entrou'}</small></div></li>`)}</ul>` : ''}
           ${publica ? html`<button type="button" class="btn ${portal.existe ? 'btn--ghost' : 'btn--accent'} mt" data-convite>${icone('plus')}${portal.existe ? 'Adicionar pessoa da mesma empresa' : 'Criar portal e convidar o cliente'}</button>` : ''}
@@ -390,18 +391,16 @@ export async function abaPortal(ctx) {
         try { await api.post(`/api/requisitos/${id}/analise`, na ? { situacao: 'nao_aplicavel', observacao: 'Não se aplica a este caso.' } : { situacao: 'pendente' }); toast(na ? 'Marcado como não se aplica' : 'Item reativado'); ctx.recarregar(); } catch (e) { erroDe(e); }
       });
       ouvir(el, 'change', '[data-mostra]', async (c) => {
-        const campo = { documentos: 'mostraDocumentos', obrigacoes: 'mostraObrigacoes', financeiro: 'mostraFinanceiro', processos: 'mostraProcessos' }[c.dataset.mostra];
+        const campo = { documentos: 'mostraDocumentos', faturas: 'mostraFaturas', obrigacoes: 'mostraObrigacoes', financeiro: 'mostraFinanceiro', processos: 'mostraProcessos' }[c.dataset.mostra];
         try { await api.patch(`/api/projetos/${ctx.id}/portal`, { [campo]: c.checked }); toast('Visibilidade atualizada'); } catch (e) { c.checked = !c.checked; erroDe(e); }
       });
       ouvir(el, 'change', '[data-ativo]', async (c) => {
         try { await api.patch(`/api/projetos/${ctx.id}/portal`, { ativo: c.checked }); toast(c.checked ? 'Portal ativado' : 'Portal suspenso'); ctx.recarregar(); } catch (e) { c.checked = !c.checked; erroDe(e); }
       });
       ouvir(el, 'click', '[data-convite]', () => convidar(ctx, portal));
-      const chat = $('#chat', el); if (chat) chat.scrollTop = chat.scrollHeight;
-      $('#enviar-msg', el)?.addEventListener('submit', async (e) => {
-        e.preventDefault(); const f = e.target; const texto = f.texto.value.trim(); if (!texto) return;
-        f.querySelector('button').disabled = true;
-        try { await api.post(`/api/projetos/${ctx.id}/mensagens`, { texto }); ctx.recarregar(); } catch (er) { erroDe(er); f.querySelector('button').disabled = false; }
+      $('[data-whats-form]', el)?.addEventListener('submit', async (e) => {
+        e.preventDefault(); const url = e.target.url.value.trim();
+        try { await api.patch(`/api/projetos/${ctx.id}/dados-do-cliente`, { whatsappGrupoUrl: url }); toast(url ? 'Link do grupo salvo' : 'Link removido'); ctx.recarregar(); } catch (er) { erroDe(er); }
       });
     },
   };
@@ -484,6 +483,25 @@ const rotuloMesRelatorio = (mes) => mes
   ? new Intl.DateTimeFormat('pt-BR', { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(mes + '-01T00:00:00Z'))
   : 'Sem competência informada';
 
+/**
+ * Acompanhamento mês a mês, como no Gerador: uma bolinha por competência.
+ * Verde: relatório publicado no portal. Âmbar: emitido, ainda não publicado.
+ * Vermelho: mês encerrado sem relatório. Cinza: mês corrente em aberto.
+ */
+function trilhaMensal(porMes, atual) {
+  const meses = [...porMes.keys()].filter(Boolean).sort().slice(-12);
+  const estado = (mes) => {
+    const itens = porMes.get(mes) ?? [];
+    if (itens.some(({ d }) => d?.visibilidade === 'publicado')) return ['ok', 'Publicado no portal'];
+    if (itens.length) return ['emitido', 'Emitido, falta publicar'];
+    return mes < atual ? ['falta', 'Sem relatório'] : ['aberto', 'Em aberto'];
+  };
+  const curto = (mes) => new Intl.DateTimeFormat('pt-BR', { month: 'short', timeZone: 'UTC' }).format(new Date(mes + '-01T00:00:00Z')).replace('.', '');
+  const contagem = meses.reduce((t, m) => { const [k] = estado(m); t[k] = (t[k] ?? 0) + 1; return t; }, {});
+  return html`<div class="rel-trilha" role="list" aria-label="Acompanhamento mensal dos relatórios">${meses.map((m) => { const [k, rotulo] = estado(m); return html`<div class="rel-trilha__mes ${k}${m === atual ? ' atual' : ''}" role="listitem" title="${rotuloMesRelatorio(m)}: ${rotulo}"><i></i><small>${curto(m)}</small><span>${m.slice(2, 4)}</span></div>`; })}</div>
+    <p class="rel-legenda"><span class="ok"><i></i>Publicado ${contagem.ok ?? 0}</span><span class="emitido"><i></i>Emitido ${contagem.emitido ?? 0}</span><span class="falta"><i></i>Sem relatório ${contagem.falta ?? 0}</span><span class="aberto"><i></i>Em aberto</span></p>`;
+}
+
 export async function abaRelatorios(ctx) {
   const base = `/api/projetos/${ctx.id}`;
   const [docs, ger] = await Promise.all([api.get(`${base}/documentos`), api.get(`${base}/gerador/emissoes`)]);
@@ -496,7 +514,7 @@ export async function abaRelatorios(ctx) {
   const hoje = hojeISO();
   const competenciaAtual = hoje.slice(0, 7);
   const mesInicial = new Date(competenciaAtual + '-01T00:00:00Z');
-  for (let i = 0; i < 6; i++) {
+  for (let i = 0; i < 12; i++) {
     const data = new Date(mesInicial);
     data.setUTCMonth(data.getUTCMonth() - i);
     porMes.set(data.toISOString().slice(0, 7), []);
@@ -512,6 +530,7 @@ export async function abaRelatorios(ctx) {
     html: html`<section class="card glass up"><header class="card__head"><div><h2 class="card__title">Entregas mensais de relatórios</h2>
       <p class="card__sub">Relatórios do Gerador vinculados aos nomes cadastrados para este cliente. Confira a competência e publique o PDF no portal.</p></div>
       <a class="btn btn--ghost" href="/gerador/" target="_blank" rel="noopener">Abrir o gerador ↗</a></header>
+      ${trilhaMensal(porMes, competenciaAtual)}
       ${[...porMes.keys()].sort().reverse().map(mes => {
         const itens = porMes.get(mes);
         const publicados = itens.filter(({d}) => d?.visibilidade === 'publicado').length;

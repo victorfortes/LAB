@@ -128,7 +128,7 @@ describe('relatórios', () => {
   });
 
   test('a equipe interna emite; publicar continua sendo outra permissão', () => {
-    expect(podeComPapeis(['advogado'], 'relatorio.gerar')).toBe(true);
+    expect(podeComPapeis(['coordenacao'], 'relatorio.gerar')).toBe(true);
     expect(podeComPapeis(['estagiario'], 'relatorio.gerar')).toBe(true);
     expect(podeComPapeis(['estagiario'], 'portal.publicar')).toBe(false);
   });

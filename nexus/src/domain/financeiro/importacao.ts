@@ -30,7 +30,7 @@ export function valorBr(v: string): bigint | null {
   const r = BigInt(i || '0') * 100n + BigInt((c + '00').slice(0, 2)); return neg ? -r : r;
 }
 
-function csv(texto: string): string[][] {
+export function csv(texto: string): string[][] {
   const primeira = texto.split(/\r?\n/, 1)[0] ?? ''; const sep = [';', '\t', ','].sort((a, b) => primeira.split(b).length - primeira.split(a).length)[0]!;
   const linhas: string[][] = []; let linha: string[] = []; let campo = ''; let aspas = false;
   for (let i = 0; i < texto.length; i++) { const c = texto[i]!;

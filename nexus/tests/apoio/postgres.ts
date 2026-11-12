@@ -23,7 +23,14 @@ export interface BancoDeTeste {
 
 let proximaPorta = 54330 + Math.floor(Math.random() * 400);
 
-export async function bancoDeTeste(): Promise<BancoDeTeste> {
+/**
+ * Desde a migração 048, advogado, estagiário e administrativo só veem os projetos
+ * em que estão na equipe. Os testes escritos antes disso montam o cenário direto
+ * no banco e tratam essas pessoas como parte de todos os casos; para eles, a
+ * equipe é preenchida automaticamente. Os testes da regra de visibilidade
+ * (`visibilidade-equipe.test.ts`) desligam isso com `{ equipeAutomatica: false }`.
+ */
+export async function bancoDeTeste(opcoes: { equipeAutomatica?: boolean } = {}): Promise<BancoDeTeste> {
   const dir = await mkdtemp(join(tmpdir(), 'nga-pg-'));
   const porta = proximaPorta++;
   const pg = new EmbeddedPostgres({
@@ -39,6 +46,30 @@ export async function bancoDeTeste(): Promise<BancoDeTeste> {
   await dono.connect();
   await migrar(dono);
   await dono.query(`ALTER ROLE nga_app PASSWORD 'nga_app'`);
+  if (opcoes.equipeAutomatica !== false) {
+    await dono.query(`
+      CREATE FUNCTION teste_equipe_por_projeto() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER AS $$
+      BEGIN
+        INSERT INTO projeto_equipe (projeto_id, organizacao_id, usuario_id, papel)
+        SELECT NEW.id, NEW.organizacao_id, v.usuario_id, 'apoio' FROM vinculos v
+         WHERE v.organizacao_id = NEW.organizacao_id AND v.revogado_em IS NULL
+           AND v.papel IN ('advogado','estagiario','administrativo')
+           AND v.usuario_id IS DISTINCT FROM NEW.responsavel_id;
+        RETURN NEW;
+      END $$;
+      CREATE FUNCTION teste_equipe_por_vinculo() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER AS $$
+      BEGIN
+        IF NEW.papel IN ('advogado','estagiario','administrativo') THEN
+          INSERT INTO projeto_equipe (projeto_id, organizacao_id, usuario_id, papel)
+          SELECT p.id, p.organizacao_id, NEW.usuario_id, 'apoio' FROM projetos p
+           WHERE p.organizacao_id = NEW.organizacao_id
+             AND NOT EXISTS (SELECT 1 FROM projeto_equipe e WHERE e.projeto_id = p.id AND e.usuario_id = NEW.usuario_id AND e.ate IS NULL);
+        END IF;
+        RETURN NEW;
+      END $$;
+      CREATE TRIGGER teste_equipe_projeto AFTER INSERT ON projetos FOR EACH ROW EXECUTE FUNCTION teste_equipe_por_projeto();
+      CREATE TRIGGER teste_equipe_vinculo AFTER INSERT ON vinculos FOR EACH ROW EXECUTE FUNCTION teste_equipe_por_vinculo();`);
+  }
 
   // A conexão de teste usa o papel da aplicação, sem superusuário: é a única
   // forma de o RLS valer de verdade (ver migração 004).
