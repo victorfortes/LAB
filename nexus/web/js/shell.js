@@ -34,7 +34,7 @@ const NAV_CLIENTE = [
   { rota: 'documentos', rotulo: 'Documentos', icone: 'doc', contagem: 'docs' },
   { rota: 'faturas', rotulo: 'Faturas', icone: 'money', contagem: 'fat' },
   { rota: 'plano', rotulo: 'Plano de pagamento', icone: 'scale' },
-  { rota: 'caixa', rotulo: 'Fluxo de caixa', icone: 'chart' },
+  { rota: 'caixa', rotulo: 'Financeiro', icone: 'chart' },
   { rota: 'relatorios', rotulo: 'Relatórios', icone: 'chart' },
   { rota: 'atas', rotulo: 'Atas de reunião', icone: 'doc' },
 ];

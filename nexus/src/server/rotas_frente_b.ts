@@ -9,6 +9,7 @@ import { PedidoInvalido } from './erros.ts';
 import type { Deposito } from './arquivos.ts';
 import type { Identidade } from '../security/sessao.ts';
 import * as qgc from './qgc.ts';
+import * as fechamentos from './fechamentos.ts';
 
 export interface ContextoRota {
   rota: string; metodo: string; req: Request; identidade: Identidade & { papeis: readonly Papel[] }; ehCliente: boolean;
@@ -54,6 +55,18 @@ export async function rotasFrenteB(c: ContextoRota): Promise<Response | null> {
     exigir(i.papeis, 'credito.escrever'); const pid = m[1]!;
     const d = await corpo(req, z.object({ documentoId: z.string().uuid() }));
     return json(await como((db) => qgc.importarRelacaoFinal(db, pid, d.documentoId, c.deposito, i)), 201);
+  }
+
+  // Fechamento financeiro mensal: o cliente informa, a NGA lê e confere.
+  if ((m = p('fechamentos'))) {
+    const pid = m[1]!;
+    if (metodo === 'GET') { exigir(i.papeis, 'financeiro_cliente.ler'); return json(await como((db) => fechamentos.listar(db, pid))); }
+    if (metodo === 'PUT') { exigir(i.papeis, 'financeiro_cliente.escrever'); const d = await corpo(req, fechamentos.EsquemaFechamento); return json(await como((db) => fechamentos.salvar(db, pid, d, i))); }
+  }
+  if ((m = new RegExp(`^/api/projetos/${UUID}/fechamentos/(\\d{4}-\\d{2})/conferir$`).exec(rota)) && metodo === 'POST') {
+    if (c.ehCliente) return c.erro('acesso negado', 403);
+    exigir(i.papeis, 'financeiro_cliente.ler'); exigir(i.papeis, 'projeto.escrever');
+    const pid = m[1]!; const mes = m[2]!; return json(await como((db) => fechamentos.conferir(db, pid, mes, i)));
   }
 
   m = new RegExp(`^/api/qgc/preliminar/${UUID}(/validar)?$`).exec(rota);

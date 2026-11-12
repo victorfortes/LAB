@@ -13,11 +13,11 @@ import { cabecalho, erroDe, formulario, toast, vazio } from '../ui.js';
 import { painelFinanceiroProjeto } from './projeto_financeiro.js';
 import { atualizarLateral, navegar } from '../shell.js';
 
-const TITULOS = { inicio: 'Visão geral', andamento: 'Andamento', documentos: 'Documentos', faturas: 'Faturas', plano: 'Plano de pagamento', caixa: 'Fluxo de caixa', atas: 'Atas de reunião', relatorios: 'Relatórios' };
+const TITULOS = { inicio: 'Visão geral', andamento: 'Andamento', documentos: 'Documentos', faturas: 'Faturas', plano: 'Plano de pagamento', caixa: 'Financeiro', atas: 'Atas de reunião', relatorios: 'Relatórios' };
 const SUB = {
   andamento: 'O que aconteceu em cada processo, em linguagem simples.', documentos: 'O que a NGA precisa de você e o que já foi conferido.',
   faturas: 'Honorários e despesas, com o comprovante de cada pagamento.', plano: 'As obrigações do plano de recuperação judicial aprovado, com credor, valor e vencimento.',
-  caixa: 'Previsto e realizado, lado a lado.', atas: 'Pauta, decisões e encaminhamentos de cada reunião.', relatorios: 'Acompanhamento mensal e quadros preparados para você.',
+  caixa: 'O fechamento de cada mês e a saúde financeira da empresa.', atas: 'Pauta, decisões e encaminhamentos de cada reunião.', relatorios: 'Acompanhamento mensal e quadros preparados para você.',
 };
 const SIT = { pendente: ['', 'Pendente'], enviado: ['info', 'Enviado'], em_analise: ['info', 'Em análise'], aprovado: ['ok', 'Aprovado'], rejeitado: ['erro', 'Rejeitado'], complementacao: ['aviso', 'Complementar'], nao_aplicavel: ['', 'Não se aplica'] };
 const STATUS_FATURA = {
@@ -281,7 +281,7 @@ async function plano(p) {
 }
 
 async function caixa(p) {
-  if (!p.mostra_financeiro) return bloqueado('o fluxo de caixa');
+  if (!p.mostra_financeiro) return bloqueado('o financeiro');
   const r = await painelFinanceiroProjeto(p.projeto_id, () => navegar()).catch(() => null);
   if (!r) return { resumo: [], html: html`<section class="card glass up">${vazio('chart', 'Fluxo de caixa indisponível', 'Tente de novo em alguns instantes.')}</section>` };
   return { resumo: [], html: r.html, depois: r.depois };
