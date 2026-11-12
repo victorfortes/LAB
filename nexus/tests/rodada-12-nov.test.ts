@@ -19,6 +19,7 @@ import { consultarLote } from '../src/server/andamentos.ts';
 // @ts-expect-error módulo do navegador, em JS puro
 import { preencherDocumento, trocarTexto } from '../web/js/fatura_modelo.js';
 import { descricaoComPauta } from '../src/server/google.ts';
+import * as slackSrv from '../src/server/slack.ts';
 
 describe('andamentos: domínio', () => {
   test('índice do DataJud sai do número CNJ', () => {
@@ -252,5 +253,63 @@ describe('pauta, onboarding e avisos do Sentinela', () => {
     const cli = await api('cx@cliente.com', 'GET', '/api/portal/avisos');
     expect(cli.corpo).toHaveLength(1); expect(cli.corpo[0].dados.numero).toBe('00099998820268160001');
     expect((await api('cx@cliente.com', 'POST', `/api/portal/avisos/${cli.corpo[0].id}/lido`, {})).status).toBe(200);
+  });
+});
+
+describe('Slack e relatório mensal', () => {
+  const segredo = 'chave-do-cofre-de-teste';
+  const falso = (registro: { metodo: string; corpo: unknown }[]) => (async (u: string, init?: RequestInit) => {
+    const metodo = String(u).replace('https://slack.com/api/', '').split('?')[0]!;
+    registro.push({ metodo, corpo: init?.body ? (typeof init.body === 'string' && init.body.startsWith('{') ? JSON.parse(init.body) : String(init.body)) : null });
+    if (metodo === 'oauth.v2.access') return Response.json({ ok: true, token_type: 'bot', access_token: 'xoxb-bot', team: { id: 'T0B6U2U040K', name: 'NGA' }, authed_user: { id: 'UADV', access_token: 'xoxp-user', scope: 'chat:write' } });
+    if (metodo === 'users.lookupByEmail') return Response.json({ ok: true, user: { id: 'UFIN' } });
+    if (metodo === 'conversations.list') return Response.json({ ok: true, channels: [{ id: 'C111111', name: 'geral', is_member: true }, { id: 'D222222', is_im: true, user: 'UFIN' }] });
+    if (metodo === 'users.list') return Response.json({ ok: true, members: [{ id: 'UFIN', real_name: 'Financeiro' }, { id: 'UADV', real_name: 'Advogado' }] });
+    if (metodo === 'conversations.history') return Response.json({ ok: true, messages: [{ ts: '1700000000.1', user: 'UFIN', text: 'Olá <@UADV>' }] });
+    return Response.json({ ok: true, ts: '1.2' });
+  }) as unknown as typeof fetch;
+
+  test('app no cofre, conexão do usuário (com bot), conversas e envio', async () => {
+    expect((await api('adm@nga.adv.br', 'PUT', '/api/slack/app', { clientId: '123.456', clientSecret: 'segredo-do-app-slack-123' })).status).toBe(200);
+    const { rows: [c] } = await pg.dono.query(`SELECT segredo FROM cofre_credenciais WHERE servico = 'slack_app'`);
+    expect(c.segredo).not.toContain('segredo-do-app');
+    const r = await api('adm@nga.adv.br', 'GET', '/api/slack/conectar?origem=https%3A%2F%2Fnga-lab-launchpad.lovable.app');
+    expect(r.corpo.url).toContain('user_scope='); expect(r.corpo.url).toContain('scope=chat');
+    expect((await api('adm@nga.adv.br', 'GET', '/api/slack/conectar?origem=https%3A%2F%2Fmal.com')).status).toBe(400);
+    const estado = new URL(r.corpo.url).searchParams.get('state')!;
+    const reg: { metodo: string; corpo: unknown }[] = [];
+    const adm = { usuarioId: U(1), nome: 'adm', email: 'adm@nga.adv.br', papeis: ['socio_administrador'] as never, organizacoes: [{ id: NGA, nome: 'NGA', tipo: 'escritorio', papel: 'socio_administrador' as never }] };
+    const ok = await banco.comoUsuario(U(1), (db) => slackSrv.concluir(db, { code: 'codigo-123', state: estado }, segredo, adm, falso(reg)));
+    expect(ok).toMatchObject({ ok: true, bot: true });
+    const conv = await banco.comoUsuario(U(1), (db) => slackSrv.conversas(db, adm, segredo, falso(reg)));
+    expect(conv.conversas.map((x: { nome: string }) => x.nome)).toEqual(['geral', 'Financeiro']);
+    await banco.comoUsuario(U(1), (db) => slackSrv.enviar(db, adm, segredo, { canal: 'C111111', texto: 'oi' }, falso(reg)));
+    expect(reg.some((x) => x.metodo === 'chat.postMessage')).toBe(true);
+    const st = await api('adm@nga.adv.br', 'GET', '/api/slack/estado');
+    expect(st.corpo).toMatchObject({ appConfigurado: true, botConectado: true, euConectado: true });
+  });
+
+  test('rotina manda aviso de prazo e não repete', async () => {
+    expect((await api('adm@nga.adv.br', 'GET', '/api/slack/regras')).corpo.length).toBe(11);
+    await pg.dono.query(`UPDATE slack_regras SET ativo = (evento = 'prazo_hoje'), hora = 0`);
+    await pg.dono.query(`UPDATE prazos SET vencimento = (now() AT TIME ZONE 'America/Sao_Paulo')::date, responsavel_id = $1`, [U(3)]);
+    const reg: { metodo: string; corpo: unknown }[] = [];
+    const a = await slackSrv.rotinaSlack(banco, segredo, { buscar: falso(reg) });
+    expect(a.enviados).toBe(1);
+    const post = reg.find((x) => x.metodo === 'chat.postMessage')!.corpo as { channel: string; text: string };
+    expect(post.channel).toBe('UFIN'); expect(post.text).toContain('Prazo vence HOJE');
+    const b = await slackSrv.rotinaSlack(banco, segredo, { buscar: falso([]) });
+    expect(b.enviados).toBe(0);
+  });
+
+  test('relatório mensal sai dos dados do Nexus', async () => {
+    const mes = new Date().toLocaleDateString('sv-SE').slice(0, 7);
+    const r = await api('adm@nga.adv.br', 'GET', `/api/projetos/${projeto}/relatorio-mensal?mes=${mes}`);
+    expect(r.status).toBe(200);
+    expect(r.corpo.indicadores.processos).toBe(1);
+    expect(r.corpo.cabecalho.cliente).toBe('EMPRESA CLIENTE LTDA');
+    expect(Array.isArray(r.corpo.lacunas)).toBe(true);
+    const p = await api('adm@nga.adv.br', 'GET', `/api/relatorios/base-nexus?mes=${mes}`);
+    expect(p.corpo[0]).toMatchObject({ projeto: 'RJ Teste', processos: 1 });
   });
 });

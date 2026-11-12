@@ -43,6 +43,8 @@ import * as andamentos from './andamentos.ts';
 import * as faturaDoc from './fatura_documento.ts';
 import * as onboarding from './onboarding.ts';
 import * as avisos from './avisos.ts';
+import * as slack from './slack.ts';
+import * as relMensal from './relatorio_mensal.ts';
 import { rotasFrenteB } from './rotas_frente_b.ts';
 import * as sentinelaGestao from './sentinela_gestao.ts';
 import { interpretar } from '../domain/financeiro/linguagem.ts';
@@ -342,6 +344,15 @@ export function criarApp(ctx: Contexto) {
           ? new URLSearchParams({googleErro:url.searchParams.get('error')==='access_denied'?'A autorização foi cancelada na tela do Google.':'O Google não concluiu a autorização. Tente novamente.'})
           : new URLSearchParams({googleCode:code,googleState:state});
         return new Response(null,{status:303,headers:{location:'/#/ajustes?'+retorno,'cache-control':'no-store','referrer-policy':'no-referrer'}});
+      }
+
+      // Retorno do Slack: mesma solução do Google (sem HTML na função; a tela conclui por POST com a sessão).
+      if (rota === '/api/slack/callback' && metodo === 'GET') {
+        const code = url.searchParams.get('code'); const state = url.searchParams.get('state');
+        const retorno = !code || !state || code.length > 4096 || state.length > 256
+          ? new URLSearchParams({ slackErro: url.searchParams.get('error') === 'access_denied' ? 'A autorização foi cancelada no Slack.' : 'O Slack não concluiu a autorização. Tente de novo.' })
+          : new URLSearchParams({ slackCode: code, slackState: state });
+        return new Response(null, { status: 303, headers: { location: '/#/slack?' + retorno, 'cache-control': 'no-store', 'referrer-policy': 'no-referrer' } });
       }
 
       if(rota==='/api/sso/consumir'&&metodo==='POST'){
@@ -1177,6 +1188,43 @@ export function criarApp(ctx: Contexto) {
         if (metodo === 'DELETE') return json(await como((db) => configuracao.excluirAutomacao(db, mAutConf[1]!, identidade)));
         const d = await corpoDe(configuracao.EsquemaAtualizacaoAutomacao);
         return json(await como((db) => configuracao.atualizarAutomacao(db, mAutConf[1]!, d, identidade)));
+      }
+
+      // ------------------------------------------------------------------------- Slack ---
+      if (rota.startsWith('/api/slack/')) {
+        if (ehCliente) return erro('acesso negado', 403);
+        const sub = rota.slice('/api/slack'.length); const gere = () => exigir(identidade.papeis, 'admin.gerir');
+        if (sub === '/estado' && metodo === 'GET') return json(await como((db) => slack.estado(db, identidade)));
+        if (sub === '/app' && metodo === 'PUT') { gere(); const d = await corpoDe(slack.EsquemaApp); return json(await como((db) => slack.salvarApp(db, d, chaveDoCofre, identidade))); }
+        if (sub === '/conectar' && metodo === 'GET') return json(await como((db) => slack.conectar(db, url.searchParams.get('origem') ?? '', chaveDoCofre, identidade)));
+        if (sub === '/concluir' && metodo === 'POST') { const d = await corpoDe(slack.EsquemaConclusao); return json(await como((db) => slack.concluir(db, d, chaveDoCofre, identidade))); }
+        if (sub === '/conexao' && metodo === 'DELETE') return json(await como((db) => slack.desconectar(db, identidade)));
+        if (sub === '/conversas' && metodo === 'GET') return json(await como((db) => slack.conversas(db, identidade, chaveDoCofre)));
+        const mMsg = /^\/conversas\/([A-Z0-9]{7,})\/mensagens$/.exec(sub);
+        if (mMsg && metodo === 'GET') return json(await como((db) => slack.mensagens(db, identidade, chaveDoCofre, mMsg[1]!)));
+        if (sub === '/mensagens' && metodo === 'POST') { const d = await corpoDe(slack.EsquemaEnvio); return json(await como((db) => slack.enviar(db, identidade, chaveDoCofre, d)), 201); }
+        if (sub === '/regras' && metodo === 'GET') return json(await como((db) => slack.regras(db, identidade)));
+        const mReg = /^\/regras\/([0-9a-f-]{36})$/.exec(sub);
+        if (mReg && metodo === 'PATCH') { exigir(identidade.papeis, 'config.gerir'); const d = await corpoDe(slack.EsquemaRegra); return json(await como((db) => slack.editarRegra(db, mReg[1]!, d, identidade))); }
+        if (sub === '/canais' && metodo === 'GET') { exigir(identidade.papeis, 'config.gerir'); return json(await como((db) => slack.canaisDoBot(db, chaveDoCofre))); }
+        if (sub === '/teste' && metodo === 'POST') return json(await como((db) => slack.testar(db, identidade, chaveDoCofre)));
+        if (sub === '/envios' && metodo === 'GET') { exigir(identidade.papeis, 'config.gerir'); return json(await como(slack.historicoEnvios)); }
+        return erro('rota não encontrada', 404);
+      }
+
+      // ------------------------------------------------- relatório mensal (base Nexus) ---
+      const mRelM = /^\/api\/projetos\/([0-9a-f-]{36})\/relatorio-mensal$/.exec(rota);
+      if (mRelM && metodo === 'GET') {
+        if (ehCliente) return erro('acesso negado', 403);
+        exigir(identidade.papeis, 'relatorio.gerar');
+        const mes = url.searchParams.get('mes') ?? ''; if (!/^\d{4}-\d{2}$/.test(mes)) return erro('informe o mês como AAAA-MM', 400);
+        return json(await como((db) => relMensal.montar(db, mRelM[1]!, mes, identidade)));
+      }
+      if (rota === '/api/relatorios/base-nexus' && metodo === 'GET') {
+        if (ehCliente) return erro('acesso negado', 403);
+        exigir(identidade.papeis, 'relatorio.gerar');
+        const mes = url.searchParams.get('mes') ?? ''; if (!/^\d{4}-\d{2}$/.test(mes)) return erro('informe o mês como AAAA-MM', 400);
+        return json(await como((db) => relMensal.prontidao(db, mes)));
       }
 
       // ------------------------------------------------------------- onboarding do projeto ---

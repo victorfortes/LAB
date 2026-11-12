@@ -14,7 +14,7 @@ import { cabecalho, confirmar, erroDe, formulario, modal, toast, vazio } from '.
 import { navegar } from '../shell.js';
 
 const ESCOPOS = { 'processos': ['processos'], 'prazos': ['prazos'], 'documentos': ['documentos'], 'processos+documentos': ['processos', 'documentos'], 'todos': ['processos', 'prazos', 'documentos'], 'automação do Astrea (BI de Prazos + publicações)': ['agenda', 'publicacoes'] };
-const ABAS = [['geral', 'Geral'], ['acessos', 'Acessos'], ['fluxos', 'Fluxos'], ['tempo', 'Linhas do tempo'], ['automacoes', 'Automações'], ['credenciais', 'Credenciais']];
+const ABAS = [['geral', 'Geral'], ['acessos', 'Acessos'], ['fluxos', 'Fluxos'], ['tempo', 'Linhas do tempo'], ['automacoes', 'Automações'], ['slack', 'Slack'], ['credenciais', 'Credenciais']];
 const GATILHO = { projeto_criado: 'Quando um projeto for criado', fase_iniciada: 'Quando uma fase começar', documento_cliente_enviado: 'Quando o cliente enviar um documento', fatura_criada: 'Quando uma fatura for emitida', fatura_paga: 'Quando uma fatura for paga' };
 let abertoFluxo = null; let abertoTempo = null;
 
@@ -26,6 +26,49 @@ async function concluirGoogle() {
   if (q.has('googleErro')) { toast(q.get('googleErro'), 'erro'); return; }
   try { await api.post('/api/google/finalizar', { code: q.get('googleCode'), state: q.get('googleState') }); toast('Conta Google conectada'); }
   catch (e) { erroDe(e); }
+}
+
+/** Slack do escritório: app, bot dos avisos e regras de aviso (prazos, tarefas, reuniões, Sentinela). */
+async function ajustesSlack() {
+  const st = await api.get('/api/slack/estado');
+  const gere = pode('config.gerir'); const admin = pode('admin.gerir');
+  const [regras, envios, canais] = await Promise.all([api.get('/api/slack/regras').catch(() => []), gere ? api.get('/api/slack/envios').catch(() => []) : [], gere && st.botConectado ? api.get('/api/slack/canais').catch(() => []) : []]);
+  const retorno = `${location.origin}/api/slack/callback`;
+  const passo = (n, t, ok) => html`<li class="${ok ? 'ok' : ''}"><span>${ok ? '✓' : n}</span><div>${t}</div></li>`;
+  return {
+    html: html`<section class="card glass up"><header class="card__head"><div><h2 class="card__title">Slack do escritório</h2><p class="card__sub">Aba Slack com a conta de cada pessoa e avisos automáticos pelo bot.</p></div>
+        <div class="nx-acts">${st.botConectado ? html`<button class="btn btn--ghost btn--sm" data-teste-slack>Mandar teste para mim</button>` : ''}<a class="btn btn--accent btn--sm" href="#/slack">Abrir a aba Slack</a></div></header>
+      <ol class="sk-passos">
+        ${passo(1, html`<b>Criar o app do Slack</b> em <a href="https://api.slack.com/apps" target="_blank" rel="noopener noreferrer">api.slack.com/apps</a> → Create New App → From scratch, no workspace NGA. Em <i>OAuth &amp; Permissions</i>, cadastre o Redirect URL <code>${retorno}</code> e os escopos abaixo.`, st.appConfigurado)}
+        ${passo(2, html`<b>Colar aqui o Client ID e o Client Secret</b> (Basic Information → App Credentials). O secret é cifrado no servidor.${admin ? html` <button class="link" data-app-slack>${st.appConfigurado ? 'Trocar' : 'Informar'} credenciais</button>` : ' (administração)'}`, st.appConfigurado)}
+        ${passo(3, html`<b>A administração conecta o Slack</b> na aba Slack: isso instala o bot que manda os avisos.`, st.botConectado)}
+        ${passo(4, html`<b>Cada pessoa conecta a própria conta</b> na aba Slack. Hoje: ${st.pessoasConectadas} pessoa(s). Quem não conectar recebe os avisos pelo e-mail igual ao do Slack.`, st.pessoasConectadas > 1)}</ol>
+      <details class="mt"><summary class="link">Escopos para colar no app</summary><p class="dica"><b>Bot Token Scopes:</b> <code>chat:write, chat:write.public, users:read, users:read.email, channels:read, groups:read, im:write</code></p>
+        <p class="dica"><b>User Token Scopes:</b> <code>channels:read, channels:history, groups:read, groups:history, im:read, im:history, mpim:read, mpim:history, users:read, chat:write</code></p></details></section>
+    <section class="card glass up mt"><header class="card__head"><div><h2 class="card__title">Avisos automáticos</h2><p class="card__sub">A rotina roda a cada 5 minutos e nunca manda o mesmo aviso duas vezes. Mensagem direta vai para o responsável; o canal recebe uma cópia.</p></div></header>
+      ${regras.length ? html`<div class="tbl-wrap"><table class="tbl sk-regras"><thead><tr><th>Aviso</th><th>Ligado</th><th>Direto ao responsável</th><th>Canal</th><th>A partir de</th></tr></thead><tbody>${regras.map((r) => html`<tr data-regra="${r.id}">
+          <td><b>${r.rotulo}</b></td>
+          <td><label class="toggle"><input type="checkbox" data-campo="ativo" ${r.ativo ? 'checked' : ''} ${gere ? '' : 'disabled'}><span></span></label></td>
+          <td><label class="toggle"><input type="checkbox" data-campo="dmResponsavel" ${r.dmResponsavel ? 'checked' : ''} ${gere ? '' : 'disabled'}><span></span></label></td>
+          <td>${canais.length ? html`<select class="select" data-campo="canal" ${gere ? '' : 'disabled'}><option value="">Sem canal</option>${canais.map((c) => html`<option value="${c.id}" data-nome="${c.nome}" ${c.id === r.canalId ? 'selected' : ''}>${c.privado ? '🔒' : '#'}${c.nome}${c.membro ? '' : ' (convide o bot)'}</option>`)}</select>` : html`<span class="dica">${r.canalNome ? `#${r.canalNome}` : st.botConectado ? 'nenhum canal visível' : 'instale o bot'}</span>`}</td>
+          <td>${['reuniao_30min', 'tarefa_atribuida', 'sentinela_nova_acao'].includes(r.evento) ? html`<span class="dica">na hora</span>` : html`<select class="select" data-campo="hora" ${gere ? '' : 'disabled'}>${Array.from({ length: 16 }, (_, h) => h + 6).map((h) => html`<option value="${h}" ${h === r.hora ? 'selected' : ''}>${h}h</option>`)}</select>`}</td></tr>`)}</tbody></table></div>` : html`<p class="dica">Sem regras.</p>`}</section>
+    ${gere ? html`<section class="card glass up mt"><header class="card__head"><div><h2 class="card__title">Últimos avisos enviados</h2></div></header>
+      ${envios.length ? html`<ul class="lista">${envios.map((e) => html`<li><span class="selo ${e.ok ? 'ok' : 'erro'}">${e.ok ? 'enviado' : 'falhou'}</span><div><b>${e.texto.split('\n')[0].replace(/\*/g, '')}</b><small>${relativo(e.enviadoEm)}${e.erro ? ` · ${e.erro}` : ''}</small></div></li>`)}</ul>` : html`<p class="dica">Nenhum aviso enviado ainda.</p>`}</section>` : ''}`,
+    depois(el) {
+      ouvir(el, 'click', '[data-app-slack]', async () => {
+        const ok = await formulario({ titulo: 'App do Slack', subtitulo: 'Basic Information → App Credentials', rotulo: 'Salvar', campos: [{ nome: 'clientId', rotulo: 'Client ID', obrigatorio: true, valor: st.clientId ?? '' }, { nome: 'clientSecret', rotulo: 'Client Secret', tipo: 'password', obrigatorio: true, autocomplete: 'off' }],
+          async enviar(v) { await api.put('/api/slack/app', v); } });
+        if (ok) { toast('App do Slack salvo (secret cifrado)'); navegar(); }
+      });
+      ouvir(el, 'click', '[data-teste-slack]', async (b) => { b.disabled = true; try { await api.post('/api/slack/teste', {}); toast('Mensagem de teste enviada no seu Slack'); } catch (e) { erroDe(e); } finally { b.disabled = false; } });
+      ouvir(el, 'change', '[data-campo]', async (c) => {
+        const id = c.closest('[data-regra]').dataset.regra; const campo = c.dataset.campo; let corpo;
+        if (campo === 'canal') corpo = { canalId: c.value || null, canalNome: c.value ? c.selectedOptions[0].dataset.nome : null };
+        else if (campo === 'hora') corpo = { hora: Number(c.value) }; else corpo = { [campo]: c.checked };
+        try { await api.patch(`/api/slack/regras/${id}`, corpo); toast('Regra salva'); } catch (e) { erroDe(e); }
+      });
+    },
+  };
 }
 
 /** Cofre: a senha do Astrea é cifrada no servidor (AES-256-GCM) e nunca volta para a tela. */
@@ -54,7 +97,7 @@ async function credenciais() {
 export default async function ajustes({ aba = 'geral' } = {}) {
   await concluirGoogle();
   if (!ABAS.some(([id]) => id === aba)) aba = 'geral';
-  const corpo = await ({ geral, acessos, fluxos, tempo, automacoes, credenciais }[aba])();
+  const corpo = await ({ geral, acessos, fluxos, tempo, automacoes, credenciais, slack: ajustesSlack }[aba])();
   return {
     titulo: 'Ajustes',
     html: html`${cabecalho({ titulo: 'Ajustes', sub: 'Conta, acessos, fluxos, linhas do tempo e automações do escritório' })}

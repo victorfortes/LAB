@@ -7,6 +7,7 @@
  * e equipe. As abas trocam só o painel — sem recarregar a tela — e o endereço
  * acompanha (`#/projetos/<id>/<aba>`), então dá para copiar o link de uma aba.
  */
+import { secaoRelatorioMensal } from './relatorio_mensal.js';
 import { secaoAvisosEquipe } from './avisos_portal.js';
 import { abaOnboarding, abrirPainelOnboarding } from './projeto_onboarding.js';
 import { abaReunioesEAtas } from './projeto_reunioes.js';
@@ -50,7 +51,7 @@ const ABAS = [
 const MODULOS = {
   visao: abaVisao, diagnostico: abaDiagnostico, negociacoes: abaNegociacoes, tarefas: abaTarefas, creditos: abaCreditos, processos: extra.abaProcessos, andamentos: abaAndamentos,
   documentos: extra.abaDocumentos, portal: async (ctx) => { const [av, pt] = await Promise.all([secaoAvisosEquipe(ctx), extra.abaPortal(ctx)]); return { ...pt, html: html`${av.html}<div class="mt"></div>${pt.html}`, depois(el) { av.depois(el); pt.depois?.(el); } }; }, plano: extra.abaPlano,
-  relatorios: extra.abaRelatorios, equipe: abaEquipe, atas: abaReunioesEAtas, onboarding: abaOnboarding,
+  relatorios: async (ctx) => { const rm = secaoRelatorioMensal(ctx); const r = await extra.abaRelatorios(ctx); return { ...r, html: html`${rm.html}<div class="mt"></div>${r.html}`, depois(el) { rm.depois(el); r.depois?.(el); } }; }, equipe: abaEquipe, atas: abaReunioesEAtas, onboarding: abaOnboarding,
 };
 
 export default async function projeto({ id, aba }) {

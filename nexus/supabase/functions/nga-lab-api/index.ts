@@ -12,6 +12,7 @@ import {provedorDoAmbiente} from '../../../src/ai/provedor.ts';
 import {rotinaSentinela} from '../../../src/server/sentinela.ts';
 import {rotinaRadar} from '../../../src/server/radar.ts';
 import {rotinaDataJud} from '../../../src/server/andamentos.ts';
+import {rotinaSlack} from '../../../src/server/slack.ts';
 import {createHash} from 'node:crypto';
 instalarCompatibilidade();
 const e=Deno.env.toObject();
@@ -33,7 +34,8 @@ async function prepararGoogle(){
 
 // Acima disto o PDF não cabe no limite de CPU da função: sai com motivo na tela, em vez de travar.
 const LIMITE_PDF=3*1024*1024;
-const app=criarApp({banco,deposito:dep,analiseAutomatica:false,analiseEmWorker:true,exigirTrocaDeSenha:true,limitePdfBytes:LIMITE_PDF,segredoCofre:e.NGA_COFRE_CHAVE??createHash('sha256').update('cofre:'+segredo).digest('hex')});
+const SEGREDO_COFRE=e.NGA_COFRE_CHAVE??createHash('sha256').update('cofre:'+segredo).digest('hex');
+const app=criarApp({banco,deposito:dep,analiseAutomatica:false,analiseEmWorker:true,exigirTrocaDeSenha:true,limitePdfBytes:LIMITE_PDF,segredoCofre:SEGREDO_COFRE});
 const prefix='/nga-lab-api';
 const acervo=new AcervoNaNuvem();
 const ROTINAS:Record<string,()=>Promise<unknown>>={
@@ -43,6 +45,7 @@ const ROTINAS:Record<string,()=>Promise<unknown>>={
  sentinela:async()=>JSON.stringify(await rotinaSentinela(banco)),
  radar:()=>rotinaRadar(banco,e.DJEN_INGEST_SECRET),
  datajud:async()=>JSON.stringify(await rotinaDataJud(banco,{limite:40})),
+ slack:async()=>JSON.stringify(await rotinaSlack(banco,SEGREDO_COFRE)),
 };
 async function executarRotina(req:Request,nome:string):Promise<Response>{
  const negado=new Response('não encontrado',{status:404});
