@@ -45,7 +45,7 @@ pelo PR ou pelo bloco "Pedidos" no fim deste arquivo.
 **Compartilhados (cuidado)**
 - `src/server/app.ts`: cada frente registra suas rotas num arquivo próprio
   (`rotas_frente_a.ts`, `rotas_frente_b.ts`) e toca `app.ts` só para importar.
-- Migrações: números reservados. A usa 047 a 059 (já usadas: 047, 048, 049); B usa 060 a 079. Nunca renumerar
+- Migrações: números reservados. A usa 047 a 059 (já usadas: 047, 048, 049); B usa 060 a 079 (já usadas: 060, 061, 062). Nunca renumerar
   migração já juntada.
 - `scripts/demo.ts`, `web/js/main.js`, `web/js/shell.js`: mudança mínima, uma linha por vez.
 
@@ -69,9 +69,9 @@ pelo PR ou pelo bloco "Pedidos" no fim deste arquivo.
 | Clientes e Projetos: filtros e busca | A | feito (frente-a) |
 | Responsáveis da planilha e usuários | A | planilha lida; aguardando e-mail e papel de cada pessoa |
 | Visão do projeto, negociações, relatórios, atas | A | feito (frente-a) |
-| Diagnóstico automático e PDF | B | base versionada feita em 10/11; leitura de PDF e PDF final pendentes |
-| QGC preliminar do balancete, automático x validado | B | pendente |
-| ERP financeiro do cliente | B | pendente |
+| Diagnóstico automático e PDF | B | lê balanço e DRE de PDF com texto (062) e o passivo do balancete; PDF pelo navegador em A4 paisagem quando não há Chromium. Falta OCR de PDF digitalizado e o teste de aceitação ECOS BIKES/EJE |
+| QGC preliminar do balancete, automático x validado | B | feito (frente-b), migração 060 |
+| ERP financeiro do cliente | B | fechamento mensal e saúde financeira (frente-b), migração 061 |
 
 ## Pedidos entre frentes
 

@@ -30,7 +30,7 @@ async function organizacao(db: PoolClient, projetoId: string) {
 }
 
 /** Linhas de texto de um PDF, agrupando os pedaços pela altura na página (uma linha visual = uma linha). */
-async function linhasDoPdf(bytes: Uint8Array): Promise<string[][]> {
+export async function linhasDoPdf(bytes: Uint8Array): Promise<string[][]> {
   const pdf = await getDocumentProxy(new Uint8Array(bytes));
   const paginas: string[][] = [];
   for (let p = 1; p <= pdf.numPages; p++) {

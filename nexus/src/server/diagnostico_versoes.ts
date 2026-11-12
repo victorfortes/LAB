@@ -10,7 +10,8 @@ import { NaoEncontrado, PedidoInvalido } from './erros.ts';
 import { compararVersoes, montarRelatorio, type DocumentoLido, type RelatorioDiagnostico } from '../domain/diagnostico/relatorio.ts';
 import type { Qualidade } from '../domain/diagnostico/analises.ts';
 import { renderizarDiagnostico } from './diagnostico_html.ts';
-import { lerPlanilha } from '../domain/diagnostico/planilhas.ts';
+import { lerPlanilha, lerTextoDeDemonstracao } from '../domain/diagnostico/planilhas.ts';
+import { linhasDoPdf } from './qgc.ts';
 import { lerConteudoDocumento, type Deposito } from './arquivos.ts';
 import { chaveDoHash } from '../store/arquivos.ts';
 
@@ -55,14 +56,23 @@ export async function lerPlanilhasDoProjeto(db: PoolClient, projetoId: string, d
   const { rows: docs } = await db.query<{ id: string; nome: string; hash_sha256: string | null }>(
     `SELECT d.id, coalesce(d.nome_original, d.titulo) AS nome, d.hash_sha256 FROM documentos d
       WHERE d.projeto_id = $1 AND d.origem = 'portal_cliente' AND d.tem_arquivo AND d.hash_sha256 IS NOT NULL
-        AND lower(coalesce(d.nome_original, d.titulo)) ~ '[.](xlsx|xls|csv)$'
+        AND lower(coalesce(d.nome_original, d.titulo)) ~ '[.](xlsx|xls|csv|pdf)$'
         AND NOT EXISTS (SELECT 1 FROM diagnostico_extracoes x WHERE x.documento_id = d.id) AND NOT EXISTS (SELECT 1 FROM diagnostico_leituras l WHERE l.documento_id = d.id)`, [projetoId]);
   const avisos: string[] = []; let extracoes = 0; let lidas = 0;
   for (const d of docs) {
     try {
       const bytes = await lerConteudoDocumento(db, d.id, dep, chaveDoHash(d.hash_sha256!), d.hash_sha256!);
-      const r = lerPlanilha(d.nome, bytes); avisos.push(...r.avisos);
-      for (const x of r.extracoes) { await db.query(`INSERT INTO diagnostico_extracoes (organizacao_id, projeto_id, documento_id, tipo, referencia, dados, qualidade, origem, criado_por) VALUES ($1,$2,$3,$4,$5,$6::jsonb,'boa','planilha',$7)`, [pj[0].organizacao_id, projetoId, d.id, x.tipo, x.referencia, JSON.stringify(x.dados), identidade.usuarioId]); extracoes++; }
+      const ehPdf = /\.pdf$/i.test(d.nome);
+      let r;
+      if (ehPdf) {
+        const paginas = await linhasDoPdf(bytes);
+        // PDF sem camada de texto é digitalizado: sem OCR aqui, vira limite declarado, nunca número inventado.
+        r = paginas.flat().join('').length < 40 * Math.max(1, paginas.length)
+          ? { extracoes: [], avisos: [`${d.nome}: PDF digitalizado (sem texto). OCR não disponível neste servidor; números deste arquivo não foram lidos.`] }
+          : lerTextoDeDemonstracao(d.nome, paginas);
+      } else r = lerPlanilha(d.nome, bytes);
+      avisos.push(...r.avisos);
+      for (const x of r.extracoes) { await db.query(`INSERT INTO diagnostico_extracoes (organizacao_id, projeto_id, documento_id, tipo, referencia, dados, qualidade, origem, criado_por) VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9)`, [pj[0].organizacao_id, projetoId, d.id, x.tipo, x.referencia, JSON.stringify(x.dados), ehPdf ? 'regular' : 'boa', ehPdf ? 'pdf_texto' : 'planilha', identidade.usuarioId]); extracoes++; }
       await db.query(`INSERT INTO diagnostico_leituras (documento_id, organizacao_id, projeto_id, extracoes, avisos) VALUES ($1,$2,$3,$4,$5::jsonb)`, [d.id, pj[0].organizacao_id, projetoId, r.extracoes.length, JSON.stringify(r.avisos)]);
       lidas++;
     } catch (e) { avisos.push(`${d.nome}: ${(e as Error).message}`); }
@@ -96,6 +106,12 @@ export async function gerar(db: PoolClient, projetoId: string, motivo: 'manual' 
   const { rows: ex } = await db.query<{ tipo: string; referencia: string; dados: Record<string, unknown>; qualidade: string }>(
     `SELECT tipo, referencia, dados, qualidade FROM diagnostico_extracoes WHERE projeto_id = $1 AND qualidade <> 'ilegivel' ORDER BY criado_em`, [projetoId]);
   const com = (t: string) => ex.filter((x) => x.tipo === t);
+  // O balancete lido no QGC automático também é fonte de passivo: total e parte fiscal, com o arquivo de origem.
+  const { rows: bal } = await db.query<{ documento: string | null; total: string; fiscal: string }>(
+    `SELECT d.titulo AS documento, sum(q.valor)::text AS total, sum(q.valor) FILTER (WHERE q.natureza = 'tributario')::text AS fiscal
+       FROM qgc_preliminar q JOIN documentos d ON d.id = q.documento_id
+      WHERE q.projeto_id = $1 AND q.situacao <> 'descartado' GROUP BY d.titulo`, [projetoId]);
+  const passivoDoBalancete = bal.map((b) => ({ fonte: 'Balancete (QGC preliminar)', total: Number(b.total) / 100, fiscal: b.fiscal === null ? 0 : Number(b.fiscal) / 100, ref: { arquivo: b.documento ?? 'balancete', local: 'contas do passivo' } }) as never);
   const { rows: ult } = await db.query<{ n: number }>('SELECT coalesce(max(numero), 0) AS n FROM diagnostico_versoes WHERE projeto_id = $1', [projetoId]);
   const numero = Number(ult[0]!.n) + 1;
   const quem = (await db.query<{ nome: string }>('SELECT nome FROM usuarios WHERE id = $1', [identidade.usuarioId])).rows[0]?.nome ?? 'sistema';
@@ -108,7 +124,7 @@ export async function gerar(db: PoolClient, projetoId: string, motivo: 'manual' 
     dres: [...com('dre_contabil').map((x) => ({ ...(x.dados as object), tipo: 'contabil', ref: refDe(x.referencia) })), ...com('dre_gerencial').map((x) => ({ ...(x.dados as object), tipo: 'gerencial', ref: refDe(x.referencia) }))] as never,
     faturamento: com('faturamento').map((x) => ({ ...(x.dados as object), ref: refDe(x.referencia) }) as never),
     extratos: com('extrato').map((x) => ({ ...(x.dados as object), ref: refDe(x.referencia) }) as never),
-    passivo: com('passivo_fonte').map((x) => ({ ...(x.dados as object), ref: refDe(x.referencia) }) as never),
+    passivo: [...com('passivo_fonte').map((x) => ({ ...(x.dados as object), ref: refDe(x.referencia) }) as never), ...passivoDoBalancete],
     clientesAbc: com('clientes_abc').flatMap((x) => ((x.dados as { clientes?: { nome: string; valor: number }[] }).clientes ?? []).map((c) => ({ ...c, ref: refDe(x.referencia) }))),
     relacionadas: com('partes_relacionadas').flatMap((x) => (x.dados as { nomes?: string[] }).nomes ?? []),
     avisosDeLeitura,

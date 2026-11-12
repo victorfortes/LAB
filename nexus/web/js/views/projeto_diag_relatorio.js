@@ -32,7 +32,16 @@ export async function secaoRelatorio(ctx) {
       ouvir(el, 'click', '[data-pdf]', async (b) => {
         const r = await fetch(`${base}/versoes/${b.dataset.pdf}/pdf`, { credentials: 'same-origin' });
         if (r.ok) { const u = URL.createObjectURL(await r.blob()); const a = document.createElement('a'); a.href = u; a.download = `diagnostico-v${b.dataset.pdf}.pdf`; a.click(); return; }
-        const j = await r.json().catch(() => ({})); toast(j.erro ?? 'PDF indisponível neste servidor. Abra o relatório e use Imprimir > Salvar como PDF.', 'aviso');
+        // Sem Chromium no servidor (caso da nuvem): o próprio navegador imprime o mesmo HTML em A4 paisagem.
+        // "Salvar como PDF" no diálogo gera o arquivo; o @page do relatório já fixa 297 x 210 mm e margem zero.
+        try {
+          const doc = await (await fetch(`${base}/versoes/${b.dataset.pdf}/html`, { credentials: 'same-origin' })).text();
+          const quadro = document.createElement('iframe');
+          quadro.setAttribute('aria-hidden', 'true'); quadro.style.cssText = 'position:fixed;right:0;bottom:0;width:297mm;height:210mm;border:0;opacity:0;pointer-events:none';
+          quadro.srcdoc = doc; document.body.appendChild(quadro);
+          quadro.onload = () => { setTimeout(() => { quadro.contentWindow.focus(); quadro.contentWindow.print(); setTimeout(() => quadro.remove(), 60_000); }, 400); };
+          toast('Na janela de impressão, escolha "Salvar como PDF". O relatório já sai em A4 paisagem.');
+        } catch (e) { erroDe(e); }
       });
       ouvir(el, 'click', '[data-cmp]', async (b) => {
         try {

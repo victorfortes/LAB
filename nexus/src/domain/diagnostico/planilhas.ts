@@ -77,3 +77,32 @@ export function lerPlanilha(arquivo: string, bytes: Uint8Array): ResultadoDaLeit
   if (!out.extracoes.length && !out.avisos.length) out.avisos.push(`${arquivo}: planilha vazia`);
   return out;
 }
+
+/**
+ * Balanço e DRE em PDF com texto: cada linha visual vira uma linha de tabela
+ * (rótulo + valores) e o cabeçalho é a linha com os exercícios. Assim o mesmo
+ * reconhecedor das planilhas lê o PDF, pelos rótulos, sem posição fixa.
+ * Só entra página que tem cabeçalho de exercícios; o resto vira aviso.
+ */
+export function lerTextoDeDemonstracao(arquivo: string, paginas: string[][]): ResultadoDaLeitura {
+  const out: ResultadoDaLeitura = { extracoes: [], avisos: [] };
+  const NUM = /\(?-?\d{1,3}(?:\.\d{3})*,\d{2}\)?|\(?-?\d+,\d{2}\)?/g;
+  paginas.forEach((linhas, p) => {
+    const aba = `página ${p + 1}`;
+    const iCab = linhas.findIndex((l) => (l.match(/\b(?:19|20)\d{2}\b/g) ?? []).length >= 1 && !(l.match(NUM) ?? []).length && /(exerc|31\/12|dezembro|\b20\d{2}\b)/i.test(l));
+    if (iCab < 0) return;
+    const anos = [...new Set(linhas[iCab]!.match(/\b(?:19|20)\d{2}\b/g) ?? [])];
+    const tabela: string[][] = [['Conta', ...anos]];
+    for (const l of linhas.slice(iCab + 1)) {
+      const nums = [...l.matchAll(NUM)]; if (!nums.length) continue;
+      const rotulo = l.slice(0, nums[0]!.index).replace(/\s+\d{1,3}$/, '').trim(); if (!/[a-zA-ZÀ-ú]{3}/.test(rotulo)) continue;
+      // Valores alinhados à direita: com mais valores que anos (nota explicativa etc.), ficam os últimos.
+      const v = nums.map((m) => m[0]).slice(-anos.length);
+      tabela.push([rotulo, ...Array(anos.length - v.length).fill(''), ...v]);
+    }
+    if (tabela.length > 2) { try { lerTabela(arquivo, aba, tabela, out); } catch (e) { out.avisos.push(`${arquivo} | ${aba}: falha na leitura (${(e as Error).message})`); } }
+  });
+  if (!out.extracoes.length) out.avisos.push(`${arquivo}: PDF lido, mas sem balanço ou DRE reconhecível (procurei uma linha de exercícios e contas como "Ativo circulante" e "Receita bruta").`);
+  // Leitura de PDF é menos firme que planilha: o diagnóstico mostra a origem para conferência.
+  return out;
+}
