@@ -178,7 +178,7 @@ async function alertas() {
 }
 async function config() {
   const c = await api.get('/api/sentinela/config'); const bloco = (k, t, dica) => card(t, html`<label class="field"><span>Valores (JSON)</span><textarea class="input" rows="10" data-cfg="${k}" spellcheck="false">${JSON.stringify(c[k], null, 2)}</textarea></label><button class="btn btn--accent mt" data-salva="${k}">Salvar</button>`, dica);
-  return tela('config', html`${bloco('prioridade', 'Critérios de prioridade', 'Termos e classes que elevam a prioridade e faixas de valor da causa.')}${bloco('motor', 'Motor', 'Janela (dias) para considerar uma distribuição como nova e dias da busca retroativa de cliente novo.')}<p class="dica mt">Usuários, permissões e auditoria são os do próprio NGA LAB, em Equipe.</p>`, [], '', (el) => ouvir(el, 'click', '[data-salva]', async (b) => { try { await api.put(`/api/sentinela/config/${b.dataset.salva}`, JSON.parse($(`[data-cfg=${b.dataset.salva}]`, el).value)); toast('Salvo'); } catch (e) { erroDe(e); } }));
+  return tela('config', html`${bloco('prioridade', 'Critérios de prioridade', 'Termos e classes que elevam a prioridade e faixas de valor da causa.')}${bloco('motor', 'Motor', 'Janela (dias) para considerar uma distribuição como nova e dias da busca retroativa de cliente novo.')}<p class="dica mt">Usuários, permissões e auditoria são os do próprio NGA NEXUS, em Equipe.</p>`, [], '', (el) => ouvir(el, 'click', '[data-salva]', async (b) => { try { await api.put(`/api/sentinela/config/${b.dataset.salva}`, JSON.parse($(`[data-cfg=${b.dataset.salva}]`, el).value)); toast('Salvo'); } catch (e) { erroDe(e); } }));
 }
 
 export default function sentinela({ aba = 'painel', id } = {}) {

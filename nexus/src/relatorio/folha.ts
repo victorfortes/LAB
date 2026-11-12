@@ -1,7 +1,7 @@
 /**
  * Folha A4: o pouco de tipografia que um relatório jurídico precisa.
  *
- * SOBRE A IDENTIDADE VISUAL. O sistema de design do NGA Lab é fundo azul
+ * SOBRE A IDENTIDADE VISUAL. O sistema de design do NGA Nexus é fundo azul
  * quase preto com âmbar; isso é para tela. Relatório vai para papel e para
  * anexo de e-mail, e fundo escuro no papel é mancha de toner e texto que o
  * juiz não lê. A adaptação é deliberada: fundo branco, texto no mesmo

@@ -132,6 +132,7 @@ export async function listar(db: PoolClient) {
   const { rows } = await db.query(
     `SELECT p.id, p.nome, p.tipo, p.situacao, p.prioridade, p.fase, p.fase_desde,
             p.resumo, p.iniciado_em, p.previsao_fim, p.encerrado_em,
+            p.whatsapp_grupo_url AS "whatsappGrupoUrl",
             u.nome AS responsavel,
             (SELECT e.nome FROM projeto_equipe pe
                JOIN usuarios e ON e.id = pe.usuario_id
@@ -184,6 +185,7 @@ export async function hub(db: PoolClient, projetoId: string) {
     `SELECT p.id, p.organizacao_id, p.grupo_id, p.nome, p.tipo, p.situacao, p.prioridade,
             p.fase, p.fase_desde, p.responsavel_id, p.iniciado_em, p.previsao_fim,
             p.encerrado_em, p.motivo_encerramento, p.criado_em, p.resumo,
+            p.whatsapp_grupo_url AS "whatsappGrupoUrl", p.posicao_cliente AS "posicaoCliente",
             u.nome AS responsavel, g.nome AS grupo
        FROM projetos p
        LEFT JOIN usuarios u ON u.id = p.responsavel_id
@@ -260,6 +262,33 @@ export async function hub(db: PoolClient, projetoId: string) {
       diasUteisRestantes: diasUteisAte(hoje, dataISO(p.vencimento)!),
     })),
   };
+}
+
+/** Link do grupo de WhatsApp do cliente. Só links do próprio WhatsApp: o cliente clica nele no portal. */
+export const EsquemaDadosDoCliente = z.object({
+  whatsappGrupoUrl: z.string().trim().max(300)
+    .regex(/^https:\/\/(chat\.whatsapp\.com|wa\.me|api\.whatsapp\.com|whatsapp\.com)\/\S+$/i, 'use o link do grupo (https://chat.whatsapp.com/...)')
+    .or(z.literal('')).nullable().optional(),
+  resumo: z.string().trim().max(1000).nullable().optional(),
+  /** Em que lado o NGA atua: muda o foco do diagnóstico inicial. */
+  posicaoCliente: z.enum(['devedor', 'credor']).optional(),
+}).refine((d) => Object.keys(d).length > 0, 'nada a alterar');
+
+export async function atualizarDadosDoCliente(
+  db: PoolClient, projetoId: string, d: z.infer<typeof EsquemaDadosDoCliente>, identidade: Identidade,
+) {
+  const { rows } = await db.query<{ organizacao_id: string; nome: string }>('SELECT organizacao_id, nome FROM projetos WHERE id = $1', [projetoId]);
+  if (!rows[0]) throw new NaoEncontrado('projeto não encontrado');
+  const sets: string[] = []; const args: unknown[] = [projetoId];
+  if (d.whatsappGrupoUrl !== undefined) { args.push(d.whatsappGrupoUrl || null); sets.push(`whatsapp_grupo_url = $${args.length}`); }
+  if (d.resumo !== undefined) { args.push(d.resumo || null); sets.push(`resumo = $${args.length}`); }
+  if (d.posicaoCliente !== undefined) { args.push(d.posicaoCliente); sets.push(`posicao_cliente = $${args.length}`); }
+  await db.query(`UPDATE projetos SET ${sets.join(', ')} WHERE id = $1`, args);
+  await auditar(db, {
+    organizacaoId: rows[0].organizacao_id, usuarioId: identidade.usuarioId, acao: 'projeto.dados_do_cliente', entidade: 'projeto', entidadeId: projetoId,
+    depois: { projeto: rows[0].nome, whatsapp: d.whatsappGrupoUrl === undefined ? undefined : d.whatsappGrupoUrl ? 'definido' : 'removido' },
+  });
+  return { ok: true, whatsappGrupoUrl: d.whatsappGrupoUrl || null };
 }
 
 export async function mudarFase(
@@ -468,6 +497,7 @@ export async function painel(db: PoolClient, identidade: Identidade) {
     // Soma do que efetivamente espera uma ação de alguém.
     pendencias: prazosComContagem.length + aAnalisar.length
       + aValidar.reduce((t, r) => t + Number(r.quantos), 0)
-      + criticos.length + semResposta.length,
+      + criticos.length,
+    // O chat interno acabou (o cliente fala pelo grupo de WhatsApp): mensagem antiga sem resposta não conta mais como pendência.
   };
 }

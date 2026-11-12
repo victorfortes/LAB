@@ -43,7 +43,7 @@ beforeAll(async () => {
     ($1,'adv@nga.adv.br','Advogado Responsável',$3),($2,'dir@grupox.com','Diretor X',$3)`,
     [ADVOGADO, CLIENTE_USR, h]);
   await db.query(`INSERT INTO vinculos (usuario_id,organizacao_id,papel) VALUES
-    ($1,$3,'advogado'),($2,$4,'cliente_administrador')`, [ADVOGADO, CLIENTE_USR, NGA, CLIENTE]);
+    ($1,$3,'coordenacao'),($2,$4,'cliente_administrador')`, [ADVOGADO, CLIENTE_USR, NGA, CLIENTE]);
 
   projeto = (await db.query<{id:string}>(`INSERT INTO projetos (organizacao_id,nome,tipo)
     VALUES ($1,'RJ Grupo Demonstração','recuperacao_judicial') RETURNING id`, [NGA])).rows[0]!.id;

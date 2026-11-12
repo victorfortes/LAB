@@ -25,6 +25,7 @@ export const EsquemaPortal = z.object({
   mostraObrigacoes: z.boolean().optional(),
   mostraFinanceiro: z.boolean().optional(),
   mostraProcessos: z.boolean().optional(),
+  mostraFaturas: z.boolean().optional(),
 }).refine((d) => Object.keys(d).length > 0, 'nada a alterar');
 
 /** 14 caracteres legíveis: sem 0/O/1/l, que se confundem ao ser lidos por telefone. */
@@ -84,13 +85,14 @@ export async function portalDoProjeto(db: PoolClient, projetoId: string) {
   }>('SELECT * FROM portal_do_projeto($1)', [projetoId]);
   const primeira = rows[0];
   if (!primeira) return { existe: false as const };
+  const { rows: fat } = await db.query<{ mostra_faturas: boolean }>('SELECT mostra_faturas FROM portais WHERE projeto_id = $1', [projetoId]);
   return {
     existe: true as const,
     organizacao: primeira.organizacao_nome,
     ativo: primeira.ativo,
     mostra: {
       documentos: primeira.mostra_documentos, obrigacoes: primeira.mostra_obrigacoes,
-      financeiro: primeira.mostra_financeiro, processos: primeira.mostra_processos,
+      financeiro: primeira.mostra_financeiro, processos: primeira.mostra_processos, faturas: fat[0]?.mostra_faturas ?? true,
     },
     usuarios: rows.filter((r) => r.usuario_id).map((r) => ({
       id: r.usuario_id, nome: r.usuario_nome, email: r.usuario_email, ultimoAcesso: r.ultimo_acesso,
@@ -104,7 +106,7 @@ export async function ajustarPortal(
 ) {
   const colunas: Record<string, string> = {
     ativo: 'ativo', mostraDocumentos: 'mostra_documentos', mostraObrigacoes: 'mostra_obrigacoes',
-    mostraFinanceiro: 'mostra_financeiro', mostraProcessos: 'mostra_processos',
+    mostraFinanceiro: 'mostra_financeiro', mostraProcessos: 'mostra_processos', mostraFaturas: 'mostra_faturas',
   };
   const sets: string[] = []; const args: unknown[] = [projetoId];
   for (const [k, v] of Object.entries(dados)) {

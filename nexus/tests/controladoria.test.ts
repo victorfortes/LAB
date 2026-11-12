@@ -39,9 +39,9 @@ beforeAll(async () => {
 afterAll(async () => { await banco?.encerrar(); await pg?.encerrar(); });
 
 describe('controladoria: quem entra', () => {
-  test('só sócio administrador e controladoria; sócio comum e advogado não', async () => {
-    for (const k of ['adm', 'ctrl']) expect((await req(tok[k]!, '/api/controladoria/publicacoes')).status, k).toBe(200);
-    for (const k of ['adv', 'soc']) {
+  test('administração, sócio e controladoria entram; advogado não', async () => {
+    for (const k of ['adm', 'ctrl', 'soc']) expect((await req(tok[k]!, '/api/controladoria/publicacoes')).status, k).toBe(200);
+    for (const k of ['adv']) {
       expect((await req(tok[k]!, '/api/controladoria/publicacoes')).status, k).toBe(403);
       expect((await req(tok[k]!, '/api/controladoria/oabs')).status, k).toBe(403);
       expect((await req(tok[k]!, '/api/controladoria/sincronizacao', { method: 'POST', body: '{}' })).status, k).toBe(403);

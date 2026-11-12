@@ -1,5 +1,5 @@
 /**
- * Estado real das ferramentas do NGA Lab.
+ * Estado real das ferramentas do NGA Nexus.
  *
  * O ecossistema é feito de aplicações que continuam separadas (decisão
  * tomada, e mantida): Prazos, Íntegra e Sentinela rodam cada uma no seu
@@ -22,9 +22,9 @@ export interface Ferramenta {
   /** Endereço para abrir e para sondar; nulo quando não há interface. */
   readonly url: string | null;
   readonly estado: 'entregue' | 'em_uso' | 'em_desenvolvimento';
-  /** Caminho na MESMA origem do NGA LAB, para abrir dentro da tela (iframe) sem violar frame-ancestors. */
+  /** Caminho na MESMA origem do NGA NEXUS, para abrir dentro da tela (iframe) sem violar frame-ancestors. */
   readonly caminho?: string;
-  /** Aplicação com login e banco próprios: não entrega dados ao Lab, e isso é o desenho, não uma falha. */
+  /** Aplicação com login e banco próprios: não entrega dados ao Nexus, e isso é o desenho, não uma falha. */
   readonly independente?: boolean;
   /** A aplicação se recusa a abrir dentro de outra página (defesa própria contra clickjacking). */
   readonly semIncorporar?: boolean;

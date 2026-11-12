@@ -14,12 +14,14 @@ import { erroDe, formulario, toast, vazio } from '../ui.js';
 import { aoSair } from '../shell.js';
 import { abrirAnalises } from './projeto_extra.js';
 import { secaoRaioX } from './projeto_raiox.js';
+import { secaoRelatorio } from './projeto_diag_relatorio.js';
 
 const ESTADO = { na_fila: 'Na fila', lendo: 'Lendo agora', analisado: 'Lido e organizado', sem_texto: 'Sem texto legível', erro: 'Falhou', sem_registro: 'Não lido' };
 const TOM = { erro: 'erro', aviso: 'aviso', info: 'info' };
 const ICONE_PONTO = { erro: 'alert', aviso: 'flag', info: 'sparkle' };
 
 export async function abaDiagnostico(ctx) {
+  const rel = await secaoRelatorio(ctx).catch(() => null);
   const [d, ia, rx] = await Promise.all([api.get(`/api/projetos/${ctx.id}/diagnostico`), api.get('/api/ia/estado').catch(() => null), secaoRaioX(ctx).catch((e) => html`<p class="selo erro">Raio X indisponível: ${e.message}</p>`)]);
   const c = d.cobertura; const total = d.documentos.length;
   const andamento = d.documentos.filter((x) => x.estado === 'na_fila' || x.estado === 'lendo').length;
@@ -28,7 +30,7 @@ export async function abaDiagnostico(ctx) {
   const escreve = pode('analise.executar');
 
   return {
-    html: html`${rx}<div class="mt"></div>
+    html: html`${rel?.html ?? ''}<div class="mt"></div>${rx}<div class="mt"></div>
       <section class="card glass up"><header class="card__head"><div><h2 class="card__title">Diagnóstico inicial</h2>
         <p class="card__sub">Gerado a partir do que o cliente enviou · ${dataHoraBR(d.geradoEm)}</p></div>
         ${andamento ? html`<span class="leitura lendo"><i class="vivo ambar"></i>Lendo ${andamento} documento(s)…</span>` : html`<span class="leitura analisado">${icone('check')}Leitura em dia</span>`}
@@ -80,6 +82,7 @@ export async function abaDiagnostico(ctx) {
         </div></div>`,
 
     depois(el) {
+      rel?.depois(el);
       ouvir(el, 'click', '[data-aba-ir]', (b) => ctx.irParaAba(b.dataset.abaIr));
       ouvir(el, 'click', '[data-ler-todos]', async (b) => {
         const fila = d.documentos.filter((x) => x.estado === 'sem_registro'); let feitos = 0;

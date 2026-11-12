@@ -1,5 +1,5 @@
 /**
- * Recepção do que as aplicações do NGA Lab produzem.
+ * Recepção do que as aplicações do NGA Nexus produzem.
  *
  * A decisão foi mantê-las separadas e integrar por ARTEFATO. Este arquivo é o
  * lado receptor desse contrato: o Sentinela entrega processo e movimentação,

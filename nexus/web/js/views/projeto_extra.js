@@ -335,10 +335,10 @@ const atribuicao = (a) => (a ? html`<span class="atrib">${String(a).split('/').m
 const SIT = { pendente: ['', 'Pendente'], enviado: ['info', 'Enviado'], em_analise: ['info', 'Em análise'], aprovado: ['ok', 'Aprovado'], rejeitado: ['erro', 'Rejeitado'], complementacao: ['aviso', 'Complementar'], nao_aplicavel: ['', 'Não se aplica'] };
 
 export async function abaPortal(ctx) {
-  const [portal, check, msgs] = await Promise.all([api.get(`/api/projetos/${ctx.id}/portal`), api.get(`/api/projetos/${ctx.id}/checklist`), api.get(`/api/projetos/${ctx.id}/mensagens`)]);
-  const publica = pode('portal.publicar'); const escreve = pode('projeto.escrever'); const analisa = pode('documento.escrever') && escreve;
+  const [portal, check] = await Promise.all([api.get(`/api/projetos/${ctx.id}/portal`), api.get(`/api/projetos/${ctx.id}/checklist`)]);
+  const publica = pode('portal.acessos'); const escreve = pode('projeto.escrever'); const analisa = pode('documento.escrever') && escreve;
   const porCat = new Map(); for (const i of check.itens) { if (!porCat.has(i.categoria)) porCat.set(i.categoria, []); porCat.get(i.categoria).push(i); }
-  const pr = check.progresso; const cron = [...msgs].reverse();
+  const pr = check.progresso; const whats = ctx.h.whatsappGrupoUrl ?? '';
   const toggle = (k, rot) => html`<label class="toggle"><input type="checkbox" data-mostra="${k}" ${portal.mostra?.[k] ? raw('checked') : ''} ${publica ? '' : raw('disabled')}><span></span>${rot}</label>`;
 
   return {
@@ -357,16 +357,16 @@ export async function abaPortal(ctx) {
             ${analisa && i.situacao === 'nao_aplicavel' ? html`<button type="button" class="btn btn--ghost" data-reativar="${i.id}">Reativar</button>` : ''}</div>`)}`) : vazio('check', 'Checklist ainda não gerado', 'Gerar do modelo cria a lista de documentos do procedimento deste projeto, cada item com o seu fundamento legal.')}
           ${pr.total ? raw('</details>') : ''}
         </section>
-        <section class="card glass up"><header class="card__head"><div><h2 class="card__title">Conversa com o cliente</h2><p class="card__sub">O cliente vê estas mensagens no portal.</p></div></header>
-          <div class="chat" id="chat">${cron.length ? cron.map((m) => html`<div class="msg ${m.lado === 'nga' ? 'meu' : ''}">${m.texto}<small>${m.autor ?? (m.lado === 'nga' ? 'NGA' : 'Cliente')} · ${relativo(m.criado_em)}</small></div>`) : html`<p class="dica">Sem mensagens ainda.</p>`}</div>
-          <form class="chat-in" id="enviar-msg"><input class="input" name="texto" placeholder="Escreva para o cliente…" autocomplete="off" aria-label="Mensagem" required><button class="btn btn--accent" type="submit">${icone('send')}Enviar</button></form>
-        </section>
+        <section class="card glass up"><header class="card__head"><div><h2 class="card__title">Grupo de WhatsApp do cliente</h2><p class="card__sub">O portal mostra o botão “Entrar no grupo” com este link. É por ele que a equipe e o cliente conversam.</p></div>${whats ? html`<span class="selo ok"><i></i>Configurado</span>` : html`<span class="selo aviso"><i></i>Sem link</span>`}</header>
+          <form class="flex" data-whats-form><label class="field grow"><span>Link do grupo</span><input class="input" name="url" type="url" value="${whats}" placeholder="https://chat.whatsapp.com/..." ${escreve ? '' : raw('disabled')}></label>
+            ${escreve ? html`<button class="btn btn--accent" type="submit">${icone('check')}Salvar link</button>` : ''}${whats ? html`<a class="btn btn--ghost" href="${whats}" target="_blank" rel="noopener noreferrer">${icone('arrowUpRight')}Abrir grupo</a>` : ''}</form>
+          <p class="dica">No WhatsApp: Info. do grupo → Convidar por link → Copiar link.</p></section>
       </div>
       <div style="display:grid;gap:var(--gap)">
         <section class="card glass up"><header class="card__head"><div><h2 class="card__title">Acesso do cliente</h2><p class="card__sub">${portal.existe ? portal.organizacao : 'Ainda não há portal para este projeto.'}</p></div>
           ${portal.existe ? html`<span class="selo ${portal.ativo ? 'ok' : 'erro'}"><i></i>${portal.ativo ? 'Ativo' : 'Suspenso'}</span>` : ''}</header>
           ${portal.existe ? html`<div style="display:grid;gap:8px;margin-bottom:14px"><p class="dica" style="margin:0">O que o cliente enxerga:</p>
-            ${toggle('documentos', 'Documentos publicados')}${toggle('obrigacoes', 'Plano de pagamento')}${toggle('financeiro', 'Fluxo de caixa')}${toggle('processos', 'Andamento processual (só o publicado)')}
+            ${toggle('documentos', 'Documentos publicados')}${toggle('faturas', 'Faturas e comprovantes')}${toggle('obrigacoes', 'Plano de pagamento')}${toggle('financeiro', 'Fluxo de caixa')}${toggle('processos', 'Andamento processual (só o publicado)')}
             ${publica ? html`<label class="toggle"><input type="checkbox" data-ativo ${portal.ativo ? raw('checked') : ''}><span></span>Portal ativo</label>` : ''}</div>
             <p class="mini-h" style="margin-top:0">Pessoas de ${portal.organizacao} · todas veem o mesmo conteúdo</p><ul class="lista">${portal.usuarios.map((u) => html`<li>${avatar(u.nome, 'md')}<div><b>${u.nome}</b><small>${u.email} · ${u.ultimoAcesso ? `último acesso ${relativo(u.ultimoAcesso)}` : 'nunca entrou'}</small></div></li>`)}</ul>` : ''}
           ${publica ? html`<button type="button" class="btn ${portal.existe ? 'btn--ghost' : 'btn--accent'} mt" data-convite>${icone('plus')}${portal.existe ? 'Adicionar pessoa da mesma empresa' : 'Criar portal e convidar o cliente'}</button>` : ''}
@@ -390,18 +390,16 @@ export async function abaPortal(ctx) {
         try { await api.post(`/api/requisitos/${id}/analise`, na ? { situacao: 'nao_aplicavel', observacao: 'Não se aplica a este caso.' } : { situacao: 'pendente' }); toast(na ? 'Marcado como não se aplica' : 'Item reativado'); ctx.recarregar(); } catch (e) { erroDe(e); }
       });
       ouvir(el, 'change', '[data-mostra]', async (c) => {
-        const campo = { documentos: 'mostraDocumentos', obrigacoes: 'mostraObrigacoes', financeiro: 'mostraFinanceiro', processos: 'mostraProcessos' }[c.dataset.mostra];
+        const campo = { documentos: 'mostraDocumentos', faturas: 'mostraFaturas', obrigacoes: 'mostraObrigacoes', financeiro: 'mostraFinanceiro', processos: 'mostraProcessos' }[c.dataset.mostra];
         try { await api.patch(`/api/projetos/${ctx.id}/portal`, { [campo]: c.checked }); toast('Visibilidade atualizada'); } catch (e) { c.checked = !c.checked; erroDe(e); }
       });
       ouvir(el, 'change', '[data-ativo]', async (c) => {
         try { await api.patch(`/api/projetos/${ctx.id}/portal`, { ativo: c.checked }); toast(c.checked ? 'Portal ativado' : 'Portal suspenso'); ctx.recarregar(); } catch (e) { c.checked = !c.checked; erroDe(e); }
       });
       ouvir(el, 'click', '[data-convite]', () => convidar(ctx, portal));
-      const chat = $('#chat', el); if (chat) chat.scrollTop = chat.scrollHeight;
-      $('#enviar-msg', el)?.addEventListener('submit', async (e) => {
-        e.preventDefault(); const f = e.target; const texto = f.texto.value.trim(); if (!texto) return;
-        f.querySelector('button').disabled = true;
-        try { await api.post(`/api/projetos/${ctx.id}/mensagens`, { texto }); ctx.recarregar(); } catch (er) { erroDe(er); f.querySelector('button').disabled = false; }
+      $('[data-whats-form]', el)?.addEventListener('submit', async (e) => {
+        e.preventDefault(); const url = e.target.url.value.trim();
+        try { await api.patch(`/api/projetos/${ctx.id}/dados-do-cliente`, { whatsappGrupoUrl: url }); toast(url ? 'Link do grupo salvo' : 'Link removido'); ctx.recarregar(); } catch (er) { erroDe(er); }
       });
     },
   };

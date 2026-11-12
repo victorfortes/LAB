@@ -8,7 +8,7 @@ import type { PoolClient } from 'pg';
 import { z } from 'zod';
 import { Banco, auditar } from '../store/conexao.ts';
 import { ErroDeAutenticacao, LoginBloqueado, autenticar, deveTrocarSenha, hashDaSenha, identidadeDoToken, limparFalhas, loginBloqueado, registrarFalha, revogar, trocarSenha, type Identidade } from '../security/sessao.ts';
-import { SemPermissao, exigir, PERMISSOES, type Permissao } from '../security/rbac.ts';
+import { SemPermissao, exigir, PERMISSOES, podeComPapeis, matrizDeAcessos, type Permissao } from '../security/rbac.ts';
 import { type Credito, consolidarPorClasse, desdobrarParaVotacao, enquadrar } from '../domain/insolvencia/creditos.ts';
 import { apurarAssembleia, type VotoLancado } from '../domain/insolvencia/quorum.ts';
 import { EsquemaSimulacaoPrj, simularPrj } from './prj_studio.ts';
@@ -31,6 +31,10 @@ import * as relatorios from './relatorios.ts';
 import * as projetos from './projetos.ts';
 import * as tarefas from './tarefas.ts';
 import * as gestao from './gestao.ts';
+import * as faturas from './faturas.ts';
+import * as configuracao from './configuracao.ts';
+import * as astreaBase from './astrea_base.ts';
+import * as diagVersoes from './diagnostico_versoes.ts';
 import * as sentinelaGestao from './sentinela_gestao.ts';
 import { interpretar } from '../domain/financeiro/linguagem.ts';
 import { interpretarArquivo } from '../domain/financeiro/importacao.ts';
@@ -177,7 +181,7 @@ export function criarApp(ctx: Contexto) {
 
       // --------------------------------------------------- integração ---
       // Autenticação por token de aplicação, ANTES do cookie: as aplicações do
-      // NGA Lab não têm sessão de usuário. A ingestão roda em
+      // NGA Nexus não têm sessão de usuário. A ingestão roda em
       // `comoUsuario(usuario de serviço)`, então o RLS vale igual.
       if (rota.startsWith('/api/integracao/')) {
         const bruto = tokenDaRequisicao(req);
@@ -313,7 +317,7 @@ export function criarApp(ctx: Contexto) {
         const ticket=url.searchParams.get('ticket')??'';const state=url.searchParams.get('state')??'';
         if(!/^[A-Za-z0-9_-]{32,128}$/.test(ticket)||!/^[A-Za-z0-9_-]{32,128}$/.test(state))return erro('Acesso inválido.',400);
         const next=rota.replace(/autorizar$/,'confirmar')+'?'+new URLSearchParams({ticket,state});const nonce=crypto.randomUUID();
-        return new Response('<!doctype html><meta charset="utf-8"><title>Acesso NGA LAB</title><p>Confirmando seu acesso…</p><script nonce="'+nonce+'">location.replace('+JSON.stringify(next).replaceAll('<','\\u003c')+')</script>',{headers:{'content-type':'text/html;charset=utf-8','cache-control':'no-store','referrer-policy':'no-referrer','content-security-policy':"default-src 'none'; script-src 'nonce-"+nonce+"'; base-uri 'none'; frame-ancestors 'none'"}});
+        return new Response('<!doctype html><meta charset="utf-8"><title>Acesso NGA NEXUS</title><p>Confirmando seu acesso…</p><script nonce="'+nonce+'">location.replace('+JSON.stringify(next).replaceAll('<','\\u003c')+')</script>',{headers:{'content-type':'text/html;charset=utf-8','cache-control':'no-store','referrer-policy':'no-referrer','content-security-policy':"default-src 'none'; script-src 'nonce-"+nonce+"'; base-uri 'none'; frame-ancestors 'none'"}});
       }
 
       // --------------------------------------------------------- autenticado ---
@@ -339,7 +343,7 @@ export function criarApp(ctx: Contexto) {
       if (rota === '/api/eu' && metodo === 'GET') {
         return json({
           deveTrocarSenha: trocaPendente,
-          podeVerEntregas: !ehCliente && gestao.podeVerEntregas(identidade.email),
+          podeVerEntregas: !ehCliente && (permissoes.includes('modulo.entregas') || gestao.podeVerEntregas(identidade.email)),
           usuario: { id: identidade.usuarioId, nome: identidade.nome, email: identidade.email },
           papeis: identidade.papeis,
           organizacoes: identidade.organizacoes,
@@ -630,7 +634,7 @@ export function criarApp(ctx: Contexto) {
       // O estado vem de uma sondagem de verdade a cada aplicação do Lab.
       if (rota === '/api/ferramentas' && metodo === 'GET') {
         if (ehCliente) return erro('acesso negado', 403);
-        exigir(identidade.papeis, 'projeto.ler');
+        exigir(identidade.papeis, 'modulo.ferramentas');
         return json(await banco.comoUsuario(identidade.usuarioId, ferramentas.estado));
       }
 
@@ -673,7 +677,7 @@ export function criarApp(ctx: Contexto) {
           convites.portalDoProjeto(db, mPortal[1]!)));
       }
       if (mPortal && metodo === 'PATCH') {
-        exigir(identidade.papeis, 'portal.publicar');
+        exigir(identidade.papeis, 'portal.acessos');
         const corpo = convites.EsquemaPortal.safeParse(await req.json().catch(() => null));
         if (!corpo.success) return erro('dados inválidos', 400, corpo.error.issues);
         return json(await banco.comoUsuario(identidade.usuarioId, (db) =>
@@ -681,8 +685,8 @@ export function criarApp(ctx: Contexto) {
       }
       const mConvite = /^\/api\/projetos\/([0-9a-f-]{36})\/portal\/convites$/.exec(rota);
       if (mConvite && metodo === 'POST') {
-        // Dar acesso a cliente é dar chave de porta: mesma permissão de publicar.
-        exigir(identidade.papeis, 'portal.publicar');
+        // Dar acesso a cliente é dar chave de porta: só administração, sócio e coordenação.
+        exigir(identidade.papeis, 'portal.acessos');
         const corpo = convites.EsquemaConvite.safeParse(await req.json().catch(() => null));
         if (!corpo.success) return erro('dados inválidos', 400, corpo.error.issues);
         return json(await banco.comoUsuario(identidade.usuarioId, (db) =>
@@ -705,7 +709,7 @@ export function criarApp(ctx: Contexto) {
       if (rota === '/api/painel' && metodo === 'GET') {
         // O painel do cliente é o portal; este é o de quem trabalha no caso.
         if (ehCliente) return erro('use /api/portal/projetos', 403);
-        exigir(identidade.papeis, 'projeto.ler');
+        exigir(identidade.papeis, 'modulo.painel');
         return json(await banco.comoUsuario(identidade.usuarioId, (db) =>
           projetos.painel(db, identidade)));
       }
@@ -970,7 +974,7 @@ export function criarApp(ctx: Contexto) {
       }
       if (rota.startsWith('/api/sentinela')) {
         if (ehCliente) return erro('acesso negado', 403);
-        const ler = () => exigir(identidade.papeis, 'processo.ler'), escrever = () => exigir(identidade.papeis, 'processo.escrever'), gerir = () => exigir(identidade.papeis, 'integracao.gerir');
+        const ler = () => exigir(identidade.papeis, 'controladoria.ler'), escrever = () => exigir(identidade.papeis, 'controladoria.gerir'), gerir = () => exigir(identidade.papeis, 'integracao.gerir');
         const q = url.searchParams, s = sentinelaGestao, sub = rota.slice('/api/sentinela'.length), ID = '([0-9a-f-]{36})';
         const casa = (re: string) => new RegExp(`^${re}$`).exec(sub);
         let m: RegExpExecArray | null;
@@ -1008,13 +1012,175 @@ export function criarApp(ctx: Contexto) {
         if (metodo === 'DELETE' && (m = casa(`/controle/${ID}`))) { escrever(); return json(await como((db) => s.removerControle(db, m![1]!))); }
         return erro('não encontrado', 404);
       }
-      if (rota === '/api/clientes' && metodo === 'GET') { if (ehCliente) return erro('acesso negado', 403); exigir(identidade.papeis, 'cliente.ler'); return json(await como((db) => gestao.clientesDaCarteira(db))); }
-      if (rota === '/api/clientes/sem-etiqueta' && metodo === 'GET') { if (ehCliente) return erro('acesso negado', 403); exigir(identidade.papeis, 'cliente.ler'); return json(await como((db) => gestao.semEtiqueta(db, url.searchParams.get('q') ?? ''))); }
+      // ------------------------------------------------ NGA Nexus: dados do cliente, faturas, ajustes ---
+      const mDadosCliente = /^\/api\/projetos\/([0-9a-f-]{36})\/dados-do-cliente$/.exec(rota);
+      if (mDadosCliente && metodo === 'PATCH') {
+        if (ehCliente) return erro('acesso negado', 403);
+        exigir(identidade.papeis, 'projeto.escrever');
+        const d = await corpoDe(projetos.EsquemaDadosDoCliente);
+        return json(await como((db) => projetos.atualizarDadosDoCliente(db, mDadosCliente[1]!, d, identidade)));
+      }
+
+      if (rota === '/api/faturas' && metodo === 'GET') {
+        exigir(identidade.papeis, 'fatura.ler');
+        return json(await como((db) => faturas.listar(db, { projetoId: url.searchParams.get('projeto') ?? undefined, situacao: url.searchParams.get('situacao') ?? undefined, tipo: url.searchParams.get('tipo') ?? undefined })));
+      }
+      if (rota === '/api/faturas' && metodo === 'POST') {
+        if (ehCliente) return erro('acesso negado', 403);
+        exigir(identidade.papeis, 'fatura.gerir');
+        const d = await corpoDe(faturas.EsquemaFatura);
+        return json(await como((db) => faturas.criar(db, d, identidade)), 201);
+      }
+      if (rota === '/api/financeiro/documentos' && metodo === 'GET') {
+        if (ehCliente) return erro('acesso negado', 403);
+        exigir(identidade.papeis, 'fatura.gerir');
+        return json(await como((db) => faturas.documentos(db)));
+      }
+      const mFat = /^\/api\/faturas\/([0-9a-f-]{36})(?:\/(documento|comprovante|conferencia|cancelamento))?$/.exec(rota);
+      if (mFat) {
+        const fid = mFat[1]!; const sub = mFat[2];
+        if (!sub && metodo === 'PATCH') {
+          if (ehCliente) return erro('acesso negado', 403);
+          exigir(identidade.papeis, 'fatura.gerir');
+          const d = await corpoDe(faturas.EsquemaEdicaoFatura);
+          return json(await como((db) => faturas.editar(db, fid, d, identidade)));
+        }
+        if (sub === 'cancelamento' && metodo === 'POST') {
+          if (ehCliente) return erro('acesso negado', 403);
+          exigir(identidade.papeis, 'fatura.gerir');
+          return json(await como((db) => faturas.cancelar(db, fid, identidade)));
+        }
+        if (sub === 'conferencia' && metodo === 'POST') {
+          if (ehCliente) return erro('acesso negado', 403);
+          exigir(identidade.papeis, 'fatura.gerir');
+          const d = await corpoDe(faturas.EsquemaConferencia);
+          return json(await como((db) => faturas.conferir(db, fid, d, identidade)));
+        }
+        if ((sub === 'documento' || sub === 'comprovante') && metodo === 'POST') {
+          exigir(identidade.papeis, sub === 'comprovante' && ehCliente ? 'fatura.comprovar' : 'fatura.gerir');
+          const f = await req.formData().catch(() => null); const arquivo = f?.get('arquivo');
+          if (!(arquivo instanceof File)) return erro('envie o arquivo', 400);
+          const pagoEm = typeof f?.get('pagoEm') === 'string' ? String(f!.get('pagoEm')) : undefined;
+          const r = await como(async (db) => {
+            const { rows } = await db.query<{ projeto_id: string; numero: string }>('SELECT projeto_id, numero FROM faturas WHERE id = $1', [fid]);
+            if (!rows[0]) throw new NaoEncontrado('fatura não encontrada');
+            const recebido = await arquivos.receber(db, rows[0].projeto_id, arquivo,
+              { titulo: `${sub === 'comprovante' ? 'Comprovante' : 'Boleto/guia'} · ${rows[0].numero}`, categoria: sub === 'comprovante' ? 'Comprovante de pagamento' : 'Fatura ou guia' },
+              identidade, deposito, ehCliente ? 'portal_cliente' : 'interno');
+            if (sub === 'documento') return faturas.anexarDocumento(db, fid, recebido.documentoId, identidade);
+            return ehCliente ? faturas.comprovanteDoCliente(db, fid, recebido.documentoId, identidade) : faturas.registrarPagamento(db, fid, recebido.documentoId, pagoEm, identidade);
+          });
+          return json(r, 201);
+        }
+        return erro('método não permitido', 405);
+      }
+
+      // Ajustes editáveis: fluxogramas, linhas do tempo, automações e a matriz de acessos.
+      if (rota === '/api/escritorio/acessos' && metodo === 'GET') {
+        if (ehCliente) return erro('acesso negado', 403);
+        return json({ matriz: matrizDeAcessos() });
+      }
+      if (rota === '/api/config/modelos' && metodo === 'GET') {
+        if (ehCliente) return erro('acesso negado', 403);
+        return json(await como((db) => configuracao.listarModelos(db, url.searchParams.get('tipo') ?? undefined)));
+      }
+      if (rota === '/api/config/modelos' && metodo === 'POST') {
+        if (ehCliente) return erro('acesso negado', 403);
+        exigir(identidade.papeis, 'config.gerir');
+        const d = await corpoDe(configuracao.EsquemaModelo);
+        return json(await como((db) => configuracao.criarModelo(db, d, identidade)), 201);
+      }
+      const mModelo = /^\/api\/config\/modelos\/([0-9a-f-]{36})(?:\/(aplicacao))?$/.exec(rota);
+      if (mModelo) {
+        if (ehCliente) return erro('acesso negado', 403);
+        exigir(identidade.papeis, 'config.gerir');
+        if (!mModelo[2] && metodo === 'PATCH') { const d = await corpoDe(configuracao.EsquemaAtualizacaoModelo); return json(await como((db) => configuracao.atualizarModelo(db, mModelo[1]!, d, identidade))); }
+        if (!mModelo[2] && metodo === 'DELETE') return json(await como((db) => configuracao.excluirModelo(db, mModelo[1]!, identidade)));
+        if (mModelo[2] && metodo === 'POST') {
+          const d = await corpoDe(z.object({ projetoId: z.string().uuid(), inicio: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }));
+          exigir(identidade.papeis, 'projeto.escrever');
+          return json(await como((db) => configuracao.aplicarLinhaDoTempo(db, mModelo[1]!, d.projetoId, d.inicio, identidade)), 201);
+        }
+        return erro('método não permitido', 405);
+      }
+      if (rota === '/api/config/automacoes' && metodo === 'GET') {
+        if (ehCliente) return erro('acesso negado', 403);
+        return json({ gatilhos: configuracao.GATILHOS, automacoes: await como((db) => configuracao.listarAutomacoes(db)) });
+      }
+      if (rota === '/api/config/automacoes' && metodo === 'POST') {
+        if (ehCliente) return erro('acesso negado', 403);
+        exigir(identidade.papeis, 'config.gerir');
+        const d = await corpoDe(configuracao.EsquemaAutomacaoEscritorio);
+        return json(await como((db) => configuracao.criarAutomacao(db, d, identidade)), 201);
+      }
+      const mAutConf = /^\/api\/config\/automacoes\/([0-9a-f-]{36})$/.exec(rota);
+      if (mAutConf && ['PATCH', 'DELETE'].includes(metodo)) {
+        if (ehCliente) return erro('acesso negado', 403);
+        exigir(identidade.papeis, 'config.gerir');
+        if (metodo === 'DELETE') return json(await como((db) => configuracao.excluirAutomacao(db, mAutConf[1]!, identidade)));
+        const d = await corpoDe(configuracao.EsquemaAtualizacaoAutomacao);
+        return json(await como((db) => configuracao.atualizarAutomacao(db, mAutConf[1]!, d, identidade)));
+      }
+
+      // Controladoria × base do Astrea: vincula processos a projetos e publicações a processos.
+      if (rota === '/api/controladoria/confronto' && metodo === 'POST') {
+        if (ehCliente) return erro('acesso negado', 403);
+        exigir(identidade.papeis, 'controladoria.gerir');
+        const org = identidade.organizacoes.find((o) => o.tipo === 'escritorio')!.id;
+        if ((req.headers.get('content-type') ?? '').includes('multipart/form-data')) {
+          const f = await req.formData().catch(() => null); const a = f?.get('planilha');
+          if (!(a instanceof File)) return erro('envie a planilha .xlsx', 400);
+          if (a.size > 25 * 1024 * 1024) return erro('planilha acima de 25 MB', 413);
+          const aplicar = f?.get('aplicar') === 'sim';
+          return json(await como(async (db) => astreaBase.confrontar(db, new Uint8Array(await a.arrayBuffer()), identidade, aplicar)));
+        }
+        return json(await como((db) => astreaBase.vincularPublicacoes(db, org)));
+      }
+      // ------------------------------------------ diagnóstico inicial versionado ---
+      const mDiag = /^\/api\/projetos\/([0-9a-f-]{36})\/diagnostico\/(versoes|extracoes)(?:\/(\d+))?(?:\/(html|pdf))?$/.exec(rota);
+      if (mDiag) {
+        if (ehCliente) return erro('acesso negado', 403);
+        exigir(identidade.papeis, 'analise.executar');
+        const [, did, recurso, num, formato] = mDiag as unknown as [string, string, string, string | undefined, string | undefined];
+        if (recurso === 'versoes' && !num && metodo === 'GET') return json(await como((db) => diagVersoes.listarVersoes(db, did)));
+        if (recurso === 'versoes' && !num && metodo === 'POST') {
+          const d = await corpoDe(z.object({ motivo: z.enum(['manual', 'rodada_de_entrega']).default('manual') }));
+          return json(await como((db) => diagVersoes.gerar(db, did, d.motivo, identidade, deposito)), 201);
+        }
+        if (recurso === 'versoes' && num && metodo === 'GET') {
+          if (formato === 'html') return new Response(await como((db) => diagVersoes.html(db, did, Number(num))), { headers: { 'content-type': 'text/html; charset=utf-8', 'x-content-type-options': 'nosniff' } });
+          if (formato === 'pdf') {
+            const doc = await como((db) => diagVersoes.html(db, did, Number(num))); const bytes = await diagVersoes.pdf(doc);
+            if (!bytes) return erro('geração de PDF indisponível neste servidor (sem Chromium). Abra o relatório em HTML e use Imprimir > Salvar como PDF.', 501);
+            return new Response(bytes as unknown as BodyInit, { headers: { 'content-type': 'application/pdf', 'content-disposition': `attachment; filename="diagnostico-v${num}.pdf"` } });
+          }
+          return json((await como((db) => diagVersoes.obterVersao(db, did, Number(num)))));
+        }
+        if (recurso === 'extracoes' && !num && metodo === 'GET') return json(await como((db) => diagVersoes.listarExtracoes(db, did)));
+        if (recurso === 'extracoes' && !num && metodo === 'POST') { const d = await corpoDe(diagVersoes.EsquemaExtracao); return json(await como((db) => diagVersoes.registrarExtracao(db, did, d, identidade)), 201); }
+        return erro('método não permitido', 405);
+      }
+      const mDiagCmp = /^\/api\/projetos\/([0-9a-f-]{36})\/diagnostico\/comparacao$/.exec(rota);
+      if (mDiagCmp && metodo === 'GET') {
+        if (ehCliente) return erro('acesso negado', 403);
+        exigir(identidade.papeis, 'analise.executar');
+        return json(await como((db) => diagVersoes.comparar(db, mDiagCmp[1]!, Number(url.searchParams.get('de')), Number(url.searchParams.get('para')))));
+      }
+      const mDiagExc = /^\/api\/diagnostico\/extracoes\/([0-9a-f-]{36})$/.exec(rota);
+      if (mDiagExc && metodo === 'DELETE') {
+        if (ehCliente) return erro('acesso negado', 403);
+        exigir(identidade.papeis, 'analise.executar');
+        return json(await como((db) => diagVersoes.excluirExtracao(db, mDiagExc[1]!, identidade)));
+      }
+
+      if (rota === '/api/clientes' && metodo === 'GET') { if (ehCliente) return erro('acesso negado', 403); exigir(identidade.papeis, 'modulo.clientes'); return json(await como((db) => gestao.clientesDaCarteira(db))); }
+      if (rota === '/api/clientes/sem-etiqueta' && metodo === 'GET') { if (ehCliente) return erro('acesso negado', 403); exigir(identidade.papeis, 'modulo.clientes'); return json(await como((db) => gestao.semEtiqueta(db, url.searchParams.get('q') ?? ''))); }
       const mSemCnj = /^\/api\/projetos\/([0-9a-f-]{36})\/registros-astrea$/.exec(rota);
       if (mSemCnj && metodo === 'GET') { if (ehCliente) return erro('acesso negado', 403); exigir(identidade.papeis, 'processo.ler'); return json(await como((db) => gestao.registrosSemCnjDoProjeto(db, mSemCnj[1]!))); }
-      if (rota === '/api/conversas' && metodo === 'GET') { if (ehCliente) return erro('acesso negado', 403); exigir(identidade.papeis, 'projeto.ler'); return json(await como((db) => gestao.conversas(db))); }
+      // O chat interno deixou de existir: o cliente fala com a NGA pelo grupo de WhatsApp do projeto.
+      if (rota === '/api/conversas') return erro('rota não encontrada', 404);
       if (rota === '/api/lab/entregas' && metodo === 'GET') {
-        if (ehCliente || !gestao.podeVerEntregas(identidade.email)) return erro('rota não encontrada', 404);
+        if (ehCliente || !(podeComPapeis(identidade.papeis, 'modulo.entregas') || gestao.podeVerEntregas(identidade.email))) return erro('rota não encontrada', 404);
         return json({ modulos: CATALOGO_LAB.map((m) => ({ id: m.id, nome: m.nome, descricao: m.descricao, estado: m.estado, pendencia: m.pendencia ?? null })) });
       }
       const mTit = /^\/api\/titulos\/([0-9a-f-]{36})\/baixa$/.exec(rota);

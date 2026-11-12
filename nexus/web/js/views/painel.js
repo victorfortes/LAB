@@ -152,8 +152,7 @@ export default async function painel() {
             ${p.achadosCriticos.map((a) => bloco('shield', a.titulo, a.documento, 'erro', 'projetos'))}
             ${p.aValidar.map((a) => bloco('scale', `${a.quantos} crédito(s) sem classe validada`, a.projeto, 'aviso', `projetos/${a.projeto_id}/creditos`))}
             ${p.aAnalisar.slice(0, 4).map((a) => bloco('doc', a.titulo, `${a.projeto} · aguarda análise`, 'info', `projetos/${a.projeto_id}/portal`))}
-            ${p.mensagensSemResposta.slice(0, 3).map((m) => bloco('comment', `“${m.texto.slice(0, 60)}${m.texto.length > 60 ? '…' : ''}”`, `${m.projeto} · cliente esperando`, 'aviso', `projetos/${m.projeto_id}/portal`))}
-          </ul>` : vazio('check', 'Mesa limpa', 'Nenhum prazo vencido, nenhuma análise parada, nenhum cliente esperando.')}
+          </ul>` : vazio('check', 'Mesa limpa', 'Nenhum prazo vencido, nenhuma análise parada, nenhum crédito sem validar.')}
         </section>
       </div>
 

@@ -127,6 +127,38 @@ await dono.query(`INSERT INTO usuarios (id,email,nome,senha_hash) VALUES ($1,'di
 await dono.query(`INSERT INTO vinculos (usuario_id,organizacao_id,papel) VALUES ($1,$2,'cliente_administrador')`, [DIRETOR, CLIENTE_ORG]);
 await dono.query(`INSERT INTO portais (projeto_id,organizacao_cliente_id,criado_por) VALUES ($1,$2,$3)`, [projeto, CLIENTE_ORG, SOCIO]);
 
+// ---- NGA Nexus: perfis de acesso, grupo de WhatsApp, faturas e automação ----
+const PERFIS: Array<[string, string, string, string]> = [
+  ['aaaaaaaa-0000-4000-8000-000000000011', 'coordenacao@nga.adv.br', 'Coordenação de Demonstração', 'coordenacao'],
+  ['aaaaaaaa-0000-4000-8000-000000000012', 'financeiro@nga.adv.br', 'Financeiro de Demonstração', 'financeiro'],
+  ['aaaaaaaa-0000-4000-8000-000000000013', 'controladoria@nga.adv.br', 'Controladoria de Demonstração', 'controladoria'],
+];
+for (const [id, email, nome, papel] of PERFIS) {
+  await dono.query(`INSERT INTO usuarios (id,email,nome,senha_hash) VALUES ($1,$2,$3,$4)`, [id, email, nome, hash]);
+  await dono.query(`INSERT INTO vinculos (usuario_id,organizacao_id,papel) VALUES ($1,$2,$3)`, [id, NGA, papel]);
+}
+await dono.query(`INSERT INTO projeto_equipe (projeto_id,organizacao_id,usuario_id,papel) VALUES ($1,$2,'aaaaaaaa-0000-4000-8000-000000000012','apoio')`, [projeto, NGA]);
+await dono.query(`UPDATE projetos SET whatsapp_grupo_url='https://chat.whatsapp.com/NexusDemonstracao' WHERE id=$1`, [projeto]);
+for (const [desc, tipo, valor, dias, pagador] of [
+  ['Honorários mensais — outubro', 'honorarios', 1250000, -6, 'cliente'], ['Honorários mensais — novembro', 'honorarios', 1250000, 9, 'cliente'],
+  ['Custas do recurso (guia)', 'guia_custas', 38725, 3, 'escritorio'], ['Êxito parcial — acordo com credor', 'honorarios', 4200000, 24, 'cliente'],
+] as Array<[string, string, number, number, string]>) {
+  await dono.query(`INSERT INTO faturas (organizacao_id,projeto_id,tipo,pagador,descricao,valor_centavos,emissao,vencimento,visivel_cliente,criado_por)
+    VALUES ($1,$2,$3,$4,$5,$6,CURRENT_DATE - 12,CURRENT_DATE + $7::int,$8,$9)`, [NGA, projeto, tipo, pagador, desc, valor, dias, pagador === 'cliente', SOCIO]);
+}
+await dono.query(`INSERT INTO automacoes (organizacao_id,nome,gatilho,fase,titulo_tarefa,dias_uteis,prioridade,criado_por)
+  VALUES ($1,'Plano apresentado → analisar','fase_iniciada','plano_apresentado','Analisar o plano e preparar a objeção',3,'alta',$2)`, [NGA, SOCIO]);
+await dono.query(`INSERT INTO modelos_config (organizacao_id,tipo,nome,descricao,definicao,criado_por) VALUES
+  ($1,'fluxograma','Da publicação ao prazo agendado','Caminho de uma intimação do DJEN até o prazo na agenda.',$2::jsonb,$3),
+  ($1,'linha_do_tempo','Recuperação judicial — primeiros 90 dias','Marcos iniciais com prazo relativo.',$4::jsonb,$3)`,
+  [NGA, JSON.stringify({ nos: [
+    { id: 'a', tipo: 'inicio', rotulo: 'Publicação no DJEN', x: 80, y: 60, cor: 'verde' }, { id: 'b', tipo: 'etapa', rotulo: 'Leitura pela Controladoria', x: 340, y: 60, cor: 'ciano' },
+    { id: 'c', tipo: 'decisao', rotulo: 'Gera prazo?', x: 620, y: 40, cor: 'ambar' }, { id: 'd', tipo: 'etapa', rotulo: 'Calcular e agendar prazo', x: 900, y: 0, cor: 'ciano' },
+    { id: 'e', tipo: 'fim', rotulo: 'Arquivar como tratada', x: 900, y: 130, cor: 'cinza' }],
+    arestas: [{ id: '1', de: 'a', para: 'b' }, { id: '2', de: 'b', para: 'c' }, { id: '3', de: 'c', para: 'd', rotulo: 'Sim' }, { id: '4', de: 'c', para: 'e', rotulo: 'Não' }] }), SOCIO,
+   JSON.stringify({ etapas: [{ id: '1', titulo: 'Distribuição do pedido', diasApos: 0, visivelCliente: true }, { id: '2', titulo: 'Reunião de alinhamento com a diretoria', diasApos: 7, visivelCliente: true },
+    { id: '3', titulo: 'Relatório de atividades (RMA) do primeiro mês', diasApos: 35, visivelCliente: false }, { id: '4', titulo: 'Publicação do edital', diasApos: 60, visivelCliente: true }] })]);
+
 // Checklist a partir do modelo da recuperação judicial.
 const modelo = modeloDe('recuperacao_judicial');
 for (const [i, r] of modelo.entries()) {
@@ -444,9 +476,9 @@ const servidor = Bun.serve({
 }
 
 console.log(`
-  NGA LAB (demonstração)  http://127.0.0.1:${servidor.port}
+  NGA NEXUS (demonstração)  http://127.0.0.1:${servidor.port}
 
-  Equipe NGA:  socio@nga.adv.br · advogada@nga.adv.br
+  Equipe NGA:  socio@nga.adv.br (administrador) · advogada@nga.adv.br · coordenacao@ · financeiro@ · controladoria@nga.adv.br
   Cliente:     diretor@grupodemo.com.br
   Senha (ambos): ${SENHA}
 

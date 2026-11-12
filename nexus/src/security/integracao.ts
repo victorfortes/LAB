@@ -1,5 +1,5 @@
 /**
- * Credencial das aplicações do NGA Lab.
+ * Credencial das aplicações do NGA Nexus.
  *
  * O NGA Prazos, o NGA Íntegra e o NGA Sentinela seguem sendo aplicações
  * próprias — a decisão foi integrar por ARTEFATO, não absorver código. Então

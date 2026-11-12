@@ -7,7 +7,7 @@
  */
 import { api } from '../api.js';
 import { pode } from '../estado.js';
-import { dataBR, hojeISO, html, icone, ouvir, relativo } from '../util.js';
+import { dataBR, esc, hojeISO, html, icone, ouvir, relativo } from '../util.js';
 import { cabecalho, confirmar, erroDe, formulario, modal, toast, vazio } from '../ui.js';
 import { ir, navegar } from '../shell.js';
 import { novoPrazo } from './projeto_extra.js';
@@ -29,7 +29,7 @@ export default async function controladoria() {
     titulo: 'Controladoria',
     html: html`${cabecalho({
       titulo: 'Controladoria', sub: oabs.length ? `Diário de Justiça Eletrônico Nacional · ${oabs.filter((o) => o.ativo).length} OAB(s) monitorada(s) · ${ultima ? `última busca ${relativo(ultima)}` : 'ainda não buscou'}` : 'Cadastre as OABs dos sócios para começar a receber as publicações.',
-      acoes: gere ? html`<button type="button" class="btn btn--ghost" data-oabs>${icone('user')}OABs</button><button type="button" class="btn btn--accent" data-sync>${icone('refresh')}Buscar agora</button>` : '',
+      acoes: gere ? html`<button type="button" class="btn btn--ghost" data-confronto>${icone('link')}Confrontar com o Astrea</button><button type="button" class="btn btn--ghost" data-oabs>${icone('user')}OABs</button><button type="button" class="btn btn--accent" data-sync>${icone('refresh')}Buscar agora</button>` : '',
       resumo: [{ rotulo: 'Novas', valor: r.novas, tom: r.novas ? 'warn' : '' }, { rotulo: 'Lidas', valor: r.lidas }, { rotulo: 'Tratadas', valor: r.tratadas }],
     })}
     ${pendentes.length ? html`<section class="card glass mt" aria-labelledby="astrea-titulo">
@@ -112,6 +112,7 @@ export default async function controladoria() {
         catch (e) { b.disabled = false; erroDe(e); }
       });
       ouvir(el, 'click', '[data-oabs]', () => gerirOabs(oabs));
+      ouvir(el, 'click', '[data-confronto]', () => confrontarComAstrea());
       ouvir(el, 'click', '[data-mais]', (b) => abrirPublicacao(b.dataset.mais).catch(erroDe));
       ouvir(el, 'click', '[data-detalhar]', (b) => abrirPublicacao(b.dataset.detalhar).catch(erroDe));
       ouvir(el, 'click', '[data-sit]', async (b) => { try { await api.patch(`/api/controladoria/publicacoes/${b.dataset.sit}`, { situacao: b.dataset.v }); navegar(); } catch (e) { erroDe(e); } });
@@ -186,4 +187,37 @@ export async function agendarPublicacaoManual(p,sug){
     if(!linked)return false;
   }
   return formulario({titulo:'Agendar prazo no LAB',subtitulo:`${p.projeto} · disponibilização ${dataBR(p.data_disponibilizacao)}. Confirme os dias, o regime e os feriados.`,rotulo:'Confirmar e agendar',campos:[{nome:'titulo',rotulo:'Providência',obrigatorio:true,valor:`Providência processual · ${mascara(p.numero_processo??'')}`},{nome:'dias',rotulo:'Quantidade de dias',tipo:'number',min:1,obrigatorio:true,valor:sug?.dias},{nome:'regime',rotulo:'Contagem',tipo:'select',valor:sug?.regime??'uteis',opcoes:[{v:'uteis',t:'Dias úteis'},{v:'corridos',t:'Dias corridos'}]},{nome:'feriados',rotulo:'Feriados locais',dica:'Datas AAAA-MM-DD separadas por vírgulas; confira suspensões e o termo inicial.'}],enviar:async(v)=>{const dates=(v.feriados??'').split(',').map(d=>d.trim()).filter(Boolean);if(dates.some(d=>!/^\d{4}-\d{2}-\d{2}$/.test(d)))throw new Error('Informe feriados no formato AAAA-MM-DD.');const r=await api.post(`/api/controladoria/publicacoes/${p.id}/agendamento`,{titulo:v.titulo,dias:v.dias,regime:v.regime,feriadosLocais:dates});toast(r.repetido?'O prazo já estava agendado':'Prazo e tarefa de cumprimento criados no LAB');return true;}});
+}
+
+/** Confronta a base do Astrea (planilha "Processos") com o Nexus: cria projetos por etiqueta, vincula processos a projetos e publicações a processos. */
+async function confrontarComAstrea() {
+  const linha = (r, t, v, tom = '') => `<li><div><b>${t}</b></div><div class="fim"><span class="selo ${tom}">${v}</span></div></li>`;
+  const painel = (r) => `<ul class="lista">${linha(r, 'Registros na planilha', r.planilha.registros)}${linha(r, 'Clientes (etiquetas)', r.planilha.clientes)}${linha(r, 'Processos com número CNJ válido', r.planilha.processosComCnj)}
+    ${linha(r, r.aplicado ? 'Projetos criados' : 'Projetos a criar', r.projetosCriados, 'info')}${linha(r, r.aplicado ? 'Processos novos' : 'Processos a cadastrar', r.processosNovos, 'info')}
+    ${linha(r, r.aplicado ? 'Processos vinculados ao projeto' : 'Processos soltos a vincular ao projeto', r.processosVinculadosAProjeto, 'ok')}
+    ${r.aplicado ? linha(r, 'Publicações ligadas ao processo agora', r.publicacoes.vinculadasAoProcesso, 'ok') + linha(r, 'Publicações ainda sem processo cadastrado', r.publicacoes.semProcesso, r.publicacoes.semProcesso ? 'aviso' : 'ok') + linha(r, 'Publicações com processo mas sem projeto', r.publicacoes.semProjeto, r.publicacoes.semProjeto ? 'aviso' : 'ok') : ''}
+    ${linha(r, r.aplicado ? 'Sem etiqueta ligados pelo nome do cliente (registros)' : 'Sem etiqueta que herdam o projeto pelo nome do cliente', r.vinculadosPeloNomeDoCliente.registros, 'ok')}
+    ${linha(r, 'Sem etiqueta de cliente (total na planilha)', r.planilha.semEtiqueta, r.planilha.semEtiqueta ? 'aviso' : '')}${linha(r, 'Sem número CNJ válido (só ficam no registro)', r.planilha.semCnj, r.planilha.semCnj ? 'aviso' : '')}</ul>`;
+  let arquivo = null;
+  await modal({
+    titulo: 'Confrontar com a base do Astrea', subtitulo: 'Envie a planilha “Processos” exportada do Astrea. Primeiro mostro o que mudaria; só aplico quando você confirmar.', largo: true,
+    corpo: `<label class="drop" id="cf-drop" tabindex="0"><input type="file" id="cf-arq" accept=".xlsx" hidden>${String(icone('upload'))}<b>Selecione a planilha .xlsx</b><small>A leitura é feita no servidor; nada é gravado antes da sua confirmação.</small></label><div id="cf-res" style="margin-top:14px"></div>`,
+    acoes: [{ id: 'fechar', rotulo: 'Fechar' }, { id: 'vincular', rotulo: 'Só ligar publicações aos processos' }, { id: 'aplicar', rotulo: 'Aplicar vinculação', tipo: 'primario' }],
+    aoAbrir(m) {
+      const res = m.querySelector('#cf-res'); const entrada = m.querySelector('#cf-arq'); const aplicar = m.querySelector('[data-acao=aplicar]'); aplicar.disabled = true;
+      const enviar = async (sim) => { const fd = new FormData(); fd.append('planilha', arquivo); fd.append('aplicar', sim ? 'sim' : 'nao'); return api.enviar('/api/controladoria/confronto', fd); };
+      m.querySelector('#cf-drop').addEventListener('click', () => entrada.click());
+      entrada.addEventListener('change', async () => {
+        arquivo = entrada.files[0]; if (!arquivo) return; res.innerHTML = '<p class="dica">Lendo a planilha…</p>';
+        try { const r = await enviar(false); res.innerHTML = `<h3 class="mini-h">O que mudaria</h3>${painel(r)}`; aplicar.disabled = false; } catch (e) { res.innerHTML = `<p class="nota">${esc(e.message)}</p>`; }
+      });
+      m.addEventListener('acao', async (e) => {
+        if (e.detail.id === 'fechar') return m.fechar(true);
+        if (e.detail.id === 'vincular') { try { const r = await api.post('/api/controladoria/confronto', {}); res.innerHTML = `<h3 class="mini-h">Resultado</h3><ul class="lista">${linha(r, 'Publicações ligadas ao processo', r.vinculadasAoProcesso, 'ok')}${linha(r, 'Ainda sem processo cadastrado', r.semProcesso, r.semProcesso ? 'aviso' : 'ok')}${linha(r, 'Com processo mas sem projeto', r.semProjeto, r.semProjeto ? 'aviso' : 'ok')}</ul>`; } catch (er) { erroDe(er); } return; }
+        if (!arquivo) return; aplicar.disabled = true; aplicar.textContent = 'Aplicando…';
+        try { const r = await enviar(true); res.innerHTML = `<h3 class="mini-h">Aplicado</h3>${painel(r)}`; aplicar.textContent = 'Aplicado'; toast('Base do Astrea confrontada e vinculada.'); } catch (er) { aplicar.disabled = false; aplicar.textContent = 'Aplicar vinculação'; erroDe(er); }
+      });
+    },
+  });
+  navegar();
 }

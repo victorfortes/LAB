@@ -51,8 +51,9 @@ export const EsquemaMensagem = z.object({
 /** Projetos que o usuário alcança pelo portal, com o que cada um expõe. */
 export async function meusPortais(db: PoolClient) {
   const { rows } = await db.query(
-    `SELECT po.projeto_id, po.mostra_documentos, po.mostra_obrigacoes, po.mostra_financeiro,
-            pr.nome, pr.tipo, pr.situacao, pr.iniciado_em
+    `SELECT po.projeto_id, po.mostra_documentos, po.mostra_obrigacoes, po.mostra_financeiro, po.mostra_faturas,
+            pr.nome, pr.tipo, pr.situacao, pr.iniciado_em, pr.whatsapp_grupo_url, pr.resumo,
+            (SELECT o.nome FROM organizacoes o WHERE o.id = po.organizacao_cliente_id) AS organizacao
        FROM portais po JOIN projetos pr ON pr.id = po.projeto_id
       WHERE po.ativo AND po.projeto_id IN (SELECT app_projetos_do_portal())
       ORDER BY pr.nome`);

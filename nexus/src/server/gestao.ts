@@ -273,13 +273,14 @@ export async function clientesDaCarteira(db: PoolClient) {
   const { rows } = await db.query<Record<string, any>>(`SELECT r.cliente_etiqueta etiqueta, r.projeto_id, p.tipo, count(*)::int registros, count(DISTINCT r.processo_id)::int processos,
       count(*) FILTER (WHERE lower(coalesce(r.fase,'')) ~ 'arquivado|encerrado')::int arquivados,
       array_remove(array_agg(DISTINCT r.equipe),NULL) equipes,
-      (SELECT count(*)::int FROM prazos z JOIN processos pr ON pr.id=z.processo_id WHERE pr.projeto_id=r.projeto_id AND z.situacao='aberto') prazos_abertos
-    FROM astrea_registros r LEFT JOIN projetos p ON p.id=r.projeto_id WHERE r.cliente_etiqueta IS NOT NULL GROUP BY 1,2,3 ORDER BY registros DESC`);
+      (SELECT count(*)::int FROM prazos z JOIN processos pr ON pr.id=z.processo_id WHERE pr.projeto_id=r.projeto_id AND z.situacao='aberto') prazos_abertos,
+      p.whatsapp_grupo_url
+    FROM astrea_registros r LEFT JOIN projetos p ON p.id=r.projeto_id WHERE r.cliente_etiqueta IS NOT NULL GROUP BY 1,2,3,p.whatsapp_grupo_url ORDER BY registros DESC`);
   const { rows: resp } = await db.query<{ etiqueta: string; responsavel: string; n: number }>(`SELECT cliente_etiqueta etiqueta, responsavel, count(*)::int n FROM astrea_registros WHERE cliente_etiqueta IS NOT NULL AND responsavel <> 'Migração de Sistema' GROUP BY 1,2`);
   const { rows: [s] } = await db.query<{ n: number; nomes: number }>(`SELECT count(*)::int n, count(DISTINCT cliente_nome)::int nomes FROM astrea_registros WHERE cliente_etiqueta IS NULL`);
   const { rows: equipes } = await db.query<{ equipe: string; n: number }>(`SELECT coalesce(equipe,'Sem equipe') equipe, count(*)::int n FROM astrea_registros GROUP BY 1 ORDER BY 2 DESC`);
   const { rows: pessoas } = await db.query<{ responsavel: string; n: number; ativos: number }>(`SELECT responsavel, count(*)::int n, count(*) FILTER (WHERE NOT lower(coalesce(fase,'')) ~ 'arquivado|encerrado')::int ativos FROM astrea_registros GROUP BY 1 ORDER BY 2 DESC`);
-  return { clientes: rows.map((c) => ({ etiqueta: c.etiqueta, projetoId: c.projeto_id, tipo: c.tipo, registros: c.registros, processos: c.processos, arquivados: c.arquivados, equipes: c.equipes, prazosAbertos: c.prazos_abertos, responsaveis: resp.filter((x) => x.etiqueta === c.etiqueta).sort((a, b) => b.n - a.n).slice(0, 3) })), semEtiqueta: s, equipes, pessoas };
+  return { clientes: rows.map((c) => ({ etiqueta: c.etiqueta, projetoId: c.projeto_id, tipo: c.tipo, registros: c.registros, processos: c.processos, arquivados: c.arquivados, equipes: c.equipes, prazosAbertos: c.prazos_abertos, whatsappGrupoUrl: c.whatsapp_grupo_url, responsaveis: resp.filter((x) => x.etiqueta === c.etiqueta).sort((a, b) => b.n - a.n).slice(0, 3) })), semEtiqueta: s, equipes, pessoas };
 }
 export async function semEtiqueta(db: PoolClient, q: string) {
   return (await db.query(`SELECT cliente_nome, count(*)::int n, max(responsavel) responsavel, array_remove(array_agg(DISTINCT equipe),NULL) equipes FROM astrea_registros WHERE cliente_etiqueta IS NULL AND ($1 = '' OR cliente_nome ILIKE '%'||$1||'%' OR titulo ILIKE '%'||$1||'%' OR numero_original ILIKE '%'||$1||'%') GROUP BY 1 ORDER BY 2 DESC, 1 LIMIT 100`, [q.slice(0, 100)])).rows;

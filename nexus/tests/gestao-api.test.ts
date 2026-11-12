@@ -94,14 +94,15 @@ describe('árvore, atas e chat', () => {
     await req(s, `/api/atas/${at.id}`, { method: 'PATCH', body: JSON.stringify({ titulo: 'Kickoff', realizadaEm: '2027-01-10', publicada: true }) }); expect(await j(req(a, `/api/projetos/${pA}/atas`))).toHaveLength(1); expect(await j(req(b, `/api/projetos/${pA}/atas`))).toEqual([]);
     expect(await j(post(s, `/api/atas/${at.id}/tarefas`, { tarefas: [{ titulo: 'Enviar minuta' }] }))).toEqual({ criadas: 1 });
   });
-  test('leitura: a NGA marca a do cliente, sem abrir escrita ao cliente', async () => {
-    await post(a, `/api/projetos/${pA}/mensagens`, { texto: 'oi' }); expect((await j(req(s, '/api/conversas'))).find((c: { id: string }) => c.id === pA).nao_lidas).toBe(1);
-    await post(s, `/api/projetos/${pA}/mensagens/lidas`, {}); expect((await j(req(s, '/api/conversas'))).find((c: { id: string }) => c.id === pA).nao_lidas).toBe(0);
-    expect((await post(b, `/api/projetos/${pA}/mensagens/lidas`, {})).status).toBeGreaterThanOrEqual(400); expect((await req(a, '/api/conversas')).status).toBe(403);
+  test('o chat interno deixou de existir; o histórico de mensagens continua guardado e o isolamento vale', async () => {
+    await post(a, `/api/projetos/${pA}/mensagens`, { texto: 'oi' });
+    expect((await req(s, '/api/conversas')).status).toBe(404); expect((await req(a, '/api/conversas')).status).toBe(404);
+    expect((await post(s, `/api/projetos/${pA}/mensagens/lidas`, {})).status).toBe(200);
+    expect((await post(b, `/api/projetos/${pA}/mensagens/lidas`, {})).status).toBeGreaterThanOrEqual(400);
   });
 });
 
-test('entregas do LAB: só para o dono', async () => { expect((await req(s, '/api/lab/entregas')).status).toBe(404); process.env.NGA_EMAILS_DONO = 'socio@nga.adv.br'; expect((await req(s, '/api/lab/entregas')).status).toBe(200); expect((await req(a, '/api/lab/entregas')).status).toBe(404); delete process.env.NGA_EMAILS_DONO; });
+test('entregas do NEXUS: administração e sócios; advogado, coordenação e controladoria não', async () => { expect((await req(s, '/api/lab/entregas')).status).toBe(200); expect((await req(a, '/api/lab/entregas')).status).toBe(404); });
 
 test('relatórios abrem mesmo sem o Gerador neste banco', async () => { await post(s, `/api/projetos/${pB}/portal`, {}); expect((await req(s, `/api/projetos/${pB}/gerador/emissoes`)).status).toBe(200); });
 
