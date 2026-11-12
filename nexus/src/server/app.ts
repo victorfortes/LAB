@@ -35,6 +35,7 @@ import * as faturas from './faturas.ts';
 import * as configuracao from './configuracao.ts';
 import * as astreaBase from './astrea_base.ts';
 import * as diagVersoes from './diagnostico_versoes.ts';
+import { rotasFrenteB } from './rotas_frente_b.ts';
 import * as sentinelaGestao from './sentinela_gestao.ts';
 import { interpretar } from '../domain/financeiro/linguagem.ts';
 import { interpretarArquivo } from '../domain/financeiro/importacao.ts';
@@ -946,6 +947,7 @@ export function criarApp(ctx: Contexto) {
       // ------------------------------------------------- gestão e PRJ Studio ---
       const corpoDe = async <T>(esq: z.ZodType<T>): Promise<T> => { const d = esq.safeParse(await req.json().catch(() => null)); if (!d.success) throw new PedidoInvalido(d.error.issues[0]?.message ?? 'dados inválidos'); return d.data; };
       const como = <T>(f: (db: PoolClient) => Promise<T>) => banco.comoUsuario(identidade.usuarioId, f);
+      { const r = await rotasFrenteB({ rota, metodo, req, identidade, ehCliente, como, deposito, json, erro }); if (r) return r; }
       const mGestao = /^\/api\/projetos\/([0-9a-f-]{36})\/(gestao|titulos|lancamento-texto|importacoes\/previa|importacoes|prj\/base|prj\/simular|prj\/otimizar|prj\/cenarios|pmts|atas|mensagens\/lidas)$/.exec(rota);
       if (mGestao) {
         const pid = mGestao[1]!; const acao = mGestao[2]!;

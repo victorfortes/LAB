@@ -698,3 +698,18 @@ a, button, [role=tab], .tk-card, .pcard, .lista li, .check-row, label.btn, .tab 
 .rel-legenda span { display: inline-flex; align-items: center; gap: 6px; }
 .rel-legenda i { width: 9px; height: 9px; border-radius: 50%; background: #2a3448; }
 @media (max-width: 700px) { .rel-trilha { grid-template-columns: repeat(6, minmax(0, 1fr)); row-gap: 12px; } .rel-trilha::before { display: none; } }
+
+.qgc-nota p { margin: 6px 0 0; color: var(--text-2); max-width: 980px; }
+.qgc-resumo { display: flex; flex-wrap: wrap; gap: 10px 28px; margin-top: 14px; }
+.qgc-resumo span { display: grid; gap: 2px; }
+.qgc-resumo small { font: 600 10px var(--font); letter-spacing: .14em; text-transform: uppercase; color: var(--text-3); }
+.qgc-resumo b { font: 700 17px var(--font-display); }
+.qgc-resumo i { font-style: normal; font-size: 11px; color: var(--text-3); }
+.input--tabela { padding: 6px 9px; min-height: 32px; font-size: 13px; width: 100%; background: transparent; }
+.input--tabela.num { text-align: right; max-width: 150px; margin-left: auto; }
+.qgc-tabela td { vertical-align: top; }
+.qgc-tabela td small { display: block; margin-top: 4px; color: var(--text-3); font-size: 11px; }
+.qgc-tabela .qgc-hipotese { color: var(--lab-amber, #F0A32E); white-space: normal; max-width: 340px; }
+.qgc-validada td { opacity: .6; }
+.qgc-acoes { white-space: nowrap; }
+.qgc-acoes > * + * { margin-left: 6px; }
