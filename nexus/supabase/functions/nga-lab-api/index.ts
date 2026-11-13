@@ -44,7 +44,7 @@ const ROTINAS:Record<string,()=>Promise<unknown>>={
  google:async()=>{await prepararGoogle();return JSON.stringify(await processarGoogleAgendado(banco,acervo))},
  sentinela:async()=>JSON.stringify(await rotinaSentinela(banco)),
  radar:()=>rotinaRadar(banco,e.DJEN_INGEST_SECRET),
- datajud:async()=>JSON.stringify(await rotinaDataJud(banco,{limite:40})),
+ datajud:async()=>JSON.stringify(await rotinaDataJud(banco,{limite:25})),
  slack:async()=>JSON.stringify(await rotinaSlack(banco,SEGREDO_COFRE)),
 };
 async function executarRotina(req:Request,nome:string):Promise<Response>{
