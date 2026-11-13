@@ -15,6 +15,16 @@ import { NaoEncontrado, PedidoInvalido } from './erros.ts';
 import { CHAVE_DATAJUD } from './sentinela.ts';
 import { indiceDataJud, lerHitsDataJud, resumir, soDigitos, classificar } from '../domain/processo/andamentos.ts';
 
+/**
+ * O banco do plano gratuito tem 500 MB: guardar o histórico inteiro de 3.781 processos (centenas de movimentos
+ * cada) encheu o banco e o deixou só-leitura. Guardamos só o que importa para acompanhar o caso: os 40 movimentos
+ * mais recentes dos últimos 3 anos, com o complemento curto. O DataJud continua sendo a fonte do restante.
+ */
+export const MAX_MOVIMENTOS = 40;
+export function enxugar(movs: { id: string; data: string; titulo: string; conteudo: string; codigo: number | null }[], hoje = new Date()) {
+  const corte = new Date(hoje.getTime() - 3 * 365 * 86_400_000).toISOString().slice(0, 10);
+  return movs.filter((m) => m.data >= corte).slice(0, MAX_MOVIMENTOS).map((m) => ({ ...m, titulo: m.titulo.slice(0, 200), conteudo: m.conteudo.slice(0, 240) }));
+}
 const URL = (alias: string) => `https://api-publica.datajud.cnj.jus.br/api_publica_${alias}/_search`;
 interface ItemDaFila { processo_id: string; numero: string; indice: string | null }
 
@@ -43,7 +53,7 @@ export async function consultarLote(db: PoolClient, itens: ItemDaFila[], buscar:
       for (const i of lote) {
         const hits = por.get(soDigitos(i.numero)) ?? [];
         const { movimentos, capa } = lerHitsDataJud(hits);
-        const { rows } = await db.query<{ n: number }>('SELECT datajud_registrar($1,$2,TRUE,$3,NULL,$4::jsonb,$5::jsonb) AS n', [i.processo_id, indice, hits.length > 0, JSON.stringify(movimentos.slice(0, 400)), hits.length ? JSON.stringify(capa) : null]);
+        const { rows } = await db.query<{ n: number }>('SELECT datajud_registrar($1,$2,TRUE,$3,NULL,$4::jsonb,$5::jsonb) AS n', [i.processo_id, indice, hits.length > 0, JSON.stringify(enxugar(movimentos)), hits.length ? JSON.stringify(capa) : null]);
         novos += Number(rows[0]?.n ?? 0); consultados++;
       }
     } catch (e) {

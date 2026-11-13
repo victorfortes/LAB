@@ -43,7 +43,7 @@ const ABAS = [
   { id: 'documentos', rotulo: 'Documentos', icone: 'doc', perm: 'documento.ler', n: (c) => c.documentos, alerta: (c) => c.requisitos_a_analisar },
   { id: 'portal', rotulo: 'Portal do cliente', icone: 'eye', perm: 'documento.ler' },
   { id: 'plano', rotulo: 'Plano e caixa', icone: 'money', perm: 'plano.ler' },
-  { id: 'relatorios', rotulo: 'Relatórios', icone: 'chart', perm: 'relatorio.gerar' },
+  { id: 'relatorios', rotulo: 'Relatórios', icone: 'relatorio', perm: 'relatorio.gerar' },
   { id: 'atas', rotulo: 'Reuniões e atas', icone: 'calendar' },
   { id: 'equipe', rotulo: 'Equipe', icone: 'users', n: (c, h) => h.equipe.length },
 ];

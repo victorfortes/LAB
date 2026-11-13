@@ -19,12 +19,17 @@ export default async function biPrazos() {
   return {
     titulo: 'BI de Prazos',
     html: html`${cabecalho({ titulo: 'BI de Prazos', sub: ultima ? html`Base do Astrea recebida ${relativo(ultima.recebidoEm)} · ${d.rows.length} registros${atrasada ? ' · a automação não entrega há mais de 30 horas' : ''}` : 'Aguardando a primeira carga da automação do Astrea.',
-      acoes: html`<button class="btn btn--accent" data-cheia>${icone('eye')}Tela cheia</button><button class="btn btn--ghost" data-tv>${icone('link')}Link da TV</button><button class="btn btn--ghost" data-cargas>${icone('refresh')}Cargas</button>`,
+      acoes: html`${pode('controladoria.gerir') ? html`<button class="btn btn--ghost" data-importar>${icone('upload')}Importar planilha do Astrea</button>` : ''}<button class="btn btn--accent" data-cheia>${icone('eye')}Tela cheia</button><button class="btn btn--ghost" data-tv>${icone('link')}Link da TV</button><button class="btn btn--ghost" data-cargas>${icone('refresh')}Cargas</button>`,
       resumo: [{ rotulo: 'Prazos', valor: d.rows.filter((r) => r.tipo === 'Prazo').length }, { rotulo: 'Eventos e audiências', valor: d.rows.filter((r) => r.tipo !== 'Prazo').length }, ...(atrasada ? [{ rotulo: 'Automação', valor: 'atrasada', tom: 'alert' }] : [])] })}
       <div class="bi-quadro mt" data-quadro><iframe title="Controle de prazos - NGA ADV" data-bi></iframe></div>`,
     depois(el) {
       const quadro = el.querySelector('[data-bi]');
       fetch('/bi-prazos-tv.html', { credentials: 'same-origin' }).then((r) => r.text()).then((t) => { quadro.srcdoc = t; }).catch(erroDe);
+      // Carga manual: a mesma planilha que a automação exporta (Agenda do Astrea, Prazos + Eventos + Audiências).
+      ouvir(el, 'click', '[data-importar]', () => {
+        const gatilho = quadro.contentDocument?.getElementById('hiddenTrigger');
+        if (gatilho) gatilho.click(); else toast('Aguarde o painel carregar e tente de novo.', 'aviso');
+      });
       ouvir(el, 'click', '[data-cheia]', async () => {
         try { await el.querySelector('[data-quadro]').requestFullscreen(); } catch { toast('O navegador recusou a tela cheia. Use F11.', 'aviso'); }
       });
@@ -54,7 +59,7 @@ export default async function biPrazos() {
             });
           } });
       });
-      void pode; void aoSair;
+      void aoSair;
     },
   };
 }

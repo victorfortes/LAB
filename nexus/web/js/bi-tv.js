@@ -818,9 +818,10 @@ document.getElementById('importConfirm').addEventListener('click', async ()=>{
     if(!rows.length){ st.textContent='Nenhuma linha reconhecida. Confira o cabeçalho da planilha.'; st.className='m-status err'; return; }
     st.textContent = 'Gravando ' + rows.length + ' registros...';
     const iso = new Date().toISOString();
-    const r = await fetch('/api/bi-prazos/carga', {method:'POST', credentials:'same-origin', headers:{'content-type':'application/json'}, body: JSON.stringify({updatedAt: iso, rows: rows.map(x=>({tipo:x.tipo, data:x.data, hora:x.hora, caso:x.caso, conclusao:x.conclusao, juizo:x.juizo, numero:x.numero, resp:x.resp, status:x.status, titulo:x.titulo}))})});
+    const r = await fetch('/api/bi-prazos/carga', {method:'POST', credentials:'same-origin', headers:{'content-type':'application/json'}, body: JSON.stringify({updatedAt: iso, rows: rows.filter(x=>/^(prazo|evento|audi)/.test(String(x.tipo||'prazo').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase())).map(x=>({tipo:x.tipo||'Prazo', data:x.data, hora:x.hora, caso:x.caso, conclusao:x.conclusao, juizo:x.juizo, numero:x.numero, resp:x.resp, status:x.status, titulo:x.titulo}))})});
     if(!r.ok){ const e = await r.json().catch(()=>({})); throw new Error(e.erro || ('HTTP ' + r.status)); }
     await carregar();
+    try { parent.postMessage({ nga: 'bi-carregado' }, location.origin); } catch (e) {}
     st.textContent = rows.length + ' registros atualizados.'; st.className='m-status ok';
     setTimeout(()=> overlay.classList.remove('open'), 900);
   }catch(err){

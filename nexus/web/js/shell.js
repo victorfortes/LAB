@@ -24,7 +24,7 @@ const NAV_EQUIPE = [
   { rota: 'controladoria', rotulo: 'Controladoria', icone: 'inbox', permissao: 'controladoria.ler', contagem: 'pubs' },
   { rota: 'sentinela', rotulo: 'Sentinela', icone: 'radar', permissao: 'controladoria.ler' },
   { rota: 'bi-prazos', rotulo: 'BI de Prazos', icone: 'chart', permissao: 'modulo.bi_prazos' },
-  { rota: 'relatorios', rotulo: 'Relatórios', icone: 'chart', permissao: 'modulo.relatorios' },
+  { rota: 'relatorios', rotulo: 'Relatórios', icone: 'relatorio', permissao: 'modulo.relatorios' },
   { rota: 'equipe', rotulo: 'Equipe', icone: 'users', permissao: 'modulo.equipe' },
   { rota: 'entregas', rotulo: 'Entregas NEXUS', icone: 'flag', dono: true },
   { rota: 'ajustes', rotulo: 'Ajustes', icone: 'settings' },
@@ -36,7 +36,7 @@ const NAV_CLIENTE = [
   { rota: 'faturas', rotulo: 'Faturas', icone: 'money', contagem: 'fat' },
   { rota: 'plano', rotulo: 'Plano de pagamento', icone: 'scale' },
   { rota: 'caixa', rotulo: 'Financeiro', icone: 'chart' },
-  { rota: 'relatorios', rotulo: 'Relatórios', icone: 'chart' },
+  { rota: 'relatorios', rotulo: 'Relatórios', icone: 'relatorio' },
   { rota: 'atas', rotulo: 'Atas de reunião', icone: 'doc' },
 ];
 const liberada = (n) => (!n.permissao || pode(n.permissao)) && (!n.dono || pode('modulo.entregas') || estado.eu?.podeVerEntregas);

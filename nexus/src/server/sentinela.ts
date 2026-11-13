@@ -135,11 +135,11 @@ const ELEGIVEL = `(p.datajud_status='pendente' OR (p.datajud_status='falha' AND 
 
 async function enriquecer(db: PoolClient, r: Rodada, org: string) {
   const { dias_nova_distribuicao: DIAS_NOVA } = await obterConfig(db, org, 'motor');
-  const { rows } = await db.query<{ id: string; numero_processo: string; tribunal: string }>(`SELECT p.id,p.numero_processo,p.tribunal FROM sentinela_processos p WHERE p.organizacao_id=$1 AND ${ELEGIVEL} AND p.tribunal = (SELECT tribunal FROM sentinela_processos p WHERE organizacao_id=$1 AND ${ELEGIVEL} AND tribunal ~ '^[A-Za-z0-9]+$' ORDER BY ultima_verificacao LIMIT 1) LIMIT 50`, [org]);
+  const { rows } = await db.query<{ id: string; numero_processo: string; tribunal: string }>(`SELECT p.id,p.numero_processo,p.tribunal FROM sentinela_processos p WHERE p.organizacao_id=$1 AND ${ELEGIVEL} AND p.tribunal = (SELECT tribunal FROM sentinela_processos p WHERE organizacao_id=$1 AND ${ELEGIVEL} AND tribunal ~ '^[A-Za-z0-9]+$' ORDER BY ultima_verificacao LIMIT 1) LIMIT 25`, [org]);
   if (!rows.length) return 0;
   const alias = rows[0]!.tribunal.toLowerCase();
   try {
-    const resp = await r.fetch(URL_DATAJUD(alias), { method: 'POST', headers: { authorization: `APIKey ${CHAVE_DATAJUD}`, 'content-type': 'application/json' }, signal: AbortSignal.timeout(30_000), body: JSON.stringify({ size: Math.min(10_000, rows.length * 3), _source: ['numeroProcesso', 'dataAjuizamento', 'grau', 'classe', 'orgaoJulgador', 'sistema', 'assuntos'], query: { terms: { numeroProcesso: rows.map((x) => x.numero_processo) } } }) });
+    const resp = await r.fetch(URL_DATAJUD(alias), { method: 'POST', headers: { authorization: `APIKey ${CHAVE_DATAJUD}`, 'content-type': 'application/json' }, signal: AbortSignal.timeout(55_000), body: JSON.stringify({ size: Math.min(10_000, rows.length * 3), _source: ['numeroProcesso', 'dataAjuizamento', 'grau', 'classe', 'orgaoJulgador', 'sistema', 'assuntos'], query: { terms: { numeroProcesso: rows.map((x) => x.numero_processo) } } }) });
     if (!resp.ok) throw new Error(`DataJud HTTP ${resp.status}`);
     const d = await resp.json() as { hits?: { hits?: { _source: Record<string, any> }[] } }; await saude(db, org, 'datajud', true);
     const por = new Map<string, Record<string, any>[]>(); for (const h of d.hits?.hits ?? []) { const l = por.get(h._source.numeroProcesso) ?? []; l.push(h._source); por.set(h._source.numeroProcesso, l); }
@@ -209,7 +209,8 @@ export async function rotinaSentinela(banco: Banco, opcoes: { fetch?: typeof fet
     const uid = await banco.semContexto(async (db) => (await db.query<{ u: string }>('SELECT usuario_de_servico_da_organizacao($1,$2,$3) AS u', [org, 'sentinela', hashServico])).rows[0]!.u);
     tot.planejadas += await banco.comoUsuario(uid, (db) => planejar(db, org, agora));
     let parar = false;
-    while (!parar && Date.now() - r.inicio < r.limites.ms && r.bytes < r.limites.bytes) {
+    // O DataJud leva 30 a 45 s por consulta: a coleta do DJEN para antes, para sobrar tempo ao enriquecimento.
+    while (!parar && Date.now() - r.inicio < Math.min(r.limites.ms, 45_000) && r.bytes < r.limites.bytes) {
       const t = await banco.comoUsuario(uid, (db) => reivindicar(db, org)); if (!t) break;
       tot.tarefas++;
       // Sem lançar de dentro da transação: um erro aqui desfaria a volta da tarefa para a fila.

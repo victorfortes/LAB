@@ -1,5 +1,6 @@
 // Ícones no traço do LexPane (24x24, stroke). Gerado a partir do dicionário do template.
 export const ICONES = {
+ "relatorio": "<path d=\"M6.5 3.5h7.5l4.5 4.5v12.5h-12z\"/><path d=\"M14 3.5V8h4.5\"/><path d=\"M9.5 17v-3M12.5 17v-5M15.5 17v-2\"/>",
  "plus": "<path d=\"M12 5v14M5 12h14\"/>",
  "search": "<circle cx=\"11\" cy=\"11\" r=\"6.5\"/><path d=\"m16 16 4 4\"/>",
  "calendar": "<rect x=\"3.5\" y=\"5\" width=\"17\" height=\"15.5\" rx=\"3.5\"/><path d=\"M3.5 10h17M8 3v4M16 3v4\"/>",

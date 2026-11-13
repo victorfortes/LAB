@@ -153,10 +153,16 @@ export async function vincularProcessosAosProjetos(db: PoolClient, org: string, 
                     GROUP BY 1 HAVING count(DISTINCT projeto_id) = 1)
      UPDATE astrea_registros r SET projeto_id = m.projeto FROM mapa m
       WHERE r.organizacao_id = $1 AND r.projeto_id IS NULL AND lower(btrim(r.cliente_nome)) = m.nome`, [org]);
+  // Casamento por número com os dígitos calculados uma vez de cada lado (junção por igualdade, não regex linha a linha:
+  // o cruzamento 3.781 × 5.011 com regex estourava o tempo da função).
   const peloAstrea = await db.query(
-    `UPDATE processos pr SET projeto_id = r.projeto_id, atualizado_em = now() FROM astrea_registros r
-      WHERE r.organizacao_id = $1 AND pr.projeto_id IS NULL AND r.projeto_id IS NOT NULL
-        AND (r.processo_id = pr.id OR regexp_replace(coalesce(r.numero_original, ''), '\\D', '', 'g') = regexp_replace(pr.numero, '\\D', '', 'g'))`, [org]);
+    `WITH ast AS (SELECT DISTINCT ON (d) d, projeto_id FROM (SELECT regexp_replace(coalesce(numero_original, ''), '\\D', '', 'g') AS d, projeto_id, importado_em
+                      FROM astrea_registros WHERE organizacao_id = $1 AND projeto_id IS NOT NULL) a WHERE length(d) = 20 ORDER BY d, importado_em DESC),
+          por_id AS (SELECT DISTINCT ON (processo_id) processo_id, projeto_id FROM astrea_registros WHERE organizacao_id = $1 AND processo_id IS NOT NULL AND projeto_id IS NOT NULL ORDER BY processo_id, importado_em DESC),
+          alvo AS (SELECT pr.id, coalesce(pi.projeto_id, ast.projeto_id) AS projeto FROM processos pr
+                     LEFT JOIN por_id pi ON pi.processo_id = pr.id LEFT JOIN ast ON ast.d = regexp_replace(pr.numero, '\\D', '', 'g')
+                    WHERE pr.organizacao_id = $1 AND pr.projeto_id IS NULL)
+     UPDATE processos pr SET projeto_id = alvo.projeto, atualizado_em = now() FROM alvo WHERE pr.id = alvo.id AND alvo.projeto IS NOT NULL`, [org]);
   const peloCnpj = await db.query(
     `WITH alvo AS (SELECT pp.processo_id, (array_agg(DISTINCT pe.projeto_id))[1] AS projeto
                      FROM partes_processo pp JOIN empresas e ON regexp_replace(coalesce(e.cnpj, ''), '\\D', '', 'g') = regexp_replace(pp.documento, '\\D', '', 'g')
@@ -166,9 +172,9 @@ export async function vincularProcessosAosProjetos(db: PoolClient, org: string, 
   const pub = await vincularPublicacoes(db, org);
   const { rows: [r] } = await db.query<{ soltos: number; total: number }>(`SELECT count(*) FILTER (WHERE projeto_id IS NULL)::int AS soltos, count(*)::int AS total FROM processos WHERE organizacao_id = $1`, [org]);
   const { rows: amostra } = await db.query(
-    `SELECT pr.id, pr.numero, pr.classe, (SELECT r.cliente_nome FROM astrea_registros r WHERE r.processo_id = pr.id OR regexp_replace(coalesce(r.numero_original, ''), '\\D', '', 'g') = regexp_replace(pr.numero, '\\D', '', 'g') LIMIT 1) AS cliente,
-            (SELECT r.titulo FROM astrea_registros r WHERE r.processo_id = pr.id LIMIT 1) AS titulo
-       FROM processos pr WHERE pr.organizacao_id = $1 AND pr.projeto_id IS NULL ORDER BY pr.criado_em DESC LIMIT 200`, [org]);
+    `WITH soltos AS (SELECT id, numero, classe, criado_em, regexp_replace(numero, '\\D', '', 'g') AS d FROM processos WHERE organizacao_id = $1 AND projeto_id IS NULL ORDER BY criado_em DESC LIMIT 200),
+          ast AS (SELECT DISTINCT ON (d) d, cliente_nome, titulo FROM (SELECT regexp_replace(coalesce(numero_original, ''), '\\D', '', 'g') AS d, cliente_nome, titulo FROM astrea_registros WHERE organizacao_id = $1) a ORDER BY d)
+     SELECT s.id, s.numero, s.classe, ast.cliente_nome AS cliente, ast.titulo FROM soltos s LEFT JOIN ast ON ast.d = s.d ORDER BY s.criado_em DESC`, [org]);
   const rel = { aplicado: aplicar, registrosPeloNome: heranca.rowCount ?? 0, processosPeloAstrea: peloAstrea.rowCount ?? 0, processosPeloCnpj: peloCnpj.rowCount ?? 0, publicacoes: pub, processos: r!.total, semProjeto: r!.soltos, amostraSemProjeto: amostra };
   if (aplicar) {
     await db.query('RELEASE SAVEPOINT vinculo_projetos');
