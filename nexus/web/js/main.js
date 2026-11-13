@@ -1,5 +1,5 @@
 /**
- * Boot do NGA NEXUS: tenta a sessão do cookie; sem sessão, mostra o login.
+ * Boot do NGA LAB: tenta a sessão do cookie; sem sessão, mostra o login.
  */
 import { api } from './api.js';
 import { estado } from './estado.js';

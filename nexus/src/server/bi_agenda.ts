@@ -1,5 +1,5 @@
 /**
- * BI de Prazos dentro do Nexus: a mesma base do painel publicado (prazos, eventos e audiências do Astrea).
+ * BI de Prazos dentro do LAB: a mesma base do painel publicado (prazos, eventos e audiências do Astrea).
  *
  * Quem alimenta é a automação diária (Astrea → planilha → lista final), que entrega a lista INTEIRA por
  * `/api/integracao/agenda`. A carga troca tudo de uma vez, na mesma transação: a tela nunca vê metade.

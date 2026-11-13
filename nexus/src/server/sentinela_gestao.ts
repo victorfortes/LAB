@@ -275,7 +275,7 @@ export async function informarCnpj(db: PoolClient, d: z.infer<typeof EsquemaCnpj
 
 /**
  * Quanto dá para confiar no Sentinela hoje: clientes cobertos, dias sem lacuna, fontes no ar e
- * ações encontradas que ainda não estão na base do escritório (Nexus ou Astrea).
+ * ações encontradas que ainda não estão na base do escritório (LAB ou Astrea).
  */
 export async function confiabilidade(db: PoolClient) {
   const { rows: [c] } = await db.query<Record<string, number>>(`SELECT count(*)::int AS clientes, count(*) FILTER (WHERE ativo)::int AS ativos,

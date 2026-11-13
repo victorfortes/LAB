@@ -1,9 +1,9 @@
 /* ==========================================================================
-   NGA Nexus — tema e componentes sobre o design system do LexPane.
+   NGA LAB — tema e componentes sobre o design system do LexPane.
 
    O CSS do LexPane (lexpane.css) fica INTACTO: é a base visual aprovada, com a
    sidebar de vidro, o quadro de tarefas, os cards de projeto. Este arquivo só
-   faz duas coisas: (1) troca a paleta pela do NGA Nexus — marinho #03050A, âmbar,
+   faz duas coisas: (1) troca a paleta pela do NGA LAB — marinho #03050A, âmbar,
    ciano — e (2) acrescenta o que o template não tem: formulários, modais,
    calendário, chat, trilha de fases, tabelas, login.
    ========================================================================== */
@@ -567,7 +567,7 @@ a, button, [role=tab], .tk-card, .pcard, .lista li, .check-row, label.btn, .tab 
 
 .pub-texto { white-space: pre-wrap; font-size: 14.5px; line-height: 1.55; color: var(--text-2); margin: 0 0 6px; }
 
-/* Overlays and controls belong to Nexus, independent from the bundled theme. */
+/* Overlays and controls belong to LAB, independent from the bundled theme. */
 .modal.lab-modal { position:fixed; inset:0; width:100%; height:100dvh; max-height:none; border-radius:0; margin:0; display:grid; place-items:center; align-items:center; padding:clamp(12px,3vw,28px); z-index:1000; overflow:auto; }
 .lab-modal .modal__box, .lab-modal .modal__box.wide { margin:auto; max-height:calc(100dvh - 40px); border-radius:24px; }
 .lab-modal .modal__box { width:min(560px,100%); }

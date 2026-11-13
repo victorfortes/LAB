@@ -25,7 +25,7 @@ function itemCliente(c, sel) {
 function painelDoCliente(c, r) {
   const ativos = r.processos.filter((x) => !x.arquivado); const arq = r.processos.length - ativos.length;
   const fases = new Map(); for (const x of ativos) fases.set(x.fase || 'Sem fase', (fases.get(x.fase || 'Sem fase') ?? 0) + 1);
-  return html`<header class="cli-det__head"><div><p class="eyebrow">${c.projetoId ? TIPO[c.tipo] ?? 'Projeto' : 'Cliente sem projeto no Nexus'}</p><h2>${c.etiqueta}</h2>
+  return html`<header class="cli-det__head"><div><p class="eyebrow">${c.projetoId ? TIPO[c.tipo] ?? 'Projeto' : 'Cliente sem projeto no LAB'}</p><h2>${c.etiqueta}</h2>
       <p class="card__sub">${c.equipes.join(' · ') || 'sem equipe'}${c.responsaveis.length ? html` · ${c.responsaveis.slice(0, 3).map((x) => x.responsavel).join(', ')}` : ''}</p></div>
     <div class="nx-acts">${c.projetoId ? html`<a class="btn btn--accent btn--sm" href="#/projetos/${c.projetoId}">${icone('folder')}Abrir projeto</a><a class="btn btn--ghost btn--sm" href="#/projetos/${c.projetoId}/processos">${icone('file')}Processos e prazos</a>` : ''}
       ${c.whatsappGrupoUrl ? html`<a class="btn btn--ghost btn--sm" href="${c.whatsappGrupoUrl}" target="_blank" rel="noopener noreferrer">${icone('comment')}WhatsApp</a>` : ''}

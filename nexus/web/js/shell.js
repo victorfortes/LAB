@@ -1,8 +1,8 @@
 /**
- * A casca do NGA NEXUS: sidebar de vidro, barra superior, roteador.
+ * A casca do NGA LAB: sidebar de vidro, barra superior, roteador.
  *
  * O mesmo sistema serve a equipe e ao cliente — o que muda é a porta. A equipe
- * vê o painel de trabalho, projetos, tarefas e as ferramentas do Nexus; o cliente
+ * vê o painel de trabalho, projetos, tarefas e as ferramentas do LAB; o cliente
  * vê só o que é dele, no mesmo visual. Quem decide o que cada um ALCANÇA é o
  * servidor (RLS); a navegação apenas não oferece o que não vai funcionar.
  */
@@ -26,7 +26,7 @@ const NAV_EQUIPE = [
   { rota: 'bi-prazos', rotulo: 'BI de Prazos', icone: 'chart', permissao: 'modulo.bi_prazos' },
   { rota: 'relatorios', rotulo: 'Relatórios', icone: 'relatorio', permissao: 'modulo.relatorios' },
   { rota: 'equipe', rotulo: 'Equipe', icone: 'users', permissao: 'modulo.equipe' },
-  { rota: 'entregas', rotulo: 'Entregas NEXUS', icone: 'flag', dono: true },
+  { rota: 'entregas', rotulo: 'Entregas LAB', icone: 'flag', dono: true },
   { rota: 'ajustes', rotulo: 'Ajustes', icone: 'settings' },
 ];
 const NAV_CLIENTE = [
@@ -89,8 +89,8 @@ export function montarCasca() {
     <div class="wall" aria-hidden="true"><div class="wall__grid"></div><div class="wall__glow a"></div><div class="wall__glow b"></div><canvas id="fx"></canvas><div class="wall__scan"></div></div>
     <div class="app">
       <aside class="side glass glass--chrome" aria-label="Navegação">
-        <a class="brand" href="#/${inicioPadrao()}" aria-label="NGA NEXUS">
-          <img class="brand__logo" src="/img/nga.png" alt="NGA" width="91" height="35"><span class="brand__name"><em>NEXUS</em></span></a>
+        <a class="brand" href="#/${inicioPadrao()}" aria-label="NGA LAB">
+          <img class="brand__logo" src="/img/nga.png" alt="NGA" width="91" height="35"><span class="brand__name"><em>LAB</em></span></a>
         ${ehCliente() ? html`<div class="acesso-cliente" role="note"><span class="acesso-cliente__kicker">${icone('lock')}Portal do cliente</span><b title="${eu.organizacoes?.[0]?.nome ?? ''}">${eu.organizacoes?.[0]?.nome ?? ''}</b></div>` : ''}
         <nav class="nav" aria-label="Principal"><div class="nav__track"><span class="nav__lens" aria-hidden="true"></span>
           ${nav().map((n) => html`<a class="nav__item" href="#/${n.rota}" data-route="${n.rota}">${icone(n.icone)}<span>${n.rotulo}</span>${n.contagem ? html`<b class="nav__count" id="cnt-${n.contagem}" hidden></b>` : ''}</a>`)}
@@ -102,7 +102,7 @@ export function montarCasca() {
           <span><b>${eu.usuario.nome}</b><small>${papel}</small></span>${icone('chevronDown')}</button>
       </aside>
       <header class="toolbar">
-        <div class="toolbar__title glass glass--chrome"><span id="titulo-compacto">NGA NEXUS</span>${ehCliente() ? html`<em class="selo-cliente">Portal do cliente</em>` : ''}</div>
+        <div class="toolbar__title glass glass--chrome"><span id="titulo-compacto">NGA LAB</span>${ehCliente() ? html`<em class="selo-cliente">Portal do cliente</em>` : ''}</div>
         <div class="toolbar__tools glass glass--chrome">
           <button type="button" class="search-pill" id="btn-busca" aria-label="Buscar (⌘K)">${icone('search')}<span>Buscar</span><kbd>⌘K</kbd></button>
           ${ehCliente() || (!pode('projeto.escrever') && !pode('fatura.gerir')) ? '' : html`<button type="button" class="tbtn" id="btn-novo" aria-label="Criar" title="Criar">${icone('plus')}</button>`}
@@ -232,8 +232,8 @@ function renderizar(v, minha) {
   // disparar ações de um projeto anterior depois de navegar para outro.
   const vista = document.createElement('div'); vista.className = 'view-root';
   vista.innerHTML = String(v.html); main.replaceChildren(vista);
-  $('#titulo-compacto').textContent = v.titulo ?? 'NGA NEXUS';
-  document.title = `${v.titulo ?? 'NGA NEXUS'} · NGA NEXUS`;
+  $('#titulo-compacto').textContent = v.titulo ?? 'NGA LAB';
+  document.title = `${v.titulo ?? 'NGA LAB'} · NGA LAB`;
   $$('.up', main).forEach((el, i) => { if (!el.style.getPropertyValue('--i')) el.style.setProperty('--i', Math.min(i, 14)); });
   contar(main); animarAneis(main); animarBarras(main);
   $$('.seg, .tabs', main).forEach(posicionarSeg);

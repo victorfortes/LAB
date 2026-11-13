@@ -1,5 +1,5 @@
 /**
- * Gestão financeira da recuperanda, PRJ Studio, PMT, atas, chat e acompanhamento do Nexus.
+ * Gestão financeira da recuperanda, PRJ Studio, PMT, atas, chat e acompanhamento do LAB.
  *
  * Quem separa os dados é o RLS: o escritório só LÊ o financeiro autorizado no portal, e o
  * lançamento exige ser da organização do cliente. Cálculo vem só dos motores determinísticos.
@@ -234,7 +234,7 @@ export const marcarLidas = async (db: PoolClient, projetoId: string, lado: 'nga'
   return { ok: true };
 };
 
-// -------------------------------------------------------- entregas do Nexus ---
+// -------------------------------------------------------- entregas do LAB ---
 /** Restrito por e-mail no servidor: esconder só o menu não protegeria nada. */
 export const podeVerEntregas = (email: string): boolean => (process.env.NGA_EMAILS_DONO ?? 'victor@nga.adv.br').split(',').map((e) => e.trim().toLowerCase()).includes(email.toLowerCase());
 

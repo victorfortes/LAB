@@ -1,5 +1,5 @@
 /**
- * O painel do cliente — o mesmo visual do Nexus, com o que é do cliente.
+ * O painel do cliente — o mesmo visual do LAB, com o que é do cliente.
  *
  * Aqui não há botão que o servidor vá recusar por causa de papel: a navegação
  * só oferece o que o cliente pode fazer. Mas quem garante o isolamento é o RLS

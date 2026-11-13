@@ -1,9 +1,9 @@
 /**
- * Conferência diária Astrea × Nexus.
+ * Conferência diária Astrea × LAB.
  *
  * Duas perguntas, todo dia:
- *  1. Publicações: o que o Astrea recebeu, o Nexus também recebeu do DJEN? E o contrário?
- *  2. Prazos: o prazo que está no Astrea (base do BI de Prazos) existe no Nexus, com a mesma data?
+ *  1. Publicações: o que o Astrea recebeu, o LAB também recebeu do DJEN? E o contrário?
+ *  2. Prazos: o prazo que está no Astrea (base do BI de Prazos) existe no LAB, com a mesma data?
  *
  * O casamento é pelo número do processo (só dígitos) e pela data, com folga de dias úteis entre
  * disponibilização (DJEN) e publicação (Astrea). O que não casa vira item para a controladoria olhar.
@@ -39,7 +39,7 @@ export async function receberPublicacoesAstrea(db: PoolClient, organizacaoId: st
   return { recebidas: d.publicacoes.length, novas, diasConferidos: dias.slice(-10) };
 }
 
-/** Casa as publicações de um dia do Astrea com as do DJEN no Nexus (disponibilização até 3 dias antes). */
+/** Casa as publicações de um dia do Astrea com as do DJEN no LAB (disponibilização até 3 dias antes). */
 export async function conferirPublicacoes(db: PoolClient, organizacaoId: string, d: string) {
   const { rows: astrea } = await db.query<{ id: string; numero: string; orgao: string | null; resumo: string | null; prazo: string | null }>(
     `SELECT id, numero, orgao, left(resumo, 240) AS resumo, prazo::text FROM astrea_publicacoes WHERE organizacao_id = $1 AND data = $2`, [organizacaoId, d]);
@@ -53,7 +53,7 @@ export async function conferirPublicacoes(db: PoolClient, organizacaoId: string,
     const cand = (nexusPorNumero.get(so(a.numero)) ?? []).find((n) => !usados.has(n.id));
     if (so(a.numero) && cand) { usados.add(cand.id); emAmbos++; } else soAstrea.push(a);
   }
-  // Só no Nexus: publicação do próprio dia (ou da véspera) que o Astrea não trouxe.
+  // Só no LAB: publicação do próprio dia (ou da véspera) que o Astrea não trouxe.
   const soNexus = nexus.filter((n) => !usados.has(n.id) && n.data >= somar(d, -1));
   const detalhe = { soAstrea: soAstrea.slice(0, 200), soNexus: soNexus.slice(0, 200) };
   await db.query(`INSERT INTO conferencias_publicacoes (organizacao_id, dia, astrea, nexus, em_ambos, so_astrea, so_nexus, detalhe) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb)
@@ -64,7 +64,7 @@ export async function conferirPublicacoes(db: PoolClient, organizacaoId: string,
 const somar = (iso: string, n: number) => { const x = new Date(`${iso}T12:00:00Z`); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
 
 /**
- * Prazos: Astrea (base do BI) × Nexus (prazos abertos), na janela pedida.
+ * Prazos: Astrea (base do BI) × LAB (prazos abertos), na janela pedida.
  * Diferença de data é o caso mais perigoso: os dois sistemas dizem "tem prazo", mas em dias diferentes.
  */
 export async function conferirPrazos(db: PoolClient, de: string, ate: string) {

@@ -28,7 +28,7 @@ export async function montar(db: PoolClient, projetoId: string, mes: string, i: 
     `SELECT pr.id, pr.numero, pr.classe, pr.situacao, pr.valor_causa::text AS valor, pr.tribunal, pr.orgao_julgador AS orgao,
             (SELECT count(*)::int FROM movimentacoes m WHERE m.processo_id = pr.id AND m.data BETWEEN $2 AND $3) AS movs
        FROM processos pr WHERE pr.projeto_id = $1 ORDER BY pr.distribuido_em NULLS LAST, pr.numero`, [projetoId, de, ate]);
-  if (!procs.length) lacunas.push('Nenhum processo vinculado ao projeto no Nexus: indicadores processuais não calculados.');
+  if (!procs.length) lacunas.push('Nenhum processo vinculado ao projeto no LAB: indicadores processuais não calculados.');
 
   const { rows: movs } = await db.query<{ data: string; titulo: string; conteudo: string | null; fonte: string; numero: string; resumo: string | null }>(
     `SELECT m.data::text, m.titulo, m.conteudo, m.fonte, pr.numero, m.resumo_ao_cliente AS resumo FROM movimentacoes m JOIN processos pr ON pr.id = m.processo_id
@@ -91,7 +91,7 @@ export async function montar(db: PoolClient, projetoId: string, mes: string, i: 
 
   const [a, m] = mes.split('-');
   return {
-    fonte: 'NGA Nexus', geradoEm: new Date().toISOString(), geradoPor: i.nome,
+    fonte: 'NGA LAB', geradoEm: new Date().toISOString(), geradoPor: i.nome,
     cabecalho: { cliente: p.cliente ?? p.nome, cnpj: p.cnpj && p.cnpj.replace(/\D/g, '').length === 14 ? p.cnpj.replace(/\D/g, '').replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5') : p.cnpj, projeto: p.nome, tipo: p.tipo, fase: p.fase, responsavel: p.responsavel, periodo: { de, ate, rotulo: `${MESES[Number(m) - 1]} de ${a}` } },
     indicadores: { processos: procs.length, ativos, valorCausa: valor, movimentados, registros, totalRegistros: Object.values(registros).reduce((s, n) => s + n, 0), rotina },
     natureza, processos: procs.map((x) => ({ numero: x.numero, classe: x.classe, situacao: x.situacao, tribunal: x.tribunal, orgao: x.orgao, movimentos: x.movs })),
@@ -99,7 +99,7 @@ export async function montar(db: PoolClient, projetoId: string, mes: string, i: 
   };
 }
 
-/** Quanto cada cliente já tem de dado no Nexus para o relatório mensal sair daqui (a meta para o próximo ano). */
+/** Quanto cada cliente já tem de dado no LAB para o relatório mensal sair daqui (a meta para o próximo ano). */
 export async function prontidao(db: PoolClient, mes: string) {
   const de = `${mes}-01`; const ate = fimDoMes(mes);
   const { rows } = await db.query<Record<string, any>>(`SELECT p.id, p.nome,

@@ -1,7 +1,7 @@
 /**
  * Onboarding do cliente, visual: uma trilha animada com as etapas (feita, atual, próximas), o que fazer
  * agora, quem faz e até quando, e as tarefas que o projeto já gerou. Itens marcados como "auto" se
- * concluem sozinhos quando o Nexus vê o fato (link do grupo salvo, checklist gerado, fatura emitida...).
+ * concluem sozinhos quando o LAB vê o fato (link do grupo salvo, checklist gerado, fatura emitida...).
  * O mesmo conteúdo, em formato compacto, fica no painel lateral do projeto (botão "Onboarding").
  */
 import { api } from '../api.js';
@@ -32,7 +32,7 @@ function itemHtml(it, edita) {
   return html`<li class="onb-item ${it.feito ? 'feito' : ''} ${it.atrasado ? 'atrasado' : ''}" data-item="${it.id}">
     <button type="button" class="onb-check" data-alternar="${it.id}" ${edita && !it.automatico ? '' : 'disabled'} aria-pressed="${it.feito}" aria-label="${it.feito ? 'Desmarcar' : 'Concluir'}: ${it.titulo}">${it.feito ? raw(icone('check')) : ''}</button>
     <div class="onb-item__txt"><b>${it.titulo}</b>${it.descricao ? html`<small>${it.descricao}</small>` : ''}
-      <div class="onb-item__meta"><span class="selo ${LADO[it.lado][1]}">${LADO[it.lado][0]}</span>${it.chave ? html`<span class="selo" title="Conclui sozinho quando o Nexus vê o fato">auto</span>` : ''}
+      <div class="onb-item__meta"><span class="selo ${LADO[it.lado][1]}">${LADO[it.lado][0]}</span>${it.chave ? html`<span class="selo" title="Conclui sozinho quando o LAB vê o fato">auto</span>` : ''}
         <span class="${it.atrasado ? 'onb-atraso' : ''}">${prazoTxt(it)}</span>${it.responsavel ? html`<span>· ${it.responsavel}</span>` : it.lado === 'nga' ? html`<span class="muted">· sem responsável</span>` : ''}</div></div>
     ${edita ? html`<button type="button" class="ibtn ibtn--sm" data-editar-item="${it.id}" aria-label="Editar">${icone('list')}</button>` : ''}</li>`;
 }
@@ -60,7 +60,7 @@ export async function abaOnboarding(ctx) {
         <aside class="onb-lateral">
           <section class="card glass up"><header class="card__head"><div><h2 class="card__title">Tarefas geradas</h2><p class="card__sub">O que já está na fila da equipe neste projeto</p></div><button class="link" data-aba-ir="tarefas">Abrir →</button></header>
             ${o.tarefas.length ? html`<ul class="cal-lista">${o.tarefas.map((t) => html`<li class="cal-item cal-t--tarefa" data-aba-ir="tarefas"><i></i><div><b>${t.titulo}</b><small>${STATUS_TAREFA[t.status] ?? t.status}${t.prazo ? ` · até ${dataBR(t.prazo)}` : ''}${t.responsavel ? ` · ${t.responsavel}` : ''}</small></div></li>`)}</ul>` : html`<p class="dica">Nenhuma tarefa aberta.</p>`}</section>
-          <section class="card glass up mt"><h2 class="card__title">Legenda</h2><ul class="onb-legenda"><li><span class="selo info">NGA</span> a equipe faz</li><li><span class="selo aviso">Cliente</span> aparece no portal do cliente</li><li><span class="selo">auto</span> conclui sozinho quando o Nexus vê o fato</li></ul></section>
+          <section class="card glass up mt"><h2 class="card__title">Legenda</h2><ul class="onb-legenda"><li><span class="selo info">NGA</span> a equipe faz</li><li><span class="selo aviso">Cliente</span> aparece no portal do cliente</li><li><span class="selo">auto</span> conclui sozinho quando o LAB vê o fato</li></ul></section>
         </aside></div>`,
     depois(el) { ligar(el, ctx, o); },
   };

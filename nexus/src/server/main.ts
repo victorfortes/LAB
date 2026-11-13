@@ -62,7 +62,7 @@ const TIPOS: Record<string, string> = {
   '.png': 'image/png',
 };
 
-// Gerador de Relatórios (monorepo: ../relatorios), servido sob /gerador/ para abrir dentro do NGA NEXUS.
+// Gerador de Relatórios (monorepo: ../relatorios), servido sob /gerador/ para abrir dentro do NGA LAB.
 const gerador = servidorDoGerador(join(RAIZ, '../relatorios'));
 
 // Controladoria: busca as publicações do DJEN das OABs cadastradas a cada hora (primeira rodada 3 min depois de
@@ -130,7 +130,7 @@ const servidor = Bun.serve({
   },
 });
 
-console.log(`NGA NEXUS em http://${servidor.hostname}:${servidor.port}`);
+console.log(`NGA LAB em http://${servidor.hostname}:${servidor.port}`);
 
 for (const sinal of ['SIGINT', 'SIGTERM'] as const) {
   process.on(sinal, async () => {

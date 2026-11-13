@@ -39,9 +39,9 @@ export async function servirEstatico(
 /**
  * O Gerador de Relatórios (pasta `relatorios/` do monorepo) é uma aplicação estática com login próprio
  * (Supabase Auth). Servi-la POR AQUI, sob `/gerador/`, evita mais um processo e mais uma porta para manter, e
- * faz a ferramenta responder no mesmo endereço do NGA NEXUS (inclusive quando o acesso não for 127.0.0.1).
+ * faz a ferramenta responder no mesmo endereço do NGA LAB (inclusive quando o acesso não for 127.0.0.1).
  *
- * NÃO abre dentro de um iframe do NGA NEXUS, e isso é desenho dela, não defeito daqui: o `shell.js` do gerador
+ * NÃO abre dentro de um iframe do NGA LAB, e isso é desenho dela, não defeito daqui: o `shell.js` do gerador
  * expulsa a página do quadro (`window.top.location = window.self.location`) como defesa contra clickjacking
  * na tela de login. Por isso a tela de Ferramentas abre o gerador em nova aba.
  *

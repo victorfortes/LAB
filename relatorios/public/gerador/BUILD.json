@@ -1,6 +1,6 @@
 {
  "original_sha256": "2d6fab8aa87d4233aa7e3564009dd89adb520108737c30ee4c9dae06b085d8a9",
- "pagina_gerador_sha256": "159d8ea25e1ed2c701ccb3898c347cdb7be024fdb8822732d84004b8afa37e2e",
+ "pagina_gerador_sha256": "ede9073c4ed365d73b8607998d6ac42d1c48841de273f2ac5e168302929cb0d8",
  "patches": [
   {
    "patch": "P1-fontes-locais",
@@ -361,6 +361,18 @@
   {
    "patch": "P52-tipo-canonico",
    "motivo": "O tipo do registro lido só com a primeira palavra ('Histórico', 'Tarefa'...) vira o tipo completo; antes essas linhas ficavam fora das barras por tipo."
+  },
+  {
+   "patch": "P53-mes-sem-dados-usa-anterior",
+   "motivo": "Mês de referência sem nenhum registro no export (ex.: PDF exportado antes de haver lançamentos no mês) não gera relatório zerado: usa o último mês anterior com registros e avisa que não houve atualização."
+  },
+  {
+   "patch": "P53b-aviso-no-pdf",
+   "motivo": "O aviso de mês sem atualização aparece no PDF, na nota de 'O mês em números'."
+  },
+  {
+   "patch": "P53c-aviso-na-tela",
+   "motivo": "O aviso de mês sem atualização aparece na linha 'Dados do Astrea' da criação livre."
   },
   {
    "patch": "P7-csp-meta",

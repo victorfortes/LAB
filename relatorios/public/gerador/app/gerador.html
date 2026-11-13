@@ -4574,7 +4574,7 @@ class GeradorRelatorioPDF {
   }
 
   _notaCarteira(doc, d) {
-    const partes = [], q = d.movimentados_detalhe, c = d.carteira;
+    const partes = d.aviso_periodo ? [d.aviso_periodo] : [], q = d.movimentados_detalhe, c = d.carteira;
     if (q && (q.sem_numero || q.casos || (q.fichas != null && q.fichas !== q.processos))) {
       const m = [`${q.processos} processo${q.processos === 1 ? "" : "s"}`];
       if (q.sem_numero) m.push(`${q.sem_numero} sem número`);
@@ -6382,6 +6382,30 @@ GeradorRelatorioPDF.prototype._capaCredor = function (doc, dados) {
       window.NGA_BASE_CASOS = !!extraido.baseCasos;
       var calculo = calcularIndicadores(extraido.processos, extraido.atividades, inicio, fim, regrasParaMotor, extraido.atividadesAdministrativas || [], extraido.casosAdministrativos || []);
       calculo = await auditarGeracao(pdfDoc, extraido, calculo, inicio, fim, function () { return calcularIndicadores(extraido.processos, extraido.atividades, inicio, fim, regrasParaMotor, extraido.atividadesAdministrativas || [], extraido.casosAdministrativos || []); });
+      // P53: mês sem nenhum registro no Astrea não sai zerado. Usa o último mês anterior com registros
+      // (em geral o mês passado) e deixa o aviso de que não houve atualização no período pedido.
+      if (!(calculo && calculo.indicadores && calculo.indicadores.quantidade_total_atividades_periodo)) {
+        var ultimaTs = 0;
+        (extraido.atividades || []).concat(extraido.atividadesAdministrativas || []).forEach(function (a) {
+          var d = dataBR(a.data); if (d && d.getTime() < inicio.getTime() && d.getTime() > ultimaTs) ultimaTs = d.getTime();
+        });
+        if (ultimaTs) {
+          var du = new Date(ultimaTs);
+          var ini2 = new Date(Date.UTC(du.getUTCFullYear(), du.getUTCMonth(), 1));
+          var fim2 = new Date(Date.UTC(du.getUTCFullYear(), du.getUTCMonth() + 1, 0));
+          var recalc2 = function () { return calcularIndicadores(extraido.processos, extraido.atividades, ini2, fim2, regrasParaMotor, extraido.atividadesAdministrativas || [], extraido.casosAdministrativos || []); };
+          var calc2 = await auditarGeracao(pdfDoc, extraido, recalc2(), ini2, fim2, recalc2);
+          if (calc2 && calc2.indicadores && calc2.indicadores.quantidade_total_atividades_periodo) {
+            var mesTxt = function (d) { return d.toLocaleDateString("pt-BR", { month: "long", year: "numeric", timeZone: "UTC" }); };
+            var avisoPeriodo = "Não houve atualização no Astrea em " + mesTxt(inicio) + " (último registro em " + du.toISOString().slice(0, 10).split("-").reverse().join("/") +
+              "). Os números deste relatório repetem " + mesTxt(ini2) + ", o último mês com registros.";
+            calculo = calc2; inicio = ini2; fim = fim2;
+            calculo.indicadores.aviso_periodo = avisoPeriodo;
+            calculo.indicadores.avisos_metricas = [avisoPeriodo].concat(calculo.indicadores.avisos_metricas || []);
+            try { console.warn("[NGA] " + avisoPeriodo); } catch (e) {}
+          }
+        }
+      }
 
       ultimoResultado = {
         cliente: cliente,
@@ -7802,7 +7826,7 @@ GeradorRelatorioPDF.prototype._capaCredor = function (doc, dados) {
     if (ultimoResultado) {
       var ind = ultimoResultado.indicadores || {};
       fonte.textContent = "Dados do Astrea: " + ultimoResultado.cliente + ", " + (ind.quantidade_total_atividades_periodo || 0) +
-        " registros no período" + (ultimoResultado.clienteCad ? ", com o cadastro do cliente." : ", sem cliente cadastrado.");
+        " registros no período" + (ind.aviso_periodo ? " (" + ind.aviso_periodo + ")" : "") + (ultimoResultado.clienteCad ? ", com o cadastro do cliente." : ", sem cliente cadastrado.");
     } else {
       fonte.textContent = "Nenhum PDF do Astrea processado ainda. Os blocos que dependem dele ficam bloqueados; processe o PDF acima para liberá-los.";
     }

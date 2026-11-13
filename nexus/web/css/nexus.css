@@ -1,5 +1,5 @@
 /* ==========================================================================
-   NGA NEXUS — camada de composição.
+   NGA LAB — camada de composição.
 
    O lab.css traz a paleta e os componentes soltos; este arquivo traz a ORDEM:
    como os blocos se alinham numa tela. Três regras valem para todas as telas:
@@ -380,7 +380,7 @@ a.nx-kpi:hover { transform: translateY(-3px); border-color: #F0A32E66; }
 .sk-regras .select { width: auto; min-width: 140px; }
 @media (max-width: 860px) { .sk { grid-template-columns: 1fr; height: auto; } .sk-lista { max-height: 240px; } .sk-chat { min-height: 480px; } }
 
-/* ---------------------------------------------------------------- relatório mensal (base Nexus) ---- */
+/* ---------------------------------------------------------------- relatório mensal (base LAB) ---- */
 .rm .input[type=month] { width: auto; }
 .rm-folha { margin-top: 12px; border-radius: 12px; overflow: hidden; background: #fff; } .rm-folha iframe { display: block; width: 100%; min-height: 900px; border: 0; background: #fff; }
 .rm-barra { height: 8px; border-radius: 8px; background: rgba(255,255,255,.08); overflow: hidden; width: 110px; } .rm-barra i { display: block; height: 100%; }

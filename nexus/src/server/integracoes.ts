@@ -1,10 +1,10 @@
 /**
- * Recepção do que as aplicações do NGA Nexus produzem.
+ * Recepção do que as aplicações do NGA LAB produzem.
  *
  * A decisão foi mantê-las separadas e integrar por ARTEFATO. Este arquivo é o
  * lado receptor desse contrato: o Sentinela entrega processo e movimentação,
  * o NGA Prazos entrega prazo lido do Astrea, o Íntegra entrega as partes do
- * PDF dos autos. Nenhum deles precisa saber como o Nexus guarda nada.
+ * PDF dos autos. Nenhum deles precisa saber como o LAB guarda nada.
  *
  * DUAS REGRAS QUE ATRAVESSAM AS TRÊS ENTRADAS
  *
@@ -175,7 +175,7 @@ export function contrato() {
       sentinela:
         'Ligado. O comando `sentinela nexus-enviar` entrega o que foi confirmado por ' +
         'pessoa, e a entrega foi exercitada de ponta a ponta contra este servidor.',
-      prazos: 'Ligação por fila durável: o NGA Prazos entrega apenas agendamentos confirmados por releitura, após configurar a credencial do Nexus no cofre.',
+      prazos: 'Ligação por fila durável: o NGA Prazos entrega apenas agendamentos confirmados por releitura, após configurar a credencial do LAB no cofre.',
       integra: 'Não ligado: o Íntegra ainda não chama a rota de documentos.',
     },
     naoExercitado:

@@ -10,7 +10,7 @@ export type Papel =
   | 'socio_administrador' | 'socio' | 'coordenacao' | 'advogado' | 'controladoria'
   | 'financeiro' | 'administrativo' | 'estagiario'
   | 'cliente_administrador' | 'cliente_usuario' | 'parceiro_externo'
-  /** Usuário de serviço das aplicações do NGA Nexus. Ver `integracoes`. */
+  /** Usuário de serviço das aplicações do NGA LAB. Ver `integracoes`. */
   | 'integracao';
 
 export type Permissao =
@@ -111,7 +111,7 @@ const GESTAO: Permissao[] = [
  *
  *  - Administrador (`socio_administrador`): tudo, inclusive acessos, integrações e auditoria.
  *  - Sócio: tudo o que é do trabalho e da gestão; não administra credenciais.
- *  - Coordenação: tudo, menos Controladoria (e Sentinela, BI de Prazos) e Entregas NEXUS.
+ *  - Coordenação: tudo, menos Controladoria (e Sentinela, BI de Prazos) e Entregas LAB.
  *  - Advogado: o trabalho do caso. Sem carteira de clientes, relatórios, controladoria,
  *    equipe, entregas e sem dar acesso ao portal do cliente.
  *  - Controladoria: prazos e publicações (Controladoria, Sentinela, BI de Prazos), painel,
@@ -152,7 +152,7 @@ export const PERMISSOES: Readonly<Record<Papel, readonly Permissao[]>> = Object.
   parceiro_externo: ['documento.ler'],
 
   /**
-   * O que uma aplicação do NGA Nexus pode fazer ao entregar o que produziu.
+   * O que uma aplicação do NGA LAB pode fazer ao entregar o que produziu.
    *
    * Deliberadamente curto. Nenhuma integração publica no portal do cliente,
    * valida enquadramento de crédito, emite relatório ou gera outra credencial:
@@ -196,14 +196,14 @@ export const MENU_DO_ESCRITORIO: readonly { id: string; rotulo: string; permissa
   { id: 'bi-prazos', rotulo: 'BI de Prazos', permissao: 'controladoria.ler' },
   { id: 'relatorios', rotulo: 'Relatórios', permissao: 'modulo.relatorios' },
   { id: 'equipe', rotulo: 'Equipe', permissao: 'modulo.equipe' },
-  { id: 'entregas', rotulo: 'Entregas NEXUS', permissao: 'modulo.entregas' },
+  { id: 'entregas', rotulo: 'Entregas LAB', permissao: 'modulo.entregas' },
   { id: 'ajustes', rotulo: 'Ajustes', permissao: null },
 ]);
 
 export const PAPEIS_DO_ESCRITORIO: readonly { papel: Papel; rotulo: string; resumo: string }[] = Object.freeze([
   { papel: 'socio_administrador', rotulo: 'Administrador', resumo: 'Tudo, absolutamente: inclui acessos, integrações e auditoria.' },
   { papel: 'socio', rotulo: 'Sócio', resumo: 'Tudo o que é trabalho e gestão, inclusive Controladoria e Entregas.' },
-  { papel: 'coordenacao', rotulo: 'Coordenação', resumo: 'Tudo, menos Controladoria (Sentinela, BI de Prazos) e Entregas NEXUS.' },
+  { papel: 'coordenacao', rotulo: 'Coordenação', resumo: 'Tudo, menos Controladoria (Sentinela, BI de Prazos) e Entregas LAB.' },
   { papel: 'advogado', rotulo: 'Advogado(a)', resumo: 'O trabalho do caso. Sem carteira de clientes, relatórios, controladoria, equipe e entregas; não cria acesso de cliente.' },
   { papel: 'controladoria', rotulo: 'Controladoria', resumo: 'Prazos e publicações: Controladoria, Sentinela e BI de Prazos, mais painel, calendário, clientes, projetos, relatórios e equipe.' },
   { papel: 'financeiro', rotulo: 'Financeiro', resumo: 'Só faturas, guias de custas e comprovantes, e só dos projetos em que está na equipe.' },

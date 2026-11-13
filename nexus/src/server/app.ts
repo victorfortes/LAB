@@ -198,7 +198,7 @@ export function criarApp(ctx: Contexto) {
 
       // --------------------------------------------------- integração ---
       // Autenticação por token de aplicação, ANTES do cookie: as aplicações do
-      // NGA Nexus não têm sessão de usuário. A ingestão roda em
+      // NGA LAB não têm sessão de usuário. A ingestão roda em
       // `comoUsuario(usuario de serviço)`, então o RLS vale igual.
       if (rota.startsWith('/api/integracao/')) {
         const bruto = tokenDaRequisicao(req);
@@ -265,7 +265,7 @@ export function criarApp(ctx: Contexto) {
             return json(await banco.comoUsuario(integracao.usuarioId, (db) =>
               biAgenda.receberCarga(db, integracao.organizacaoId, corpo.data, 'automacao', integracao.usuarioId)), 201);
           }
-          // Publicações que chegaram no Astrea, para a conferência diária com o DJEN do Nexus.
+          // Publicações que chegaram no Astrea, para a conferência diária com o DJEN do LAB.
           if (rota === '/api/integracao/publicacoes-astrea') {
             exigirEscopo(integracao, 'publicacoes');
             const corpo = conferencia.EsquemaPublicacoesAstrea.safeParse(await req.json().catch(() => null));
@@ -362,13 +362,13 @@ export function criarApp(ctx: Contexto) {
         if(!ferramentaSso.conferirServicoSso(d.data.ferramenta,bearer))return erro('Acesso negado.',403);
         const response=json(await banco.semContexto(db=>ferramentaSso.consumirAcessoSso(db,d.data.ferramenta,d.data.ticket,d.data.state)));response.headers.set('cache-control','no-store');return response;
       }
-      // A same-origin document restores Strict Nexus cookies after returning from the tool.
+      // A same-origin document restores Strict LAB cookies after returning from the tool.
       const relaySso=/^\/api\/ferramentas\/(prazos|sentinela)\/autorizar$/.exec(rota);
       if(relaySso&&metodo==='GET'){
         const ticket=url.searchParams.get('ticket')??'';const state=url.searchParams.get('state')??'';
         if(!/^[A-Za-z0-9_-]{32,128}$/.test(ticket)||!/^[A-Za-z0-9_-]{32,128}$/.test(state))return erro('Acesso inválido.',400);
         const next=rota.replace(/autorizar$/,'confirmar')+'?'+new URLSearchParams({ticket,state});const nonce=crypto.randomUUID();
-        return new Response('<!doctype html><meta charset="utf-8"><title>Acesso NGA NEXUS</title><p>Confirmando seu acesso…</p><script nonce="'+nonce+'">location.replace('+JSON.stringify(next).replaceAll('<','\\u003c')+')</script>',{headers:{'content-type':'text/html;charset=utf-8','cache-control':'no-store','referrer-policy':'no-referrer','content-security-policy':"default-src 'none'; script-src 'nonce-"+nonce+"'; base-uri 'none'; frame-ancestors 'none'"}});
+        return new Response('<!doctype html><meta charset="utf-8"><title>Acesso NGA LAB</title><p>Confirmando seu acesso…</p><script nonce="'+nonce+'">location.replace('+JSON.stringify(next).replaceAll('<','\\u003c')+')</script>',{headers:{'content-type':'text/html;charset=utf-8','cache-control':'no-store','referrer-policy':'no-referrer','content-security-policy':"default-src 'none'; script-src 'nonce-"+nonce+"'; base-uri 'none'; frame-ancestors 'none'"}});
       }
 
       // --------------------------------------------------------- autenticado ---
@@ -1080,7 +1080,7 @@ export function criarApp(ctx: Contexto) {
         if (metodo === 'DELETE' && (m = casa(`/controle/${ID}`))) { escrever(); return json(await como((db) => s.removerControle(db, m![1]!))); }
         return erro('não encontrado', 404);
       }
-      // ------------------------------------------------ NGA Nexus: dados do cliente, faturas, ajustes ---
+      // ------------------------------------------------ NGA LAB: dados do cliente, faturas, ajustes ---
       const mDadosCliente = /^\/api\/projetos\/([0-9a-f-]{36})\/dados-do-cliente$/.exec(rota);
       if (mDadosCliente && metodo === 'PATCH') {
         if (ehCliente) return erro('acesso negado', 403);
@@ -1212,7 +1212,7 @@ export function criarApp(ctx: Contexto) {
         return erro('rota não encontrada', 404);
       }
 
-      // ------------------------------------------------- relatório mensal (base Nexus) ---
+      // ------------------------------------------------- relatório mensal (base LAB) ---
       const mRelM = /^\/api\/projetos\/([0-9a-f-]{36})\/relatorio-mensal$/.exec(rota);
       if (mRelM && metodo === 'GET') {
         if (ehCliente) return erro('acesso negado', 403);
@@ -1305,7 +1305,7 @@ export function criarApp(ctx: Contexto) {
       if (mHist && metodo === 'DELETE') { if (ehCliente) return erro('acesso negado', 403); exigir(identidade.papeis, 'processo.escrever'); return json(await como((db) => andamentos.excluirHistorico(db, mHist[1]!, identidade))); }
       if (rota === '/api/andamentos/estado' && metodo === 'GET') { if (ehCliente) return erro('acesso negado', 403); exigir(identidade.papeis, 'processo.ler'); return json(await como(andamentos.estado)); }
 
-      // ------------------------------------------------ conferência Astrea × Nexus ---
+      // ------------------------------------------------ conferência Astrea × LAB ---
       if (rota === '/api/controladoria/conferencia' && metodo === 'GET') {
         if (ehCliente) return erro('acesso negado', 403);
         exigir(identidade.papeis, 'controladoria.ler');

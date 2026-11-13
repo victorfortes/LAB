@@ -141,7 +141,7 @@ export function descricaoComPauta(descricao: string, pauta: Pauta) {
   if (!pauta.length) return descricao;
   const linhas = pauta.map((p, i) => `${i + 1}. ${p.texto}${p.responsavel ? ` (${p.responsavel})` : ''}${p.minutos ? ` · ${p.minutos} min` : ''}`);
   const total = pauta.reduce((s, p) => s + (p.minutos ?? 0), 0);
-  return `${descricao ? `${descricao}\n\n` : ''}PAUTA${total ? ` (${total} min)` : ''}\n${linhas.join('\n')}\n\nPauta acompanhada no NGA Nexus.`;
+  return `${descricao ? `${descricao}\n\n` : ''}PAUTA${total ? ` (${total} min)` : ''}\n${linhas.join('\n')}\n\nPauta acompanhada no NGA LAB.`;
 }
 export const EsquemaEvento = z.object({projetoId:z.string().uuid(),titulo:z.string().trim().min(1).max(300),inicio:z.iso.datetime({offset:true}),fim:z.iso.datetime({offset:true}),descricao:z.string().max(5000).default(''),marcador:z.enum(['reuniao','prazo','audiencia','interno','cliente','lembrete']).default('reuniao'),criarMeet:z.boolean().default(true),convidados:z.array(z.string().trim().toLowerCase().email()).max(50).default([]),pauta:z.array(ItemDePauta).max(40).default([])}).refine((e)=>new Date(e.fim)>new Date(e.inicio),'O fim deve ser posterior ao início.');
 export function corpoEventoGoogle(id:string,e:z.infer<typeof EsquemaEvento>) {

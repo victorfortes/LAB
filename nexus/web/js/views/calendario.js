@@ -158,7 +158,7 @@ export async function novoEvento(dia, google, fixo = null) {
       const convidados = String(v.convidados ?? '').split(/[\s,;]+/).map((x) => x.trim()).filter(Boolean);
       const invalido = convidados.find((x) => !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x)); if (invalido) throw new Error(`E-mail inválido: ${invalido}`);
       const r = await api.post('/api/google/eventos', { projetoId: fixo ?? v.projetoId, titulo: v.titulo, inicio: inicio.toISOString(), fim: fim.toISOString(), marcador: v.marcador, descricao: v.descricao ?? '', criarMeet: v.meet === 'sim', convidados, pauta: lerPauta(v.pauta) });
-      if (r.pendente) toast(`Reunião salva no Nexus, mas o convite não foi para o Google: ${r.erro ?? 'tente de novo em instantes.'}`, 'aviso'); else toast('Reunião criada e convite enviado');
+      if (r.pendente) toast(`Reunião salva no LAB, mas o convite não foi para o Google: ${r.erro ?? 'tente de novo em instantes.'}`, 'aviso'); else toast('Reunião criada e convite enviado');
     },
   });
   if (ok) navegar();

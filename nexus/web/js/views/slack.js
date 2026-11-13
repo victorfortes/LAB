@@ -1,5 +1,5 @@
 /**
- * Slack dentro do Nexus, com a conta de quem está logado.
+ * Slack dentro do LAB, com a conta de quem está logado.
  *
  * O Slack não pode ser aberto dentro de outro site (ele bloqueia iframe por segurança), então esta aba é
  * um cliente próprio, pela API oficial: conversas à esquerda, mensagens no centro, envio embaixo. Tudo
@@ -42,9 +42,9 @@ export default async function slack() {
   const st = await api.get('/api/slack/estado');
   const abrirWeb = html`<a class="btn btn--ghost" href="${st.linkWeb}" target="_blank" rel="noopener noreferrer">${icone('arrowUpRight')}Abrir no Slack</a>`;
   if (!st.euConectado) {
-    return { titulo: 'Slack', html: html`${cabecalho({ titulo: 'Slack', sub: 'O Slack do escritório dentro do Nexus, com a sua conta.', acoes: abrirWeb })}
+    return { titulo: 'Slack', html: html`${cabecalho({ titulo: 'Slack', sub: 'O Slack do escritório dentro do LAB, com a sua conta.', acoes: abrirWeb })}
       <section class="card glass up mt sk-conectar">${st.appConfigurado
-        ? vazio('comment', 'Conecte o seu Slack', 'Você autoriza uma vez, na tela do Slack. Depois, suas conversas e canais aparecem aqui e você responde sem sair do Nexus. Os avisos de prazos, tarefas e reuniões também chegam no seu Slack.', '<button class="btn btn--accent" data-conectar>Conectar meu Slack</button>')
+        ? vazio('comment', 'Conecte o seu Slack', 'Você autoriza uma vez, na tela do Slack. Depois, suas conversas e canais aparecem aqui e você responde sem sair do LAB. Os avisos de prazos, tarefas e reuniões também chegam no seu Slack.', '<button class="btn btn--accent" data-conectar>Conectar meu Slack</button>')
         : vazio('settings', 'Slack ainda não configurado', pode('admin.gerir') ? 'Cadastre o app do Slack do escritório em Ajustes → Slack (leva 5 minutos, o passo a passo está lá).' : 'A administração precisa cadastrar o app do Slack do escritório em Ajustes → Slack.', pode('admin.gerir') ? '<a class="btn btn--accent" href="#/ajustes/slack">Ir para Ajustes → Slack</a>' : '')}</section>`,
       depois(el) { ouvir(el, 'click', '[data-conectar]', async () => { try { const r = await api.get(`/api/slack/conectar?origem=${encodeURIComponent(location.origin)}`); location.assign(r.url); } catch (e) { erroDe(e); } }); } };
   }

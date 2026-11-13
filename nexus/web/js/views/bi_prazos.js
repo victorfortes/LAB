@@ -1,6 +1,6 @@
 /**
  * BI de Prazos: o MESMO painel "Controle de prazos - NGA ADV" (Visão Geral, Prazos hoje, Próximos 7 dias,
- * Performance e Eventos, com o rodízio de abas), agora alimentado pelo banco do Nexus.
+ * Performance e Eventos, com o rodízio de abas), agora alimentado pelo banco do LAB.
  *
  * A automação diária do Astrea entrega a base em /api/integracao/agenda. A tela lê a cada 2 minutos.
  * "Tela cheia" deixa o painel rodando sozinho; "Link da TV" gera um endereço que abre o painel sem login

@@ -860,7 +860,7 @@ if(document.getElementById('rotateToggle').checked) startRotate();
 // automação, a tela pegue os dados novos sozinha, sem precisar que alguém
 // aperte F5. Quem está logado já atualiza ao vivo via banco de dados,
 // independente deste reload.
-// Os dados chegam pela API do Nexus (abaixo), a cada 2 minutos: sem recarregar a página inteira.
+// Os dados chegam pela API do LAB (abaixo), a cada 2 minutos: sem recarregar a página inteira.
 
 // ================= banco em partes =================
 // O banco do artefato aceita no máximo 256 KiB por documento. Para a base de prazos
@@ -919,8 +919,8 @@ function applyMeta(){
   applyRows([].concat.apply([], parts), META.updatedAt);
 }
 
-// ================= dados do Nexus =================
-// Logado no Nexus: /api/bi-prazos com a sessão. TV sem sessão: credencial de exibição (?tv=... na primeira
+// ================= dados do LAB =================
+// Logado no LAB: /api/bi-prazos com a sessão. TV sem sessão: credencial de exibição (?tv=... na primeira
 // abertura; fica guardada neste navegador). A automação do Astrea atualiza a base; aqui só se lê.
 const CHAVE_TV = 'nga_bi_tv';
 (function(){ try{ const u = new URL(location.href); const t = u.searchParams.get('tv'); if(t){ localStorage.setItem(CHAVE_TV, t); u.searchParams.delete('tv'); history.replaceState(null, '', u.pathname + (u.search || '') + u.hash); } }catch(e){} })();
@@ -935,7 +935,7 @@ async function carregar(){
   const aviso = document.getElementById('updatedAt');
   if(!r || !r.ok){
     FALHAS++;
-    if(!ROWS.length && aviso) aviso.textContent = r && r.status === 401 ? 'Sem acesso: entre no Nexus ou abra o link de TV gerado no BI de Prazos.' : 'Sem conexão com o Nexus. Tentando de novo…';
+    if(!ROWS.length && aviso) aviso.textContent = r && r.status === 401 ? 'Sem acesso: entre no LAB ou abra o link de TV gerado no BI de Prazos.' : 'Sem conexão com o LAB. Tentando de novo…';
     return;
   }
   FALHAS = 0;

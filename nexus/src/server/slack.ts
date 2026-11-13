@@ -1,5 +1,5 @@
 /**
- * Slack do escritório dentro do Nexus.
+ * Slack do escritório dentro do LAB.
  *
  * 1. App do Slack (client id/secret) guardado cifrado no cofre, pela administração.
  * 2. Cada pessoa conecta o PRÓPRIO Slack (OAuth v2, escopos de usuário): a aba Slack lê e envia com o token dela.
@@ -191,7 +191,7 @@ export async function testar(db: PoolClient, i: Identidade, segredo: string, bus
   const bot = await tokenDoBot(db, segredo); if (!bot) throw new PedidoInvalido('o bot ainda não foi instalado');
   const destino = await idSlackDe(db, bot, i.usuarioId, buscar);
   if (!destino) throw new PedidoInvalido('não achei sua conta no Slack pelo seu e-mail; conecte o seu Slack na aba Slack');
-  await slackApi(bot, 'chat.postMessage', { channel: destino, text: '✅ Teste do NGA Nexus: os avisos automáticos vão chegar aqui.' }, buscar, true);
+  await slackApi(bot, 'chat.postMessage', { channel: destino, text: '✅ Teste do NGA LAB: os avisos automáticos vão chegar aqui.' }, buscar, true);
   return { ok: true };
 }
 
@@ -201,7 +201,7 @@ const horaBr = (d = new Date()) => Number(d.toLocaleString('en-GB', { timeZone: 
 const br = (iso: string) => iso.slice(0, 10).split('-').reverse().join('/');
 const cacheIds = new Map<string, string | null>();
 
-/** Conta do Slack de uma pessoa do Nexus: a que ela conectou ou, se não conectou, a do mesmo e-mail. */
+/** Conta do Slack de uma pessoa do LAB: a que ela conectou ou, se não conectou, a do mesmo e-mail. */
 async function idSlackDe(db: PoolClient, bot: string, usuarioId: string, buscar: Buscar) {
   if (cacheIds.has(usuarioId)) return cacheIds.get(usuarioId)!;
   const { rows: [c] } = await db.query<{ slack_user_id: string }>('SELECT slack_user_id FROM slack_usuarios WHERE usuario_id = $1', [usuarioId]);

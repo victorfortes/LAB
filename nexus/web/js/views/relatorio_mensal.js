@@ -41,7 +41,7 @@ ${r.natureza.length ? `<h2>Natureza dos processos</h2><div class="nat">${r.natur
 <h2>Próximos passos</h2>${tabela(r.proximos, 'Nenhum prazo, tarefa ou reunião agendada para os próximos 45 dias.')}
 ${r.marcos.length ? `<h2>Linha do tempo do caso</h2><ul class="tl">${r.marcos.map((m) => `<li class="${m.concluido ? 'ok' : ''}"><b>${e(m.titulo)}</b><br>${br(m.concluido ?? m.prevista)}</li>`).join('')}</ul>` : ''}
 ${r.lacunas.length ? `<div class="lac"><b>O que este relatório não afirma</b><ul>${r.lacunas.map((l) => `<li>${e(l)}</li>`).join('')}</ul></div>` : ''}
-<div class="rod"><span>NGA Advogados · gerado pelo NGA Nexus em ${br(r.geradoEm)} por ${e(r.geradoPor)}</span><span>Fonte: processos, andamentos, prazos, tarefas e reuniões registrados no Nexus</span></div>
+<div class="rod"><span>NGA Advogados · gerado pelo NGA LAB em ${br(r.geradoEm)} por ${e(r.geradoPor)}</span><span>Fonte: processos, andamentos, prazos, tarefas e reuniões registrados no LAB</span></div>
 </body></html>`;
 }
 
@@ -54,8 +54,8 @@ function imprimir(doc) {
 /** Bloco da aba Relatórios do projeto. */
 export function secaoRelatorioMensal(ctx) {
   return {
-    html: html`<section class="card glass up rm"><header class="card__head"><div><h2 class="card__title">Relatório mensal do cliente · base Nexus <span class="selo info">prévia 2027</span></h2>
-        <p class="card__sub">Mesmas seções do relatório que hoje sai do PDF do Astrea, montado com os dados deste projeto no Nexus.</p></div>
+    html: html`<section class="card glass up rm"><header class="card__head"><div><h2 class="card__title">Relatório mensal do cliente · base LAB <span class="selo info">prévia 2027</span></h2>
+        <p class="card__sub">Mesmas seções do relatório que hoje sai do PDF do Astrea, montado com os dados deste projeto no LAB.</p></div>
         <div class="nx-acts"><input class="input" type="month" data-rm-mes value="${mesPassado()}" aria-label="Mês do relatório"><button class="btn btn--accent btn--sm" data-rm-gerar>${icone('eye')}Ver relatório</button><button class="btn btn--ghost btn--sm" data-rm-pdf>${icone('download')}PDF</button></div></header>
       <div class="rm-folha" data-rm-folha hidden><iframe title="Relatório mensal" data-rm-quadro></iframe></div></section>`,
     depois(el) {
@@ -68,14 +68,14 @@ export function secaoRelatorioMensal(ctx) {
   };
 }
 
-/** Painel da tela Relatórios: quanto cada cliente já tem de dado no Nexus para o relatório sair daqui. */
+/** Painel da tela Relatórios: quanto cada cliente já tem de dado no LAB para o relatório sair daqui. */
 export async function secaoProntidao() {
   const mes = mesPassado();
   const lista = await api.get(`/api/relatorios/base-nexus?mes=${mes}`).catch(() => []);
   const media = lista.length ? Math.round(lista.reduce((s, x) => s + x.prontidao, 0) / lista.length) : 0;
   const tom = (p) => (p >= 80 ? 'ok' : p >= 50 ? 'aviso' : 'erro');
   return {
-    html: html`<section class="card glass up mt"><header class="card__head"><div><h2 class="card__title">Relatórios com base no Nexus · preparação para 2027</h2>
+    html: html`<section class="card glass up mt"><header class="card__head"><div><h2 class="card__title">Relatórios com base no LAB · preparação para 2027</h2>
         <p class="card__sub">Em ${mes.split('-').reverse().join('/')}: quanto cada cliente já tem registrado aqui (processos no DataJud, andamentos, prazos e tarefas, reuniões, marcos) para o relatório mensal deixar de depender do PDF do Astrea. Média: <b>${media}%</b>.</p></div></header>
       ${lista.length ? html`<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Cliente / projeto</th><th class="num">Processos</th><th class="num">No DataJud</th><th class="num">Andamentos</th><th class="num">Prazos + tarefas</th><th class="num">Reuniões</th><th class="num">Marcos</th><th>Prontidão</th><th></th></tr></thead><tbody>
         ${lista.map((x) => html`<tr><td><b>${x.projeto}</b>${x.registrosAstrea ? html`<small>${x.registrosAstrea} registro(s) na base Astrea</small>` : ''}</td><td class="num">${x.processos}</td><td class="num">${x.noDatajud}</td><td class="num">${x.andamentos}</td><td class="num">${x.prazos + x.tarefas}</td><td class="num">${x.reunioes}</td><td class="num">${x.marcos}</td>
