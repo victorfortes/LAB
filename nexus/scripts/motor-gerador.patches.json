@@ -1,0 +1,16 @@
+[
+  {
+    "id": "L1-rotulos-do-lab",
+    "parte": "pdf",
+    "descricao": "Gancho de rótulos: com base LAB ou período quinzenal/semanal, os rótulos FIXOS do PDF trocam 'Astrea' por 'LAB' e 'mês' por 'quinzena'/'semana' (mesmo mecanismo do P42, base de casos). O texto dos registros nunca é alterado.",
+    "de": "    if (window.NGA_BASE_CASOS && typeof text === \"string\") text = rotuloDeCaso(text);\n",
+    "para": "    if (window.NGA_BASE_CASOS && typeof text === \"string\") text = rotuloDeCaso(text);\n    if (window.NGA_ROTULOS_LAB && typeof text === \"string\") text = window.NGA_ROTULOS_LAB(text);\n"
+  },
+  {
+    "id": "L2-periodo-na-capa",
+    "parte": "pdf",
+    "descricao": "Capa: o período escrito vem de d.periodo.rotulo quando existe (quinzena, semana); sem ele, o mês por extenso como antes.",
+    "de": "mesExtenso(d.periodo.inicio), { size: 18, color: t.cinza });",
+    "para": "(d.periodo.rotulo || mesExtenso(d.periodo.inicio)), { size: 18, color: t.cinza });"
+  }
+]

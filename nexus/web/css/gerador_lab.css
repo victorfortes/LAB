@@ -1,0 +1,44 @@
+/* Gerador de relatórios dentro do LAB. A folha de resultado usa as cores do PDF do Gerador (TEMA/PALETA do motor). */
+.gl .card__title { display: flex; align-items: center; gap: 8px; }
+.gl-form { margin-top: 6px; }
+.gl-linha { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; }
+.gl-campo { display: flex; flex-direction: column; gap: 4px; min-width: 150px; flex: 0 1 auto; }
+.gl-campo--largo { flex: 1 1 240px; }
+.gl-campo span { font-size: 12px; color: var(--text-3); }
+.gl-campo[hidden] { display: none; }
+.gl-sub { margin-top: 18px; } .gl-sub h3 { font-size: 14px; margin: 0 0 8px; color: var(--text-2); }
+.gl-vazio { color: var(--text-3); font-style: italic; margin: 4px 0; }
+.gl-agenda { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.gl-agenda .input { width: auto; } .gl-agenda [hidden] { display: none; }
+.gl-agenda small { color: var(--text-3); flex-basis: 100%; }
+.gl-erro { color: var(--lab-red, #F87171); }
+.gl-tabela td { vertical-align: top; }
+.gl-painel { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 6px 0 16px; }
+.gl-painel div { background: #22374C; border-top: 3px solid #BE8E57; border-radius: 6px; padding: 10px 12px; color: #fff; }
+.gl-painel b { display: block; font-size: 26px; line-height: 1.1; } .gl-painel span { font-size: 11px; letter-spacing: .04em; text-transform: uppercase; color: #CDD4DA; }
+.gl-painel .is-erro { border-top-color: #F87171; }
+/* Folha "O mês em números", no azul #17283B do relatório */
+.gl-folha { margin-top: 14px; background: #17283B; color: #fff; border-radius: 8px; overflow: hidden; font-family: Helvetica, Arial, sans-serif; }
+.gl-folha__topo { display: flex; justify-content: space-between; align-items: center; padding: 14px 22px; background: #17283B; border-bottom: 1px solid #22374C; }
+.gl-marca { font-weight: 700; letter-spacing: .08em; } .gl-kicker { color: #BE8E57; font-size: 11px; font-weight: 700; letter-spacing: .06em; }
+.gl-folha__tit { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 18px 22px 0; }
+.gl-folha__tit h3 { margin: 0; font-size: 28px; font-weight: 700; color: #fff; font-family: Helvetica, Arial, sans-serif; }
+.gl-folha__tit span { color: #CDD4DA; font-size: 11px; font-weight: 700; text-align: right; }
+.gl-folha__sub { color: #CDD4DA; font-size: 12px; margin: 6px 22px 0; }
+.gl-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; padding: 16px 22px 0; }
+.gl-kpis div { background: #22374C; border-top: 4px solid var(--c); border-radius: 4px; padding: 12px 14px; }
+.gl-kpis b { display: block; font-size: 32px; font-weight: 700; } .gl-kpis span { font-size: 10.5px; font-weight: 700; color: #CDD4DA; text-transform: uppercase; letter-spacing: .03em; }
+.gl-dupla { display: grid; grid-template-columns: 1.2fr 1fr; gap: 24px; padding: 18px 22px 20px; align-items: end; }
+.gl-dupla h4 { margin: 0 0 10px; font-size: 15px; color: #fff; }
+.gl-barra { display: grid; grid-template-columns: 96px 1fr 40px; align-items: center; gap: 8px; margin: 6px 0; font-size: 11px; font-weight: 700; }
+.gl-barra i { display: block; height: 9px; background: #3B5068; border-radius: 2px; overflow: hidden; } .gl-barra em { display: block; height: 100%; }
+.gl-barra b { text-align: right; font-size: 13px; }
+.gl-valor { background: #22374C; border-radius: 4px; padding: 14px 16px; }
+.gl-valor small { display: block; color: #BE8E57; font-size: 10.5px; font-weight: 700; } .gl-valor b { display: block; font-size: 24px; margin-top: 4px; }
+.gl-valor .gl-pecas { color: #CDD4DA; font-weight: 400; margin-top: 8px; }
+.gl-avisos { margin: 0; padding: 10px 22px 16px 40px; color: #E8C79F; font-size: 12px; border-top: 1px solid #22374C; }
+.gl-acoes { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; } .gl-nota { color: var(--text-3); font-size: 12px; margin-right: auto; }
+@media (max-width: 760px) {
+  .gl-kpis, .gl-painel { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .gl-dupla { grid-template-columns: 1fr; }
+}

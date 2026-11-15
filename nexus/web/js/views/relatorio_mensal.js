@@ -4,8 +4,9 @@
  * Sai em A4 retrato, papel timbrado NGA, e vira PDF pelo "Salvar como PDF" do navegador.
  */
 import { api } from '../api.js';
-import { html, icone, ouvir } from '../util.js';
-import { erroDe, toast, vazio } from '../ui.js';
+import { html } from '../util.js';
+import { vazio } from '../ui.js';
+import { secaoGeradorDoProjeto } from './gerador_lab.js';
 
 const e = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const br = (iso) => (iso ? iso.slice(0, 10).split('-').reverse().join('/') : '—');
@@ -45,28 +46,8 @@ ${r.lacunas.length ? `<div class="lac"><b>O que este relatório não afirma</b><
 </body></html>`;
 }
 
-function imprimir(doc) {
-  const q = document.createElement('iframe'); q.setAttribute('aria-hidden', 'true'); q.style.cssText = 'position:fixed;right:0;bottom:0;width:210mm;height:297mm;border:0;opacity:0;pointer-events:none';
-  q.srcdoc = doc; document.body.appendChild(q);
-  q.onload = () => setTimeout(() => { q.contentWindow.focus(); q.contentWindow.print(); setTimeout(() => q.remove(), 60_000); }, 700);
-}
-
-/** Bloco da aba Relatórios do projeto. */
-export function secaoRelatorioMensal(ctx) {
-  return {
-    html: html`<section class="card glass up rm"><header class="card__head"><div><h2 class="card__title">Relatório mensal do cliente · base LAB <span class="selo info">prévia 2027</span></h2>
-        <p class="card__sub">Mesmas seções do relatório que hoje sai do PDF do Astrea, montado com os dados deste projeto no LAB.</p></div>
-        <div class="nx-acts"><input class="input" type="month" data-rm-mes value="${mesPassado()}" aria-label="Mês do relatório"><button class="btn btn--accent btn--sm" data-rm-gerar>${icone('eye')}Ver relatório</button><button class="btn btn--ghost btn--sm" data-rm-pdf>${icone('download')}PDF</button></div></header>
-      <div class="rm-folha" data-rm-folha hidden><iframe title="Relatório mensal" data-rm-quadro></iframe></div></section>`,
-    depois(el) {
-      let doc = null;
-      const gerar = async () => { const mes = el.querySelector('[data-rm-mes]').value; const r = await api.get(`/api/projetos/${ctx.id}/relatorio-mensal?mes=${mes}`); doc = htmlDoRelatorio(r); return doc; };
-      ouvir(el, 'click', '[data-rm-gerar]', async (b) => { b.disabled = true; try { const d = await gerar(); const f = el.querySelector('[data-rm-folha]'); f.hidden = false; const q = f.querySelector('iframe'); q.srcdoc = d; q.onload = () => { q.style.height = `${q.contentDocument.body.scrollHeight + 40}px`; }; } catch (e2) { erroDe(e2); } finally { b.disabled = false; } });
-      ouvir(el, 'click', '[data-rm-pdf]', async () => { try { imprimir(doc ?? await gerar()); toast('Na janela de impressão, escolha "Salvar como PDF".'); } catch (e2) { erroDe(e2); } });
-      ouvir(el, 'change', '[data-rm-mes]', () => { doc = null; });
-    },
-  };
-}
+/** Bloco da aba Relatórios do projeto: agora é o Gerador dentro do LAB (mesmo PDF do Gerador, com agendamento). */
+export function secaoRelatorioMensal(ctx) { return secaoGeradorDoProjeto(ctx); }
 
 /** Painel da tela Relatórios: quanto cada cliente já tem de dado no LAB para o relatório sair daqui. */
 export async function secaoProntidao() {

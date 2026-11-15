@@ -13,6 +13,7 @@ import {rotinaSentinela} from '../../../src/server/sentinela.ts';
 import {rotinaRadar} from '../../../src/server/radar.ts';
 import {rotinaDataJud} from '../../../src/server/andamentos.ts';
 import {rotinaSlack} from '../../../src/server/slack.ts';
+import {rotinaRelatorios} from '../../../src/server/gerador_lab.ts';
 import {createHash} from 'node:crypto';
 instalarCompatibilidade();
 const e=Deno.env.toObject();
@@ -46,6 +47,7 @@ const ROTINAS:Record<string,()=>Promise<unknown>>={
  radar:()=>rotinaRadar(banco,e.DJEN_INGEST_SECRET),
  datajud:async()=>JSON.stringify(await rotinaDataJud(banco,{limite:25})),
  slack:async()=>JSON.stringify(await rotinaSlack(banco,SEGREDO_COFRE)),
+ relatorios:async()=>JSON.stringify(await rotinaRelatorios(banco,dep,{limite:4})),
 };
 async function executarRotina(req:Request,nome:string):Promise<Response>{
  const negado=new Response('não encontrado',{status:404});

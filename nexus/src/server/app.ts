@@ -48,6 +48,7 @@ import * as pautas from './pautas.ts';
 import { DOMINIO_NGA, emailDoEscritorio } from './slack.ts';
 import * as relMensal from './relatorio_mensal.ts';
 import { rotasFrenteB } from './rotas_frente_b.ts';
+import { rotasGeradorLab } from './rotas_gerador_lab.ts';
 import * as sentinelaGestao from './sentinela_gestao.ts';
 import { interpretar } from '../domain/financeiro/linguagem.ts';
 import { interpretarArquivo } from '../domain/financeiro/importacao.ts';
@@ -1017,6 +1018,7 @@ export function criarApp(ctx: Contexto) {
       const corpoDe = async <T>(esq: z.ZodType<T>): Promise<T> => { const d = esq.safeParse(await req.json().catch(() => null)); if (!d.success) throw new PedidoInvalido(d.error.issues[0]?.message ?? 'dados inválidos'); return d.data; };
       const como = <T>(f: (db: PoolClient) => Promise<T>) => banco.comoUsuario(identidade.usuarioId, f);
       { const r = await rotasFrenteB({ rota, metodo, req, identidade, ehCliente, como, deposito, json, erro }); if (r) return r; }
+      { const r = await rotasGeradorLab({ rota, metodo, req, identidade, ehCliente, como, deposito, json, erro, banco }); if (r) return r; }
       const mGestao = /^\/api\/projetos\/([0-9a-f-]{36})\/(gestao|titulos|lancamento-texto|importacoes\/previa|importacoes|prj\/base|prj\/simular|prj\/otimizar|prj\/cenarios|pmts|atas|mensagens\/lidas)$/.exec(rota);
       if (mGestao) {
         const pid = mGestao[1]!; const acao = mGestao[2]!;
