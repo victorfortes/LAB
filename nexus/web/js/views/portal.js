@@ -7,6 +7,7 @@
  */
 import { avisosDoCliente, onboardingDoCliente } from './avisos_portal.js';
 import { api } from '../api.js';
+import { imprimirFatura, verFatura } from '../fatura_modelo.js';
 import { estado, pode } from '../estado.js';
 import { anel } from '../fx.js';
 import { $, dataBR, guardado, hojeISO, html, icone, avatar, ouvir, paraCentavos, raw, relativo, tamanho } from '../util.js';
@@ -140,28 +141,38 @@ async function faturas(p) {
   const abertas = lista.filter((f) => f.situacao === 'aberta'); const outras = lista.filter((f) => f.situacao !== 'aberta');
   const item = (f) => {
     const [tom, rot] = STATUS_FATURA[f.status] ?? ['', f.status];
-    return html`<article class="nx-fat card glass up ${f.status === 'vencida' ? 'is-alert' : ''}" data-fatura="${f.id}">
-      <div class="nx-fat__main"><span class="mono-sm">${f.numero} · ${f.rotuloDoTipo}${f.competencia ? ` · ${f.competencia}` : ''}</span><h3>${f.descricao}</h3>
-        <p class="dica">Emitida em ${dataBR(f.emissao)} · vencimento ${dataBR(f.vencimento)}${f.situacao === 'aberta' ? ` · ${prazoRotulo(f)}` : ''}${f.pagoEm ? ` · pago em ${dataBR(f.pagoEm)}` : ''}</p>
-        ${f.linhaDigitavel ? html`<p class="mono-sm nx-linha" title="Linha digitável">${f.linhaDigitavel}</p>` : ''}
-        ${f.observacao && f.situacao === 'aberta' ? html`<p class="nota">${f.observacao}</p>` : ''}</div>
-      <div class="nx-fat__side"><b class="nx-money">${brl(f.valorFormatado)}</b><span class="selo ${tom}"><i></i>${rot}</span>
-        <div class="nx-fat__acts">
-          ${f.documentoId ? html`<button type="button" class="btn btn--ghost btn--sm" data-baixar="${f.documentoId}">${icone('download')}Boleto / guia</button>` : ''}
-          ${f.situacao === 'aberta' ? html`<label class="btn btn--accent btn--sm" style="cursor:pointer">${icone('upload')}Anexar comprovante<input type="file" hidden data-comprovante="${f.id}" accept=".pdf,.png,.jpg,.jpeg"></label>` : ''}
-          ${f.comprovanteId ? html`<button type="button" class="btn btn--ghost btn--sm" data-baixar="${f.comprovanteId}">${icone('doc')}Meu comprovante</button>` : ''}</div></div></article>`;
+    const nota = f.situacao === 'aberta' ? prazoRotulo(f) : f.pagoEm ? `pago em ${dataBR(f.pagoEm)}` : '';
+    return html`<tr class="fat-linha ${f.status === 'vencida' ? 'is-vencida' : ''} ${f.situacao === 'cancelada' ? 'is-cancelada' : ''}" data-fatura="${f.id}">
+      <td class="fat-num">${f.numero}</td>
+      <td class="fat-desc">${f.descricao}<small>${[f.rotuloDoTipo, f.competencia ? `Competência ${f.competencia}` : '', `Emitida em ${dataBR(f.emissao)}`].filter(Boolean).join(' · ')}</small>
+        ${f.linhaDigitavel ? html`<small class="fat-linha-dig" title="Linha digitável">${f.linhaDigitavel}</small>` : ''}
+        ${f.observacao && f.situacao === 'aberta' ? html`<small class="fat-obs">${f.observacao}</small>` : ''}</td>
+      <td class="fat-data">${dataBR(f.vencimento)}</td>
+      <td class="fat-valor">${f.valorFormatado}</td>
+      <td class="fat-sit"><span class="fat-status fat-status--${tom || 'neutro'}">${rot}</span>${nota ? html`<small>${nota}</small>` : ''}</td>
+      <td class="fat-acoes"><div class="fat-acts">
+        ${f.tipo !== 'guia_custas' && f.situacao !== 'cancelada' ? html`<button type="button" class="btn btn--ghost btn--sm" data-fatura-ver="${f.id}" title="Ver a fatura e baixar em PDF">${icone('doc')}Fatura</button>` : ''}
+        ${f.documentoId ? html`<button type="button" class="btn btn--ghost btn--sm" data-baixar="${f.documentoId}">${icone('download')}Boleto / guia</button>` : ''}
+        ${f.situacao === 'aberta' ? html`<label class="btn btn--accent btn--sm" style="cursor:pointer">${icone('upload')}Anexar comprovante<input type="file" hidden data-comprovante="${f.id}" accept=".pdf,.png,.jpg,.jpeg"></label>` : ''}
+        ${f.comprovanteId ? html`<button type="button" class="btn btn--ghost btn--sm" data-baixar="${f.comprovanteId}">${icone('check')}Meu comprovante</button>` : ''}</div></td></tr>`;
   };
+  const tabela = (titulo, linhas) => html`<section class="card glass up mt"><header class="card__head"><div><h2 class="card__title">${titulo}</h2></div></header>
+    <div class="tbl-wrap"><table class="tbl fat-tab"><thead><tr><th>Nº</th><th>Descrição</th><th>Vencimento</th><th class="fat-valor">Valor (R$)</th><th>Situação</th><th class="fat-acoes"><span class="sr-only">Ações</span></th></tr></thead><tbody>${linhas.map(item)}</tbody></table></div></section>`;
   return {
     resumo: [{ rotulo: 'Em aberto', valor: r.emAberto, tom: r.emAberto ? 'warn' : '' }, { rotulo: 'Vencidas', valor: r.vencidas, tom: r.vencidas ? 'alert' : '' }, { rotulo: 'Pagas', valor: r.pagas, tom: 'ok' }],
     html: html`${r.proxima ? html`<section class="card glass up nx-destaque ${r.proxima.status === 'vencida' ? 'is-alert' : ''}"><div><span class="nx-eyebrow">Próxima fatura</span><b class="nx-money nx-money--xl">${brl(r.proxima.valorFormatado)}</b>
         <p class="dica">${r.proxima.descricao} · vence em ${dataBR(r.proxima.vencimento)} (${prazoRotulo(r.proxima)})</p></div>
         <div class="nx-destaque__soma"><small>Total em aberto</small><b>${brl(r.totalAbertoFormatado)}</b>${r.vencidas ? html`<small class="nx-neg">Vencido: ${brl(r.totalVencidoFormatado)}</small>` : ''}</div></section>` : ''}
-      ${lista.length ? html`<h2 class="mini-h mt">Em aberto</h2>${abertas.length ? abertas.map(item) : html`<section class="card glass up">${vazio('check', 'Nenhuma fatura em aberto', 'Tudo em dia.')}</section>`}
-        ${outras.length ? html`<h2 class="mini-h mt">Histórico</h2>${outras.map(item)}` : ''}`
+      ${lista.length ? html`${abertas.length ? tabela('Em aberto', abertas) : html`<section class="card glass up mt">${vazio('check', 'Nenhuma fatura em aberto', 'Tudo em dia.')}</section>`}
+        ${outras.length ? tabela('Histórico', outras) : ''}`
         : html`<section class="card glass up">${vazio('money', 'Nenhuma fatura emitida', 'As faturas e boletos do seu caso aparecem aqui. Para cada pagamento, anexe o comprovante: é ele que marca a fatura como paga.')}</section>`}
       <p class="dica mt">A fatura passa a constar como <b>paga</b> assim que você anexa o comprovante; o financeiro da NGA confere em seguida e, se algo não bater, ela volta a ficar em aberto com o motivo.</p>`,
     depois(el) {
       ouvir(el, 'click', '[data-baixar]', async (b) => { try { const x = await api.post(`/api/documentos/${b.dataset.baixar}/link`); window.open(x.url, '_blank', 'noopener'); } catch (e) { erroDe(e); } });
+      ouvir(el, 'click', '[data-fatura-ver]', async (b) => {
+        b.disabled = true;
+        try { const f = await api.get(`/api/faturas/${b.dataset.faturaVer}/modelo`); verFatura(f, { pdf: () => imprimirFatura(f) }); } catch (e) { erroDe(e); } finally { b.disabled = false; }
+      });
       el.addEventListener('change', async (e) => {
         const inp = e.target.closest('input[data-comprovante]'); if (!inp?.files[0]) return;
         const fd = new FormData(); fd.append('arquivo', inp.files[0]);

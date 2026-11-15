@@ -385,3 +385,50 @@ a.nx-kpi:hover { transform: translateY(-3px); border-color: #F0A32E66; }
 .rm-folha { margin-top: 12px; border-radius: 12px; overflow: hidden; background: #fff; } .rm-folha iframe { display: block; width: 100%; min-height: 900px; border: 0; background: #fff; }
 .rm-barra { height: 8px; border-radius: 8px; background: rgba(255,255,255,.08); overflow: hidden; width: 110px; } .rm-barra i { display: block; height: 100%; }
 .rm-barra.ok i { background: var(--lab-green, #4ADE80); } .rm-barra.aviso i { background: var(--lab-amber, #F0A32E); } .rm-barra.erro i { background: var(--lab-red, #F87171); }
+
+/* ===== Faturas (Financeiro e portal): tabela de escritório e visor da fatura no modelo ===== */
+.fat-tab { font-size: 13.5px; }
+.fat-tab th { font-size: 10.5px; }
+.fat-tab td { vertical-align: top; padding-top: 14px; padding-bottom: 14px; }
+.fat-tab td small { display: block; margin-top: 3px; font-size: 12px; color: var(--text-3); line-height: 1.35; }
+.fat-num { font: 500 12.5px var(--font-mono); color: var(--text-2); white-space: nowrap; }
+.fat-quem b { font-weight: 600; }
+.fat-quem, .fat-desc { min-width: 180px; }
+.fat-desc { max-width: 420px; }
+.fat-data { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.fat-tab .fat-valor { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.fat-tab td.fat-valor { font-weight: 600; font-size: 14px; }
+.fat-sit { white-space: nowrap; }
+.fat-status { display: inline-block; padding: 2px 9px; border-radius: 6px; font: 600 11.5px var(--font); letter-spacing: .02em; border: 1px solid currentColor; }
+.fat-status--ok { color: var(--lab-green); background: #2EE6A014; }
+.fat-status--info { color: var(--lab-cy); background: #4CC9F014; }
+.fat-status--aviso { color: var(--lab-amber); background: #F0A32E14; }
+.fat-status--erro { color: var(--lab-red); background: #FF6B6B14; }
+.fat-status--neutro { color: var(--text-3); background: transparent; }
+.fat-tab .fat-acoes { text-align: right; width: 1%; }
+.fat-acts { display: flex; gap: 6px; justify-content: flex-end; align-items: center; flex-wrap: nowrap; }
+.btn--ico { padding: 6px 8px; }
+.fat-linha.is-vencida td:first-child { box-shadow: inset 3px 0 0 var(--lab-red); }
+.fat-linha.is-vencida .fat-data { color: var(--lab-red); font-weight: 600; }
+.fat-linha.is-cancelada td:not(.fat-acoes) { opacity: .55; }
+.fat-linha.is-cancelada .fat-valor { text-decoration: line-through; }
+.fat-linha-dig { font-family: var(--font-mono); word-break: break-all; }
+.fat-obs { color: var(--lab-amber) !important; }
+@media (max-width: 760px) {
+  .fat-tab thead { display: none; }
+  .fat-tab, .fat-tab tbody, .fat-tab tr, .fat-tab td { display: block; width: auto; }
+  .fat-tab tr { padding: 10px 0; border-bottom: 1px solid var(--sep); }
+  .fat-tab td { border: 0; padding: 3px 12px; }
+  .fat-tab .fat-valor, .fat-tab .fat-acoes { text-align: left; }
+  .fat-acts { justify-content: flex-start; flex-wrap: wrap; }
+}
+
+.fat-visor { position: fixed; inset: 0; z-index: 400; display: grid; grid-template-rows: auto 1fr; background: rgba(12, 16, 24, .78); backdrop-filter: blur(6px); }
+.fat-visor__barra { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 20px; background: #17283B; color: #fff; }
+.fat-visor__barra b { font: 600 14px var(--font); display: block; }
+.fat-visor__barra small { font-size: 12px; opacity: .75; }
+.fat-visor__barra .btn--ghost { color: #fff; border-color: rgba(255,255,255,.3); }
+.fat-visor__acts { display: flex; gap: 8px; }
+.fat-visor__palco { overflow: auto; display: grid; place-items: center; padding: 16px; }
+.fat-visor__folha { position: relative; overflow: hidden; background: #fff; box-shadow: 0 18px 50px rgba(0,0,0,.45); }
+.fat-visor__quadro { position: absolute; left: 0; top: 0; width: 210mm; height: 297mm; border: 0; transform-origin: 0 0; background: #fff; }

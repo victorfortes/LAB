@@ -435,7 +435,8 @@ const api = criarApp({ banco, deposito: montarDeposito(armazenamento), analiseAu
 
 const TIPOS: Record<string, string> = {
   '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8',
-  '.js': 'text/javascript; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.ttf': 'font/ttf',
+  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
 };
 
 // Gerador de Relatórios (monorepo: ../relatorios), servido sob /gerador/ para abrir dentro do NGA Nexus.

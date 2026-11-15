@@ -10,7 +10,7 @@ import { estado, pode } from '../estado.js';
 import { dataBR, html, icone, ouvir, relativo, tamanho } from '../util.js';
 import { cabecalho, confirmar, erroDe, formulario, modal, toast, vazio } from '../ui.js';
 import { navegar } from '../shell.js';
-import { baixar, gerarWord, imprimirFatura } from '../fatura_modelo.js';
+import { baixar, gerarWord, imprimirFatura, verFatura } from '../fatura_modelo.js';
 
 const STATUS = { a_vencer: ['info', 'A vencer'], vencida: ['erro', 'Vencida'], paga_em_conferencia: ['aviso', 'Paga · a conferir'], paga: ['ok', 'Paga'], cancelada: ['', 'Cancelada'] };
 const ABAS = [['faturas', 'Faturas'], ['guias', 'Guias de custas'], ['documentos', 'Documentos'], ['escritorio', 'Escritório']];
@@ -51,21 +51,27 @@ export default async function financeiro({ aba = 'faturas' }) {
   const lista = base.filter((f) => (filtro === 'abertas' ? f.situacao === 'aberta' : filtro === 'conferir' ? f.status === 'paga_em_conferencia' : filtro === 'pagas' ? f.situacao === 'paga' : true));
   const linha = (f) => {
     const [tom, rot] = STATUS[f.status] ?? ['', f.status];
-    return html`<tr class="${f.status === 'vencida' ? 'vencido' : ''}"><td class="mono-sm">${f.numero}</td><td>${f.projeto ?? '—'}<small>${f.rotuloDoTipo}${f.visivelCliente ? '' : ' · interna'}</small></td>
-      <td>${f.descricao}<small>${f.competencia ?? ''}${f.processo ? ` · proc. ${f.processo}` : ''}</small></td><td>${dataBR(f.vencimento)}<small>${f.situacao === 'aberta' ? (f.diasParaVencer < 0 ? `${-f.diasParaVencer} dia(s) de atraso` : `em ${f.diasParaVencer} dia(s)`) : f.pagoEm ? `pago em ${dataBR(f.pagoEm)}` : ''}</small></td>
-      <td class="num">${f.valorFormatado}</td><td><span class="selo ${tom}"><i></i>${rot}</span></td>
-      <td><div class="nx-acts">
-        ${f.tipo !== 'guia_custas' && f.situacao !== 'cancelada' ? html`<button class="btn btn--ghost btn--sm" data-fatura-word="${f.id}" title="Fatura no modelo do escritório (Word)">${icone('doc')}Word</button><button class="btn btn--ghost btn--sm" data-fatura-pdf="${f.id}" title="Fatura no modelo do escritório (PDF)">${icone('download')}PDF</button>` : ''}
-        ${f.documentoId ? html`<button class="btn btn--ghost btn--sm" data-baixar="${f.documentoId}" title="Boleto, guia ou nota">${icone('download')}</button>` : ''}
-        ${f.comprovanteId ? html`<button class="btn btn--ghost btn--sm" data-baixar="${f.comprovanteId}" title="Comprovante">${icone('doc')}</button>` : ''}
+    const prazo = f.situacao === 'aberta' ? (f.diasParaVencer < 0 ? `${-f.diasParaVencer} dia(s) em atraso` : f.diasParaVencer === 0 ? 'vence hoje' : `vence em ${f.diasParaVencer} dia(s)`) : f.pagoEm ? `pago em ${dataBR(f.pagoEm)}` : '';
+    const temModelo = f.tipo !== 'guia_custas' && f.situacao !== 'cancelada';
+    return html`<tr class="fat-linha ${f.status === 'vencida' ? 'is-vencida' : ''} ${f.situacao === 'cancelada' ? 'is-cancelada' : ''}">
+      <td class="fat-num">${f.numero}</td>
+      <td class="fat-quem"><b>${f.projeto ?? '—'}</b><small>${f.rotuloDoTipo}${f.visivelCliente ? '' : ' · interna'}</small></td>
+      <td class="fat-desc">${f.descricao}<small>${[f.competencia ? `Competência ${f.competencia}` : '', f.processo ? `Proc. ${f.processo}` : ''].filter(Boolean).join(' · ')}</small></td>
+      <td class="fat-data">${dataBR(f.vencimento)}</td>
+      <td class="fat-valor">${f.valorFormatado}</td>
+      <td class="fat-sit"><span class="fat-status fat-status--${tom || 'neutro'}">${rot}</span>${prazo ? html`<small>${prazo}</small>` : ''}</td>
+      <td class="fat-acoes"><div class="fat-acts">
+        ${temModelo ? html`<button class="btn btn--ghost btn--sm" data-fatura-ver="${f.id}" title="Ver a fatura no modelo do escritório (Word e PDF)">${icone('doc')}Fatura</button>` : ''}
+        ${f.documentoId ? html`<button class="btn btn--ghost btn--sm btn--ico" data-baixar="${f.documentoId}" title="Boleto, guia ou nota anexada" aria-label="Boleto, guia ou nota">${icone('download')}</button>` : ''}
+        ${f.comprovanteId ? html`<button class="btn btn--ghost btn--sm btn--ico" data-baixar="${f.comprovanteId}" title="Comprovante do pagamento" aria-label="Comprovante">${icone('check')}</button>` : ''}
         ${f.status === 'paga_em_conferencia' ? html`<button class="btn btn--accent btn--sm" data-conferir="${f.id}">${icone('check')}Conferir</button><button class="btn btn--ghost btn--sm perigo-btn" data-recusar="${f.id}">Recusar</button>` : ''}
-        ${f.situacao === 'aberta' ? html`<label class="btn btn--ghost btn--sm" style="cursor:pointer" title="Anexar boleto, guia ou nota">${icone('link')}<input type="file" hidden data-doc="${f.id}"></label>
+        ${f.situacao === 'aberta' ? html`<label class="btn btn--ghost btn--sm btn--ico" style="cursor:pointer" title="Anexar boleto, guia ou nota" aria-label="Anexar boleto">${icone('link')}<input type="file" hidden data-doc="${f.id}"></label>
           <label class="btn btn--accent btn--sm" style="cursor:pointer" title="Anexar comprovante e dar baixa">${icone('upload')}${f.tipo === 'guia_custas' ? 'Pagar' : 'Baixar'}<input type="file" hidden data-pagar="${f.id}"></label>
-          <button class="btn btn--ghost btn--sm" data-editar="${f.id}" title="Editar">${icone('list')}</button><button class="btn btn--ghost btn--sm perigo-btn" data-cancelar="${f.id}" title="Cancelar">${icone('x')}</button>` : ''}</div></td></tr>`;
+          <button class="btn btn--ghost btn--sm btn--ico" data-editar="${f.id}" title="Editar" aria-label="Editar">${icone('list')}</button><button class="btn btn--ghost btn--sm btn--ico perigo-btn" data-cancelar="${f.id}" title="Cancelar fatura" aria-label="Cancelar">${icone('x')}</button>` : ''}</div></td></tr>`;
   };
   const tabela = html`<section class="card glass up"><header class="card__head"><div><h2 class="card__title">${aba === 'guias' ? 'Guias de custas' : 'Faturas'}</h2><p class="card__sub">${aba === 'guias' ? 'Pagas pelo escritório; anexe o comprovante para dar baixa.' : 'Cobradas do cliente; o comprovante dele aparece aqui para conferência.'}</p></div>
       <div class="seg glass glass--chrome" role="group" aria-label="Filtro">${[['abertas', 'Em aberto'], ['conferir', 'A conferir'], ['pagas', 'Pagas'], ['todas', 'Todas']].map(([v, t]) => html`<button type="button" data-filtro="${v}" aria-pressed="${v === filtro}">${t}</button>`)}</div></header>
-    ${lista.length ? html`<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Nº</th><th>Projeto</th><th>Descrição</th><th>Vencimento</th><th class="num">Valor (R$)</th><th>Situação</th><th></th></tr></thead><tbody>${lista.map(linha)}</tbody></table></div>`
+    ${lista.length ? html`<div class="tbl-wrap"><table class="tbl fat-tab"><thead><tr><th>Nº</th><th>Cliente / projeto</th><th>Descrição</th><th>Vencimento</th><th class="fat-valor">Valor (R$)</th><th>Situação</th><th class="fat-acoes"><span class="sr-only">Ações</span></th></tr></thead><tbody>${lista.map(linha)}</tbody></table></div>`
       : vazio('money', 'Nada neste filtro', aba === 'guias' ? 'Emita uma guia de custas para controlar o pagamento.' : 'Emita uma fatura para o cliente acompanhar pelo portal.')}</section>`;
   const corpo = aba === 'escritorio'
     ? html`<section class="card glass up">${vazio('chart', 'Financeiro do escritório', 'Receitas, despesas, fluxo de caixa e rentabilidade por projeto. Esta aba está reservada e entra na próxima etapa; hoje o LAB cuida das faturas e guias de cada caso.')}</section>`
@@ -89,13 +95,15 @@ export default async function financeiro({ aba = 'faturas' }) {
       ouvir(el, 'click', '[data-nova]', () => novaFatura());
       ouvir(el, 'click', '[data-nova-guia]', () => novaFatura(null, 'guia_custas'));
       ouvir(el, 'click', '[data-baixar]', async (b) => { try { const x = await api.post(`/api/documentos/${b.dataset.baixar}/link`); window.open(x.url, '_blank', 'noopener'); } catch (e) { erroDe(e); } });
-      ouvir(el, 'click', '[data-fatura-word]', async (b) => {
+      ouvir(el, 'click', '[data-fatura-ver]', async (b) => {
         b.disabled = true;
-        try { const f = await api.get(`/api/faturas/${b.dataset.faturaWord}/modelo`); baixar(await gerarWord(f), `${f.arquivo}.docx`); toast('Fatura gerada no modelo do escritório'); }
-        catch (e) { erroDe(e); } finally { b.disabled = false; }
-      });
-      ouvir(el, 'click', '[data-fatura-pdf]', async (b) => {
-        try { imprimirFatura(await api.get(`/api/faturas/${b.dataset.faturaPdf}/modelo`)); toast('Na janela de impressão, escolha "Salvar como PDF".'); } catch (e) { erroDe(e); }
+        try {
+          const f = await api.get(`/api/faturas/${b.dataset.faturaVer}/modelo`);
+          verFatura(f, {
+            word: async () => { try { baixar(await gerarWord(f), `${f.arquivo}.docx`); toast('Fatura gerada no modelo do escritório.'); } catch (e) { erroDe(e); } },
+            pdf: async () => { await imprimirFatura(f); toast('Na janela de impressão, escolha "Salvar como PDF".'); },
+          });
+        } catch (e) { erroDe(e); } finally { b.disabled = false; }
       });
       ouvir(el, 'click', '[data-conferir]', async (b) => { try { await api.post(`/api/faturas/${b.dataset.conferir}/conferencia`, { acao: 'conferir' }); toast('Comprovante conferido.'); navegar(); } catch (e) { erroDe(e); } });
       ouvir(el, 'click', '[data-recusar]', async (b) => {

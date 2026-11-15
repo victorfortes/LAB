@@ -4,7 +4,7 @@
  * Word: abre o próprio modelo (web/img/fatura/modelo.docx, com fontes embutidas), troca só os textos
  * (data, cliente, CNPJ, descrição, vencimento, valor e total) e devolve o arquivo. Todo o resto do
  * documento (papel timbrado, caixas, cores, posições) sai byte a byte igual ao modelo.
- * PDF: a mesma página desenhada em HTML A4 sobre o papel timbrado do modelo, impressa pelo navegador.
+ * Tela e PDF: a mesma página desenhada em HTML A4, com as medidas e as fontes do modelo (ver LAYOUT).
  */
 
 // Textos do modelo que serão trocados (é a fatura que serviu de base).
@@ -26,8 +26,14 @@ export function trocarTexto(xml, antigo, novo, { vezes = Infinity, pular = 0 } =
   while ((m = re.exec(xml))) pecas.push({ ini: m.index, fim: re.lastIndex, texto: desXml(m[1]) });
   const trocas = []; let achadas = 0;
   for (let i = 0; i < pecas.length && trocas.length < vezes; i++) {
+    // Não começa em peça vazia (sobra de troca anterior) nem atravessa parágrafo: sem isso o valor do item
+    // casava a partir das peças vazias da data e ia parar na célula do vencimento.
+    if (!pecas[i].texto) continue;
     let junto = ''; let j = i;
-    while (j < pecas.length && junto.length < antigo.length) { junto += pecas[j].texto; j++; if (!antigo.startsWith(junto)) break; }
+    while (j < pecas.length && junto.length < antigo.length) {
+      if (j > i && xml.slice(pecas[j - 1].fim, pecas[j].ini).includes('</w:p>')) break;
+      junto += pecas[j].texto; j++; if (!antigo.startsWith(junto)) break;
+    }
     if (junto === antigo) { if (achadas++ >= pular) trocas.push([i, j]); i = j - 1; }
   }
   let saida = xml;
@@ -107,55 +113,134 @@ export async function gerarWord(f) {
   return montarZip(ents);
 }
 
-// ------------------------------------------------------------------- PDF (HTML A4) ---
+// ------------------------------------------------------------- tela e PDF (HTML A4) ---
+//
+// Réplica da página do modelo medida no próprio Word (exportado em PDF e comparado ponto a ponto). Todas as
+// medidas abaixo saem do XML do modelo: página A4 com margens de 0,5" (12,7 mm), o corpo começa onde o
+// cabeçalho termina (20 mm + duas linhas de Calibri 11 = 29,47 mm), as caixas e os ícones são objetos
+// ancorados (posições em EMU convertidas para mm) e cada parágrafo vazio entre a tabela e os dados
+// bancários mede 1,15 × 1,2 × 11,5 pt. As fontes são as mesmas que o .docx embute (Lato 2.015 e Inter Tight
+// Bold), servidas daqui, para que tela, PDF e Word tenham a mesma letra.
+//
+// No Word o espaço extra do entrelinhamento fica embaixo da linha; no navegador fica metade em cima e metade
+// embaixo (e o Word não aplica kerning nem ligaduras). Por isso os blocos com entrelinha 1,15 sobem 0,09 em (= (1,38 − 1,2) / 2). Quando o texto não cabe
+// na caixa (dados bancários, 4 linhas), o Word o prende no topo em vez de centralizar: daí o `safe center`.
+
+const AZUL = '#17283B'; const OURO = '#BE8E57'; const CINZA = '#767171';
+const LIN = 1.15 * 1.2; // entrelinha 1,15 sobre a altura natural da Lato (ascendente + descendente = 1,2 em)
+
+/** Posições em mm (x, y, largura, altura) tiradas do modelo. */
+export const LAYOUT = Object.freeze({
+  papel: [0, -1.06, 210.88, 298.06],
+  logo: [19.985, 26.863, 48.031, 27.005],
+  titulo: [77.04, 29.474], data: [77.04, 40.542],
+  cliente: { caixa: [12.929, 65.357, 185.085, 23], quadro: [12.541, 65.375, 38.523, 23], icone: [21.978, 66.98, 19.685, 19.685] },
+  tabela: { x: 12.435, y: 93.956, colunas: [120.297, 25.333, 39.64], cabecalho: 14.412, item: 14.412, total: 16.122 },
+  banco: { caixa: [12.929, 234.868, 185.085, 23], quadro: [12.541, 234.851, 38.523, 23], icone: [22.331, 236.667, 19.262, 19.262] },
+  // Texto das caixas: recuo de 2.494 twips (43,99 mm) + margem interna de 0,1" (2,54 mm) e 0,05" (1,27 mm).
+  recuoTexto: 43.992, folgaX: 2.54, folgaY: 1.27,
+});
+
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const mm = (n) => `${n}mm`;
+const caixa = ([x, y, w, h]) => `left:${mm(x)};top:${mm(y)};width:${mm(w)};height:${mm(h)}`;
+
+/** Folha A4 da fatura (só o corpo, sem `<html>`), usada na tela e na impressão. */
+export function folhaDaFatura(f, base = location.origin) {
+  const img = (n) => `${base}/img/fatura/${n}`; const L = LAYOUT; const t = L.tabela;
+  const bloco = (c, conteudo) => `<div class="fx-texto" style="${caixa(c)};padding:${mm(L.folgaY)} ${mm(L.folgaX)} ${mm(L.folgaY)} ${mm(L.folgaX + L.recuoTexto)}"><div>${conteudo}</div></div>`;
+  const itens = f.itens.map((i) => `<tr style="height:${mm(t.item)}"><td><span><b>${esc(i.descricao)}</b></span></td><td><span>${esc(i.vencimento)}</span></td><td><span>${esc(i.valor)}</span></td></tr>`).join('');
+  return `<section class="fx-pg" aria-label="Fatura ${esc(f.numero ?? '')}">
+<img class="fx-abs" style="${caixa(L.papel)}" src="${img('papel.png')}" alt="">
+<img class="fx-abs" style="${caixa(L.logo)}" src="${img('logo.png')}" alt="NGA ADV">
+<div class="fx-abs fx-tit" style="left:${mm(L.titulo[0])};top:${mm(L.titulo[1])}">FATURA – PRESTAÇÃO DE SERVIÇOS</div>
+<div class="fx-abs fx-data" style="left:${mm(L.data[0])};top:${mm(L.data[1])}">${esc(f.cidadeData)}</div>
+<div class="fx-abs fx-ouro" style="${caixa(L.cliente.caixa)}"></div>${bloco(L.cliente.caixa, `<b>CLIENTE:</b><br>${esc(f.cliente)}${f.cnpj ? `<br>${esc(f.cnpj)}` : ''}`)}
+<div class="fx-abs fx-azul" style="${caixa(L.cliente.quadro)}"></div><img class="fx-abs" style="${caixa(L.cliente.icone)}" src="${img('cliente.svg')}" alt="">
+<table class="fx-abs fx-tab" style="left:${mm(t.x)};top:${mm(t.y)};width:${mm(t.colunas.reduce((a, b) => a + b, 0))}">
+<colgroup>${t.colunas.map((c) => `<col style="width:${mm(c)}">`).join('')}</colgroup>
+<tr class="fx-cab" style="height:${mm(t.cabecalho)}"><th><span>DESCRIÇÃO</span></th><th><span>VENC.</span></th><th><span>VALOR</span></th></tr>
+${itens}
+<tr class="fx-tot" style="height:${mm(t.total)}"><td></td><td><span>TOTAL</span></td><td><span>${esc(f.total)}</span></td></tr></table>
+<div class="fx-abs fx-ouro" style="${caixa(L.banco.caixa)}"></div>${bloco(L.banco.caixa, '<b>Banco Itaú – 341 </b>| Ag 3835 | C/C 54.188-3<br>NITSCHKE, GRABOSKI &amp; ADVOGADOS ASSOCIADOS<br>CNPJ 07.045.249/0001-62<br>PIX: 07045249000162')}
+<div class="fx-abs fx-azul" style="${caixa(L.banco.quadro)}"></div><img class="fx-abs" style="${caixa(L.banco.icone)}" src="${img('banco.svg')}" alt="">
+</section>`;
+}
+
+/** CSS da folha (fontes do modelo e posições fixas em mm). */
+export function cssDaFatura(base = location.origin) {
+  const fonte = (familia, peso, arq) => `@font-face{font-family:'${familia}';font-weight:${peso};font-style:normal;font-display:block;src:url('${base}/img/fatura/fontes/${arq}') format('truetype')}`;
+  return `${fonte('NGA Lato', 400, 'Lato-Regular.ttf')}${fonte('NGA Lato', 700, 'Lato-Bold.ttf')}${fonte('NGA Inter Tight', 700, 'InterTight-Bold.ttf')}
+.fx-pg{position:relative;width:210mm;height:297mm;overflow:hidden;background:#fff;color:#000;font:400 11pt/1.2 'NGA Lato',Lato,Arial,sans-serif;-webkit-print-color-adjust:exact;print-color-adjust:exact;text-rendering:geometricPrecision;font-variant-ligatures:none;font-kerning:none}
+.fx-pg *{box-sizing:border-box}
+.fx-abs{position:absolute;margin:0;display:block}
+.fx-tit{font:700 16pt/1.2109 'NGA Inter Tight','Inter Tight',Arial,sans-serif;color:${AZUL};white-space:nowrap;letter-spacing:.0125em}
+.fx-data{font-size:11pt;line-height:1.2;color:${CINZA};white-space:nowrap}
+.fx-ouro{background:${OURO}}.fx-azul{background:${AZUL}}
+.fx-texto{position:absolute;display:flex;flex-direction:column;justify-content:safe center;color:#fff;line-height:${LIN}}
+.fx-texto>div{position:relative;top:-.09em}
+.fx-tab{border-collapse:collapse;border-spacing:0;table-layout:fixed;line-height:${LIN}}
+.fx-tab th,.fx-tab td{padding:0 1.905mm;text-align:center;vertical-align:middle;font-weight:400;border:0}
+.fx-tab span{position:relative;top:-.09em}
+.fx-cab th{background:${AZUL};color:#fff;font-weight:700}
+.fx-tot td+td{background:${OURO};color:#fff;font-weight:700}`;
+}
+
 export function htmlDaFatura(f, base = location.origin) {
-  const img = (n) => `${base}/img/fatura/${n}`;
   return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${esc(f.arquivo)}</title>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;600;700&family=Lato:wght@400;700&display=swap">
-<style>
-@page{size:210mm 297mm;margin:0}*{box-sizing:border-box}html,body{margin:0;padding:0}
-body{font-family:Lato,Arial,sans-serif;font-size:11pt;color:#000;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-.pg{position:relative;width:210mm;height:297mm;overflow:hidden;background:#fff url('${img('papel.png')}') 0 0/210mm 297mm no-repeat}
-.abs{position:absolute}
-.logo{left:17mm;top:20mm;width:48mm;height:27mm;background:url('${img('logo.png')}') center/contain no-repeat}
-.tit{left:75mm;top:27mm;font:400 16pt 'Inter Tight',Arial,sans-serif;color:#17283B;letter-spacing:.01em}
-.dt{left:75mm;top:37mm;font-size:11pt;color:#767171}
-.caixa{left:12.9mm;width:185mm;height:23mm;background:#BE8E57}
-.quad{left:12.6mm;width:38.5mm;height:23mm;background:#17283B}
-.ico{width:19.6mm;height:19.6mm}
-.txt{left:57mm;color:#fff;line-height:1.28}
-.txt b.rot{font:700 14pt 'Inter Tight',Arial,sans-serif;color:#17283B}
-table{position:absolute;left:12.7mm;top:100mm;width:185.3mm;border-collapse:collapse;table-layout:fixed}
-td,th{text-align:center;vertical-align:middle;padding:0 2mm}
-th{background:#17283B;color:#fff;font-weight:700;height:12mm;border-left:.3mm solid #fff}
-th:first-child{border-left:0}
-td{height:14.4mm}
-tr.tot td{height:13mm}
-tr.tot td.g{background:#BE8E57;color:#fff;font-weight:700;border-left:.3mm solid #fff}
-</style></head><body><section class="pg">
-<div class="abs logo"></div>
-<div class="abs tit">FATURA – PRESTAÇÃO DE SERVIÇOS</div>
-<div class="abs dt">${esc(f.cidadeData)}</div>
-<div class="abs caixa" style="top:66mm"></div><div class="abs quad" style="top:66mm"></div>
-<img class="abs ico" style="left:21.9mm;top:67.7mm" src="${img('cliente.svg')}" alt="">
-<div class="abs txt" style="top:68.5mm"><b class="rot">CLIENTE:</b><br>${esc(f.cliente)}<br>${esc(f.cnpj)}</div>
-<table><colgroup><col style="width:64.9%"><col style="width:13.7%"><col style="width:21.4%"></colgroup>
-<tr><th>DESCRIÇÃO</th><th>VENC.</th><th>VALOR</th></tr>
-${f.itens.map((i) => `<tr><td><b>${esc(i.descricao)}</b></td><td>${esc(i.vencimento)}</td><td>${esc(i.valor)}</td></tr>`).join('')}
-<tr class="tot"><td></td><td class="g">TOTAL</td><td class="g">${esc(f.total)}</td></tr></table>
-<div class="abs caixa" style="top:212mm"></div><div class="abs quad" style="top:218.4mm;height:23mm"></div>
-<img class="abs ico" style="left:22.3mm;top:220.6mm" src="${img('banco.svg')}" alt="">
-<div class="abs txt" style="top:213.5mm"><b class="rot">Banco Itaú</b><b> – 341</b> | Ag 3835 | C/C 54.188-3<br>NITSCHKE, GRABOSKI &amp; ADVOGADOS ASSOCIADOS<br>CNPJ 07.045.249/0001-62<br>PIX: 07045249000162</div>
-</section></body></html>`;
+<style>@page{size:210mm 297mm;margin:0}html,body{margin:0;padding:0;background:#fff}@media print{html,body{width:210mm;height:297mm;overflow:hidden}}${cssDaFatura(base)}</style></head><body>${folhaDaFatura(f, base)}</body></html>`;
+}
+
+function quadroDaFatura(f) {
+  const q = document.createElement('iframe');
+  q.title = `Fatura ${f.numero ?? ''}`; q.srcdoc = htmlDaFatura(f);
+  return q;
+}
+
+/** Espera fontes e imagens da folha antes de imprimir ou mostrar (sem isso o PDF sai com a letra trocada). */
+async function pronto(q) {
+  await new Promise((r) => { if (q.contentDocument?.readyState === 'complete' && q.contentDocument.body?.childElementCount) r(); else q.addEventListener('load', r, { once: true }); });
+  const d = q.contentDocument; if (!d) return;
+  await Promise.all([d.fonts?.ready, ...[...d.images].map((i) => (i.complete ? null : new Promise((r) => { i.onload = i.onerror = r; })))]);
 }
 
 /** Abre a janela de impressão com a fatura (o usuário escolhe "Salvar como PDF"). */
-export function imprimirFatura(f) {
-  const q = document.createElement('iframe');
+export async function imprimirFatura(f) {
+  const q = quadroDaFatura(f);
   q.setAttribute('aria-hidden', 'true'); q.style.cssText = 'position:fixed;right:0;bottom:0;width:210mm;height:297mm;border:0;opacity:0;pointer-events:none';
-  q.srcdoc = htmlDaFatura(f); document.body.appendChild(q);
-  q.onload = () => { setTimeout(() => { const t = document.title; document.title = f.arquivo; q.contentWindow.focus(); q.contentWindow.print(); document.title = t; setTimeout(() => q.remove(), 60_000); }, 700); };
+  document.body.appendChild(q);
+  await pronto(q);
+  const t = document.title; document.title = f.arquivo; q.contentWindow.focus(); q.contentWindow.print(); document.title = t;
+  setTimeout(() => q.remove(), 60_000);
+}
+
+/**
+ * Mostra a fatura na tela, do jeito que sai no PDF e no Word, com os botões de baixar.
+ * `acoes` recebe { word, pdf } (funções); um botão some quando a função não vem.
+ */
+export function verFatura(f, acoes = {}) {
+  const fundo = document.createElement('div'); fundo.className = 'fat-visor'; fundo.setAttribute('role', 'dialog'); fundo.setAttribute('aria-modal', 'true'); fundo.setAttribute('aria-label', `Fatura ${f.numero ?? ''}`);
+  fundo.innerHTML = `<div class="fat-visor__barra"><div><b>${esc(f.numero ?? 'Fatura')}</b><small>${esc(f.cliente)}</small></div>
+    <div class="fat-visor__acts">${acoes.word ? '<button type="button" class="btn btn--ghost btn--sm" data-v="word">Baixar Word</button>' : ''}${acoes.pdf ? '<button type="button" class="btn btn--accent btn--sm" data-v="pdf">Imprimir / PDF</button>' : ''}<button type="button" class="btn btn--ghost btn--sm" data-v="fechar" aria-label="Fechar">Fechar</button></div></div>
+    <div class="fat-visor__palco"><div class="fat-visor__folha"></div></div>`;
+  const q = quadroDaFatura(f); q.className = 'fat-visor__quadro'; fundo.querySelector('.fat-visor__folha').append(q);
+  const ajustar = () => {
+    const palco = fundo.querySelector('.fat-visor__palco'); const folha = fundo.querySelector('.fat-visor__folha');
+    const pxMm = 96 / 25.4; const w = 210 * pxMm; const h = 297 * pxMm;
+    const esc2 = Math.min((palco.clientWidth - 32) / w, (palco.clientHeight - 32) / h, 1.4);
+    folha.style.width = `${w * esc2}px`; folha.style.height = `${h * esc2}px`; q.style.transform = `scale(${esc2})`;
+  };
+  const anterior = document.activeElement;
+  const fechar = () => { removeEventListener('resize', ajustar); removeEventListener('keydown', tecla); fundo.remove(); anterior?.focus?.(); };
+  const tecla = (e) => { if (e.key === 'Escape') fechar(); };
+  fundo.addEventListener('click', async (e) => {
+    const b = e.target.closest('[data-v]'); if (!b) { if (e.target === fundo) fechar(); return; }
+    if (b.dataset.v === 'fechar') return fechar();
+    b.disabled = true; try { await acoes[b.dataset.v]?.(); } finally { b.disabled = false; }
+  });
+  document.body.append(fundo); addEventListener('resize', ajustar); addEventListener('keydown', tecla); ajustar();
+  fundo.querySelector('[data-v="fechar"]').focus();
+  return fechar;
 }
 
 export function baixar(blob, nome) {
