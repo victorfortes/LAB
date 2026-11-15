@@ -4,7 +4,7 @@
  */
 import type { PoolClient } from 'pg';
 import type { Banco } from '../store/conexao.ts';
-import { avaliar, consultasDoCliente, RANK, type Classificacao, type ClienteSentinela } from '../domain/sentinela/matcher.ts';
+import { avaliar, consultasDoCliente, RANK, VERSAO_MATCHER, trechoDoProcesso, type Classificacao, type ClienteSentinela } from '../domain/sentinela/matcher.ts';
 import { analisarPorRegras, motivoInvisivel, obterConfig, type ComunicacaoAnalise } from './sentinela_regras.ts';
 
 const URL_DJEN = 'https://comunicaapi.pje.jus.br/api/v1/comunicacao';
@@ -84,7 +84,7 @@ export async function gravarAchado(db: PoolClient, org: string, clienteId: strin
   await db.query(`INSERT INTO sentinela_comunicacoes(id,organizacao_id,numero_processo,tribunal,tipo,data_disponibilizacao,classe,orgao,link,trecho,destinatarios) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT DO NOTHING`,
     [com.id, org, com.numero_processo, com.tribunal, com.tipo, com.data_disponibilizacao, com.classe, com.orgao, com.link, com.texto.slice(0, TAM_TRECHO), JSON.stringify(com.destinatarios)]);
   const { rows: [p] } = await db.query<{ id: string }>(`INSERT INTO sentinela_processos(organizacao_id,numero_processo,tribunal,classe,orgao) VALUES($1,$2,$3,$4,$5) ON CONFLICT(organizacao_id,numero_processo) DO UPDATE SET ultima_verificacao=now() RETURNING id`, [org, com.numero_processo, com.tribunal, com.classe, com.orgao]);
-  const ev = JSON.stringify({ ...m.evidencia, comunicacao_id: com.id, tipo_comunicacao: com.tipo, data_disponibilizacao: com.data_disponibilizacao, consulta: chave });
+  const ev = JSON.stringify({ ...m.evidencia, versao_matcher: VERSAO_MATCHER, comunicacao_id: com.id, tipo_comunicacao: com.tipo, data_disponibilizacao: com.data_disponibilizacao, consulta: chave });
   const { rows: [ex] } = await db.query<{ id: string; classificacao: Classificacao; estado_validacao: string }>('SELECT id,classificacao,estado_validacao FROM sentinela_achados WHERE cliente_id=$1 AND processo_id=$2', [clienteId, p!.id]);
   if (!ex) { await db.query('INSERT INTO sentinela_achados(organizacao_id,cliente_id,processo_id,comunicacao_id,nivel,classificacao,polo,nome_na_fonte,evidencia,estado_validacao) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)', [org, clienteId, p!.id, com.id, m.nivel, m.classificacao, m.polo, m.nome_na_fonte, ev, ESTADO_AUTO[m.classificacao]]); return 'nova'; }
   // Decisão de pessoa nunca é sobrescrita pela máquina.
@@ -200,11 +200,42 @@ async function verificarControle(db: PoolClient, r: Rodada, org: string, c: Reco
 }
 
 let hashServico: string | undefined;
+/**
+ * Reavalia, pela regra atual, achados que a máquina classificou com versão anterior do casador.
+ * Nunca toca decisão de pessoa (decidido_por preenchido ou estado manual). Lote pequeno por rodada.
+ */
+export async function reavaliarAchados(db: PoolClient, org: string, limite = 300) {
+  const { rows } = await db.query<{ id: string; cliente_id: string; classificacao: Classificacao; estado_validacao: string; evidencia: Record<string, unknown>; trecho: string | null; destinatarios: unknown; numero_processo: string | null }>(
+    `SELECT a.id, a.cliente_id, a.classificacao, a.estado_validacao, a.evidencia, sc.trecho, sc.destinatarios, sc.numero_processo
+       FROM sentinela_achados a JOIN sentinela_comunicacoes sc ON sc.id = a.comunicacao_id AND sc.organizacao_id = a.organizacao_id
+      WHERE a.organizacao_id = $1 AND a.decidido_por IS NULL AND a.estado_validacao IN ('automatico','pendente','descartado_auto','em_verificacao')
+        AND coalesce((a.evidencia->>'versao_matcher')::int, 1) < $2
+      ORDER BY a.identificada_em DESC LIMIT $3`, [org, VERSAO_MATCHER, limite]);
+  const clientes = new Map<string, ClienteSentinela>();
+  let mudou = 0;
+  for (const a of rows) {
+    if (!clientes.has(a.cliente_id)) clientes.set(a.cliente_id, await cliente(db, a.cliente_id));
+    const m = avaliar(clientes.get(a.cliente_id)!, { texto: a.trecho ?? '', destinatarios: (a.destinatarios as { nome: string; polo: string | null }[]) ?? [], numero_processo: a.numero_processo });
+    // Sem o nome no texto guardado (cortado em 6.000 caracteres): só descarta se a publicação for coletiva.
+    const coletiva = trechoDoProcesso(a.trecho ?? '', a.numero_processo) !== null;
+    if (!m && !coletiva) { await db.query('UPDATE sentinela_achados SET evidencia=$2 WHERE id=$1', [a.id, JSON.stringify({ ...a.evidencia, versao_matcher: VERSAO_MATCHER })]); continue; }
+    const nova = m ?? { nivel: 5, classificacao: 'descartada' as Classificacao, polo: null, nome_na_fonte: null, evidencia: { regra: 'publicação coletiva (pauta/edital): o nome do cliente não está no trecho deste processo' } };
+    const ev = { ...a.evidencia, ...nova.evidencia, versao_matcher: VERSAO_MATCHER, reavaliado_de: a.classificacao };
+    if (nova.classificacao === a.classificacao) { await db.query('UPDATE sentinela_achados SET evidencia=$2 WHERE id=$1', [a.id, JSON.stringify({ ...a.evidencia, versao_matcher: VERSAO_MATCHER })]); continue; }
+    // "em verificação" (aguardando o DataJud) só muda se a regra nova descartar.
+    const estado = a.estado_validacao === 'em_verificacao' && nova.classificacao !== 'descartada' ? 'em_verificacao' : ESTADO_AUTO[nova.classificacao];
+    await db.query('UPDATE sentinela_achados SET nivel=$2,classificacao=$3,polo=$4,nome_na_fonte=$5,evidencia=$6,estado_validacao=$7,ultima_verificacao=now() WHERE id=$1',
+      [a.id, nova.nivel, nova.classificacao, nova.polo, nova.nome_na_fonte, JSON.stringify(ev), estado]);
+    mudou++;
+  }
+  return { lidos: rows.length, reclassificados: mudou };
+}
+
 export async function rotinaSentinela(banco: Banco, opcoes: { fetch?: typeof fetch; agora?: Date; limites?: Limites } = {}) {
   const r: Rodada = { fetch: opcoes.fetch ?? fetch, inicio: Date.now(), bytes: 0, limites: opcoes.limites ?? LIMITES_PADRAO }; const agora = opcoes.agora ?? new Date();
   const orgs = await banco.semContexto(async (db) => (await db.query<{ o: string }>('SELECT organizacoes_com_sentinela() AS o')).rows.map((x) => x.o));
   hashServico ??= await Bun.password.hash(crypto.randomUUID() + crypto.randomUUID(), { algorithm: 'argon2id' });
-  const tot = { planejadas: 0, tarefas: 0, novas: 0, enriquecidos: 0, bytes: 0, analises: 0, alertas: 0, controles: 0 };
+  const tot = { planejadas: 0, tarefas: 0, novas: 0, enriquecidos: 0, bytes: 0, analises: 0, alertas: 0, controles: 0, reavaliados: 0 };
   for (const org of orgs) {
     const uid = await banco.semContexto(async (db) => (await db.query<{ u: string }>('SELECT usuario_de_servico_da_organizacao($1,$2,$3) AS u', [org, 'sentinela', hashServico])).rows[0]!.u);
     tot.planejadas += await banco.comoUsuario(uid, (db) => planejar(db, org, agora));
@@ -219,6 +250,7 @@ export async function rotinaSentinela(banco: Banco, opcoes: { fetch?: typeof fet
       await new Promise((f) => setTimeout(f, opcoes.fetch ? 0 : 1000)); // a fonte pede moderação
     }
     if (!parar && Date.now() - r.inicio < r.limites.ms && r.bytes < r.limites.bytes) tot.enriquecidos += await banco.comoUsuario(uid, (db) => enriquecer(db, r, org));
+    tot.reavaliados += (await banco.comoUsuario(uid, (db) => reavaliarAchados(db, org))).reclassificados;
     const pos = await banco.comoUsuario(uid, (db) => posColeta(db, org)); tot.analises += pos.analises; tot.alertas += pos.alertas;
     if (!parar) for (const c of await banco.comoUsuario(uid, async (db) => (await db.query<Record<string, any>>('SELECT * FROM sentinela_controle WHERE organizacao_id=$1 AND verificar ORDER BY verificado_em NULLS FIRST LIMIT 20', [org])).rows)) {
       if (Date.now() - r.inicio >= r.limites.ms || r.bytes >= r.limites.bytes) break;

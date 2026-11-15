@@ -359,6 +359,23 @@ const processoId = (await dono.query<{id:string}>(
    RETURNING id`,
   [NGA, projeto, parseReais('12.450.000,00').toString(), SOCIO])).rows[0]!.id;
 
+// Controladoria (demonstração): publicações do DJEN sem prazo e a agenda do Astrea de quem lança o processo.
+{
+  const pj = (seq: number, mov: string) => `Intimação referente ao movimento (seq. ${seq}) ${mov} (12/11/2026). Acesse o sistema Projudi do Tribunal de Justiça do Paraná para mais detalhes.`;
+  const pubs: Array<[number, string, string, string]> = [
+    [8801, 'Intimação', 'RECUPERAçãO JUDICIAL', pj(410, 'JUNTADA DE PETIÇÃO DE HABILITAÇÃO DE CRÉDITO')],
+    [8802, 'Intimação', 'RECUPERAçãO JUDICIAL', pj(412, 'PROFERIDO DESPACHO DE MERO EXPEDIENTE')],
+    [8803, 'Intimação', 'RECUPERAçãO JUDICIAL', pj(415, 'JULGADO PROCEDENTE EM PARTE O PEDIDO - SENTENÇA')],
+    [8804, 'Pauta de julgamento', 'RECUPERAçãO JUDICIAL', pj(418, 'INCLUÍDO EM PAUTA PARA SESSÃO VIRTUAL DE 07/12/2026 00:00 ATÉ 11/12/2026 23:59')],
+  ];
+  for (const [id, tipo, classe, texto] of pubs) await dono.query(`INSERT INTO publicacoes (organizacao_id,comunicacao_id,oabs,data_disponibilizacao,tribunal,tipo,orgao,numero_processo,classe,texto,processo_id)
+    VALUES ($1,$2,'{PR00000}','2026-11-12','TJPR',$3,'1ª Vara de Falências e Recuperações Judiciais','00012345620248160001',$4,$5,$6)`, [NGA, id, tipo, classe, texto, processoId]);
+  await dono.query(`INSERT INTO bi_agenda_linhas (organizacao_id,ordem,tipo,data,hora,caso,conclusao,juizo,numero,resp,status,titulo) VALUES
+    ($1,9001,'Prazo','19/11/2026','','RJ Grupo Demonstração','','1ª Vara','0001234-56.2024.8.16.0001','Advogada de Demonstração','Em andamento','MANIFESTAR - DEFERIDO O PEDIDO'),
+    ($1,9002,'Prazo','24/11/2026','','RJ Grupo Demonstração','','1ª Vara','0001234-56.2024.8.16.0001','Advogada de Demonstração','Em andamento','RECURSO / MANIFESTAR'),
+    ($1,9003,'Audiência','26/11/2026','14:00','RJ Grupo Demonstração','','1ª Vara','0001234-56.2024.8.16.0001','Advogada de Demonstração','Em andamento','AUDIÊNCIA DE CONCILIAÇÃO')`, [NGA]);
+}
+
 // Carteira do Astrea (demonstração): três clientes etiquetados, processos em fases diferentes.
 {
   const linhas: [string, string, string, string, string, string, string, string][] = [

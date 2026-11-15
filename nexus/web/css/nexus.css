@@ -602,3 +602,21 @@ a.nx-kpi:hover { transform: translateY(-3px); border-color: #F0A32E66; }
 .fat-visor__palco { overflow: auto; display: grid; place-items: center; padding: 16px; }
 .fat-visor__folha { position: relative; overflow: hidden; background: #fff; box-shadow: 0 18px 50px rgba(0,0,0,.45); }
 .fat-visor__quadro { position: absolute; left: 0; top: 0; width: 210mm; height: 297mm; border: 0; transform-origin: 0 0; background: #fff; }
+
+/* ===== Controladoria → Agendar em lote ===== */
+.cl-resumo { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; font-size: 13px; color: var(--text-2); }
+.cl-resumo b { font-size: 16px; color: var(--text-1, inherit); margin-right: 4px; }
+.cl-tabela td { vertical-align: top; }
+.cl-tabela td small { display: block; color: var(--text-3); font-size: 11.5px; margin-top: 4px; line-height: 1.35; }
+.cl-tabela tr.is-off { opacity: .55; }
+.cl-titulo { min-width: 340px; }
+.cl-titulo .input { width: 100%; font-weight: 600; }
+.cl-dias { width: 70px; text-align: right; }
+.cl-resp { font-size: 13px; }
+.cl-texto summary { cursor: pointer; font-size: 11.5px; color: var(--text-3); margin-top: 4px; }
+.cl-texto p { font-size: 12.5px; color: var(--text-2); margin: 6px 0 0; white-space: pre-wrap; }
+.input--sm, .select--sm { padding: 6px 9px; font-size: 13px; min-height: 0; height: auto; }
+.cl-tabela .select--sm { min-width: 96px; }
+.cl-tabela td:nth-child(3) .mono-sm { white-space: nowrap; }
+.cl-tabela td:nth-child(2) .mono-sm { white-space: nowrap; }
+.fat-baixa { font-size: 11.5px; color: var(--text-3); padding: 3px 8px; border-radius: 999px; background: var(--fill-2, rgba(127,127,127,.14)); white-space: nowrap; }

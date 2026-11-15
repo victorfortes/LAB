@@ -9,7 +9,9 @@ import { validarCnpj } from '../analise/identificadores.ts';
 export type Classificacao = 'descartada' | 'inconclusiva' | 'provavel' | 'confirmada';
 export const RANK: Record<Classificacao, number> = { descartada: 1, inconclusiva: 2, provavel: 3, confirmada: 4 };
 export interface ClienteSentinela { nomes: { nome: string; nome_norm: string; tipo: string }[]; cnpjs: { cnpj: string; tipo: string }[]; confirmar_por_nome_exato?: boolean }
-export interface ComunicacaoDjen { texto: string; destinatarios: { nome: string; polo: string | null }[] }
+export interface ComunicacaoDjen { texto: string; destinatarios: { nome: string; polo: string | null }[]; numero_processo?: string | null }
+/** Versão das regras: achado avaliado por versão anterior é reavaliado pela rotina (sem tocar decisão humana). */
+export const VERSAO_MATCHER = 2;
 export interface Avaliacao { nivel: number; classificacao: Classificacao; polo: string | null; nome_na_fonte: string | null; evidencia: Record<string, unknown> }
 
 const LIMIAR = 0.88;
@@ -55,11 +57,35 @@ export function papelDoNome(texto: string, nomeNorm: string): { papel: string | 
 }
 
 const ROT: Record<string, string> = { REC: 'recursal (apelante/embargante…)', T: 'de terceiro interessado', RJ: 'na recuperação judicial/falência', null: 'indefinido' };
+const RE_CNJ = /\d{7}-?\d{2}\.?\d{4}\.?\d\.?\d{2}\.?\d{4}/g;
+/**
+ * Publicação coletiva (pauta, edital, lista de distribuição): o mesmo texto traz vários processos e o DJEN o
+ * repete na comunicação de cada um. O nome do cliente só vale se estiver no trecho do PRÓPRIO processo.
+ * Devolve o trecho, '' quando o texto é coletivo e o processo não aparece nele, ou null quando não é coletivo.
+ */
+export function trechoDoProcesso(texto: string, numero: string | null | undefined): string | null {
+  const achados = [...texto.matchAll(RE_CNJ)].map((m) => ({ d: dig(m[0]), i: m.index! }));
+  if (new Set(achados.map((a) => a.d)).size < 3) return null;
+  const alvo = dig(numero ?? '');
+  const meu = achados.findIndex((a) => a.d === alvo);
+  if (!alvo || meu < 0) return '';
+  const fim = achados.slice(meu + 1).find((a) => a.d !== alvo)?.i ?? texto.length;
+  return texto.slice(achados[meu]!.i, fim);
+}
+
 function porTexto(c: ClienteSentinela, com: ComunicacaoDjen): Avaliacao | null {
   let melhor: Avaliacao | null = null;
+  const proprio = trechoDoProcesso(com.texto, com.numero_processo);
+  const texto = proprio === null ? com.texto : proprio;
   for (const n of c.nomes) {
     if (n.nome_norm.replaceAll(' ', '').length < 4) continue;
-    const r = papelDoNome(com.texto, n.nome_norm); if (!r) continue;
+    const r = papelDoNome(texto, n.nome_norm);
+    if (!r) {
+      // Nome só no trecho de OUTRO processo da publicação coletiva: não é deste processo.
+      const fora = proprio !== null ? papelDoNome(com.texto, n.nome_norm) : null;
+      if (fora && !melhor) melhor = { nivel: 5, classificacao: 'descartada', polo: null, nome_na_fonte: null, evidencia: { nome_cliente: n.nome, tipo_nome: n.tipo, trecho: fora.trecho, regra: 'publicação coletiva (pauta/edital): o nome do cliente aparece no trecho de outro processo da lista' } };
+      continue;
+    }
     const conf = !!c.confirmar_por_nome_exato; const ev = { nome_cliente: n.nome, tipo_nome: n.tipo, trecho: r.trecho, papel_no_texto: r.papel, cnpj_no_texto: null };
     const res: Avaliacao = r.papel === 'P' ? { nivel: 3, classificacao: conf ? 'confirmada' : 'provavel', polo: 'P', nome_na_fonte: null, evidencia: { ...ev, regra: 'nome do cliente no corpo da comunicação, no polo passivo' } }
       : r.papel === 'A' ? { nivel: 5, classificacao: 'descartada', polo: 'A', nome_na_fonte: null, evidencia: { ...ev, regra: 'nome do cliente no corpo da comunicação, como autor' } }

@@ -70,17 +70,20 @@ interface Linha {
   linha_digitavel: string | null; processo: string | null; visivel_cliente: boolean; documento_id: string | null;
   comprovante_id: string | null; comprovante_em: Date | null; conferido_em: Date | null; pago_em: Date | string | null;
   observacao: string | null; documento_nome: string | null; comprovante_nome: string | null;
+  baixa_forma: string | null; baixa_valor_centavos: string | number | null; baixa_observacao: string | null; baixa_em: Date | null; baixa_por_nome: string | null;
 }
 
 const SELECAO = `f.id, f.numero, f.projeto_id, p.nome AS projeto, f.tipo, f.pagador, f.descricao, f.competencia, f.valor_centavos,
   f.emissao, f.vencimento, f.situacao, f.linha_digitavel, pr.numero AS processo, f.visivel_cliente, f.documento_id,
   f.comprovante_id, f.comprovante_em, f.conferido_em, f.pago_em, f.observacao,
-  dd.nome_original AS documento_nome, dc.nome_original AS comprovante_nome`;
+  dd.nome_original AS documento_nome, dc.nome_original AS comprovante_nome,
+  f.baixa_forma, f.baixa_valor_centavos, f.baixa_observacao, f.baixa_em, ub.nome AS baixa_por_nome`;
 const JUNCOES = `FROM faturas f
   LEFT JOIN projetos p ON p.id = f.projeto_id
   LEFT JOIN processos pr ON pr.id = f.processo_id
   LEFT JOIN documentos dd ON dd.id = f.documento_id
-  LEFT JOIN documentos dc ON dc.id = f.comprovante_id`;
+  LEFT JOIN documentos dc ON dc.id = f.comprovante_id
+  LEFT JOIN usuarios ub ON ub.id = f.baixa_por`;
 
 export function apresentar(l: Linha, hoje = hojeSP()) {
   const venc = dia(l.vencimento)!;
@@ -101,6 +104,8 @@ export function apresentar(l: Linha, hoje = hojeSP()) {
     comprovanteEm: l.comprovante_em ? new Date(l.comprovante_em).toISOString() : null,
     conferidoEm: l.conferido_em ? new Date(l.conferido_em).toISOString() : null,
     pagoEm: dia(l.pago_em), observacao: l.observacao,
+    baixa: l.baixa_forma ? { forma: l.baixa_forma, valorCentavos: l.baixa_valor_centavos === null ? null : Number(l.baixa_valor_centavos),
+      observacao: l.baixa_observacao, em: l.baixa_em ? new Date(l.baixa_em).toISOString() : null, por: l.baixa_por_nome } : null,
   };
 }
 
@@ -226,6 +231,39 @@ export async function registrarPagamento(db: PoolClient, id: string, documentoId
             conferido_em = now(), conferido_por = $3, atualizado_em = now() WHERE id = $1`,
     [id, documentoId, identidade.usuarioId, data]);
   await auditar(db, { organizacaoId: atual.organizacao_id, usuarioId: identidade.usuarioId, acao: 'fatura.paga', entidade: 'fatura', entidadeId: id, depois: { numero: atual.numero, pagoEm: data } });
+  return apresentar(await obter(db, id));
+}
+
+export const FORMAS_BAIXA = ['pix', 'boleto', 'transferencia', 'dinheiro', 'cartao', 'compensacao', 'outro'] as const;
+export const EsquemaBaixa = z.object({
+  pagoEm: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  forma: z.enum(FORMAS_BAIXA),
+  valorCentavos: z.number().int().positive().max(1e13).optional(),
+  observacao: z.string().trim().max(1000).nullable().optional(),
+});
+
+/** Dá baixa (fatura paga) sem exigir arquivo: data, forma e valor recebido. Fica conferida por quem deu a baixa. */
+export async function darBaixa(db: PoolClient, id: string, d: z.infer<typeof EsquemaBaixa>, identidade: Identidade) {
+  const atual = await obter(db, id);
+  if (atual.situacao !== 'aberta') throw new PedidoInvalido('só se dá baixa em fatura em aberto');
+  if (d.pagoEm > hojeSP()) throw new PedidoInvalido('a data do pagamento não pode ser futura');
+  await db.query(
+    `UPDATE faturas SET situacao = 'paga', pago_em = $2, baixa_forma = $3, baixa_valor_centavos = $4, baixa_observacao = $5, baixa_por = $6, baixa_em = now(),
+            conferido_em = now(), conferido_por = $6, atualizado_em = now() WHERE id = $1`,
+    [id, d.pagoEm, d.forma, d.valorCentavos ?? null, d.observacao ?? null, identidade.usuarioId]);
+  await auditar(db, { organizacaoId: atual.organizacao_id, usuarioId: identidade.usuarioId, acao: 'fatura.baixa', entidade: 'fatura', entidadeId: id, depois: { numero: atual.numero, pagoEm: d.pagoEm, forma: d.forma, valorCentavos: d.valorCentavos ?? null } });
+  return apresentar(await obter(db, id));
+}
+
+/** Estorna uma baixa lançada por engano: a fatura volta a ficar em aberto (o comprovante anexado, se houver, sai). */
+export async function estornarBaixa(db: PoolClient, id: string, motivo: string, identidade: Identidade) {
+  const atual = await obter(db, id);
+  if (atual.situacao !== 'paga') throw new PedidoInvalido('só se estorna fatura paga');
+  await db.query(
+    `UPDATE faturas SET situacao = 'aberta', pago_em = NULL, baixa_forma = NULL, baixa_valor_centavos = NULL, baixa_observacao = NULL, baixa_por = NULL, baixa_em = NULL,
+            comprovante_id = NULL, comprovante_em = NULL, comprovante_por = NULL, conferido_em = NULL, conferido_por = NULL,
+            observacao = $2, atualizado_em = now() WHERE id = $1`, [id, `Baixa estornada: ${motivo}`.slice(0, 2000)]);
+  await auditar(db, { organizacaoId: atual.organizacao_id, usuarioId: identidade.usuarioId, acao: 'fatura.baixa_estornada', entidade: 'fatura', entidadeId: id, depois: { numero: atual.numero, motivo } });
   return apresentar(await obter(db, id));
 }
 

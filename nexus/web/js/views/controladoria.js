@@ -6,6 +6,7 @@
  * sozinho: "Calcular prazo" abre o cálculo com a data da publicação já preenchida, para a pessoa conferir.
  */
 import { montarConferencia, vincularProcessos } from './controladoria_conferencia.js';
+import { montarLote } from './controladoria_lote.js';
 import { api } from '../api.js';
 import { pode } from '../estado.js';
 import { dataBR, esc, hojeISO, html, icone, ouvir, relativo } from '../util.js';
@@ -33,6 +34,7 @@ export default async function controladoria() {
       acoes: gere ? html`<button type="button" class="btn btn--ghost" data-vinculo-proj>${icone('folder')}Vincular processos aos projetos</button><button type="button" class="btn btn--ghost" data-confronto>${icone('link')}Confrontar com o Astrea</button><button type="button" class="btn btn--ghost" data-oabs>${icone('user')}OABs</button><button type="button" class="btn btn--accent" data-sync>${icone('refresh')}Buscar agora</button>` : '',
       resumo: [{ rotulo: 'Novas', valor: r.novas, tom: r.novas ? 'warn' : '' }, { rotulo: 'Lidas', valor: r.lidas }, { rotulo: 'Tratadas', valor: r.tratadas }],
     })}
+    <div data-lote-agendar><div class="skel mt" style="height:120px"></div></div>
     <div data-conferencia><div class="skel mt" style="height:140px"></div></div>
     ${pendentes.length ? html`<section class="card glass mt" aria-labelledby="astrea-titulo">
       <header class="card__head"><div><h2 class="card__title" id="astrea-titulo">Prazos do Astrea a vincular</h2>
@@ -116,6 +118,7 @@ export default async function controladoria() {
       ouvir(el, 'click', '[data-oabs]', () => gerirOabs(oabs));
       ouvir(el, 'click', '[data-confronto]', () => confrontarComAstrea());
       ouvir(el, 'click', '[data-vinculo-proj]', () => vincularProcessos());
+      montarLote(el.querySelector('[data-lote-agendar]'), () => navegar()).catch(console.error);
       montarConferencia(el.querySelector('[data-conferencia]'));
       ouvir(el, 'click', '[data-mais]', (b) => abrirPublicacao(b.dataset.mais).catch(erroDe));
       ouvir(el, 'click', '[data-detalhar]', (b) => abrirPublicacao(b.dataset.detalhar).catch(erroDe));

@@ -197,6 +197,18 @@ describe('faturas, comprovante e financeiro por projeto', () => {
     const f = await rec.json(); expect(f.situacao).toBe('aberta'); expect(f.comprovanteId).toBeNull(); expect(f.observacao).toContain('Valor diferente');
   });
 
+  test('dar baixa sem arquivo (data, forma, valor) e estornar; cliente e advogado não dão baixa', async () => {
+    const corpo = { pagoEm: '2026-11-10', forma: 'pix', valorCentavos: 500000, observacao: 'PIX conferido no extrato' };
+    expect((await post('cy@grupoy.com', `/api/faturas/${faturaY}/baixa`, corpo)).status).toBe(403);
+    expect((await post('adv@nga.adv.br', `/api/faturas/${faturaY}/baixa`, corpo)).status).toBe(403);
+    expect((await post('coord@nga.adv.br', `/api/faturas/${faturaY}/baixa`, { ...corpo, pagoEm: '2999-01-01' })).status).toBe(400);
+    const r = await post('coord@nga.adv.br', `/api/faturas/${faturaY}/baixa`, corpo); expect(r.status).toBe(200);
+    const f = await r.json(); expect(f).toMatchObject({ situacao: 'paga', status: 'paga', pagoEm: '2026-11-10' }); expect(f.baixa).toMatchObject({ forma: 'pix', valorCentavos: 500000 });
+    expect((await post('coord@nga.adv.br', `/api/faturas/${faturaY}/baixa`, corpo)).status).toBe(400);
+    const e = await (await post('coord@nga.adv.br', `/api/faturas/${faturaY}/baixa/estorno`, { motivo: 'Lançada no cliente errado' })).json();
+    expect(e).toMatchObject({ situacao: 'aberta', baixa: null }); expect(e.observacao).toContain('estornada');
+  });
+
   test('guia de custas: o financeiro registra o pagamento com o comprovante', async () => {
     const r = await req('fin@nga.adv.br', `/api/faturas/${guiaX}/comprovante`, { method: 'POST', body: (() => { const f = arquivo('guia-paga.pdf'); f.append('pagoEm', '2027-01-05'); return f; })() });
     expect(r.status).toBe(201); const g = await r.json(); expect(g.status).toBe('paga'); expect(g.pagoEm).toBe('2027-01-05');

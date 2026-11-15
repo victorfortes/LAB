@@ -7,7 +7,9 @@
  */
 import { api } from '../api.js';
 import { estado, pode } from '../estado.js';
-import { dataBR, html, icone, ouvir, relativo, tamanho } from '../util.js';
+import { dataBR, hojeISO, html, icone, ouvir, paraCentavos, reais, relativo, tamanho } from '../util.js';
+
+const FORMAS = { pix: 'PIX', boleto: 'Boleto', transferencia: 'Transferência', dinheiro: 'Dinheiro', cartao: 'Cartão', compensacao: 'Compensação', outro: 'Outro' };
 import { cabecalho, confirmar, erroDe, formulario, modal, toast, vazio } from '../ui.js';
 import { navegar } from '../shell.js';
 import { baixar, gerarWord, imprimirFatura, verFatura } from '../fatura_modelo.js';
@@ -64,9 +66,12 @@ export default async function financeiro({ aba = 'faturas' }) {
         ${temModelo ? html`<button class="btn btn--ghost btn--sm" data-fatura-ver="${f.id}" title="Ver a fatura no modelo do escritório (Word e PDF)">${icone('doc')}Fatura</button>` : ''}
         ${f.documentoId ? html`<button class="btn btn--ghost btn--sm btn--ico" data-baixar="${f.documentoId}" title="Boleto, guia ou nota anexada" aria-label="Boleto, guia ou nota">${icone('download')}</button>` : ''}
         ${f.comprovanteId ? html`<button class="btn btn--ghost btn--sm btn--ico" data-baixar="${f.comprovanteId}" title="Comprovante do pagamento" aria-label="Comprovante">${icone('check')}</button>` : ''}
+        ${f.situacao === 'paga' && f.baixa ? html`<span class="fat-baixa" title="${`Baixa por ${f.baixa.por ?? '—'}${f.baixa.observacao ? ` · ${f.baixa.observacao}` : ''}`}">${FORMAS[f.baixa.forma] ?? f.baixa.forma}${f.baixa.valorCentavos && f.baixa.valorCentavos !== f.valorCentavos ? ` · recebido ${reais(f.baixa.valorCentavos)}` : ''}</span>` : ''}
+        ${f.situacao === 'paga' && (pode('fatura.gerir')) ? html`<button class="btn btn--ghost btn--sm" data-estornar="${f.id}" title="Desfazer a baixa">Estornar</button>` : ''}
         ${f.status === 'paga_em_conferencia' ? html`<button class="btn btn--accent btn--sm" data-conferir="${f.id}">${icone('check')}Conferir</button><button class="btn btn--ghost btn--sm perigo-btn" data-recusar="${f.id}">Recusar</button>` : ''}
         ${f.situacao === 'aberta' ? html`<label class="btn btn--ghost btn--sm btn--ico" style="cursor:pointer" title="Anexar boleto, guia ou nota" aria-label="Anexar boleto">${icone('link')}<input type="file" hidden data-doc="${f.id}"></label>
-          <label class="btn btn--accent btn--sm" style="cursor:pointer" title="Anexar comprovante e dar baixa">${icone('upload')}${f.tipo === 'guia_custas' ? 'Pagar' : 'Baixar'}<input type="file" hidden data-pagar="${f.id}"></label>
+          <button class="btn btn--accent btn--sm" data-dar-baixa="${f.id}" title="Marcar como paga: data, forma e valor recebido">${icone('check')}Dar baixa</button>
+          <label class="btn btn--ghost btn--sm btn--ico" style="cursor:pointer" title="Anexar comprovante e dar baixa" aria-label="Anexar comprovante">${icone('upload')}<input type="file" hidden data-pagar="${f.id}"></label>
           <button class="btn btn--ghost btn--sm btn--ico" data-editar="${f.id}" title="Editar" aria-label="Editar">${icone('list')}</button><button class="btn btn--ghost btn--sm btn--ico perigo-btn" data-cancelar="${f.id}" title="Cancelar fatura" aria-label="Cancelar">${icone('x')}</button>` : ''}</div></td></tr>`;
   };
   const tabela = html`<section class="card glass up"><header class="card__head"><div><h2 class="card__title">${aba === 'guias' ? 'Guias de custas' : 'Faturas'}</h2><p class="card__sub">${aba === 'guias' ? 'Pagas pelo escritório; anexe o comprovante para dar baixa.' : 'Cobradas do cliente; o comprovante dele aparece aqui para conferência.'}</p></div>
@@ -92,6 +97,24 @@ export default async function financeiro({ aba = 'faturas' }) {
     depois(el) {
       ouvir(el, 'click', '[data-aba]', (b) => { location.hash = `#/financeiro/${b.dataset.aba}`; });
       ouvir(el, 'click', '[data-filtro]', (b) => { filtro = b.dataset.filtro; navegar(); });
+      ouvir(el, 'click', '[data-dar-baixa]', async (b) => {
+        const f = base.find((x) => x.id === b.dataset.darBaixa);
+        const ok = await formulario({ titulo: 'Dar baixa na fatura', subtitulo: `${f.numero} · ${f.projeto ?? ''} · ${f.valorFormatado}`, rotulo: 'Dar baixa', campos: [
+          { nome: 'pagoEm', rotulo: 'Data do pagamento', tipo: 'date', valor: hojeISO(), obrigatorio: true, metade: true },
+          { nome: 'forma', rotulo: 'Forma', tipo: 'select', valor: 'pix', metade: true, opcoes: Object.entries(FORMAS).map(([v, t]) => ({ v, t })) },
+          { nome: 'valor', rotulo: 'Valor recebido (R$)', valor: f.valorFormatado.replace(/^R\$\s*/, ''), dica: 'Deixe igual ao da fatura se recebeu o valor cheio.' },
+          { nome: 'observacao', rotulo: 'Observação (opcional)', tipo: 'textarea', placeholder: 'Ex.: PIX conferido no extrato do Itaú' }],
+          async enviar(v) {
+            const c = paraCentavos(v.valor ?? '');
+            await api.post(`/api/faturas/${f.id}/baixa`, { pagoEm: v.pagoEm, forma: v.forma, ...(c ? { valorCentavos: Number(c) } : {}), observacao: v.observacao || null });
+          } });
+        if (ok) { toast('Baixa registrada.'); navegar(); }
+      });
+      ouvir(el, 'click', '[data-estornar]', async (b) => {
+        const ok = await formulario({ titulo: 'Estornar a baixa', subtitulo: 'A fatura volta a ficar em aberto. Fica registrado na auditoria.', rotulo: 'Estornar', campos: [{ nome: 'motivo', rotulo: 'Motivo', obrigatorio: true }],
+          async enviar(v) { await api.post(`/api/faturas/${b.dataset.estornar}/baixa/estorno`, { motivo: v.motivo }); } });
+        if (ok) { toast('Baixa estornada.'); navegar(); }
+      });
       ouvir(el, 'click', '[data-nova]', () => novaFatura());
       ouvir(el, 'click', '[data-nova-guia]', () => novaFatura(null, 'guia_custas'));
       ouvir(el, 'click', '[data-baixar]', async (b) => { try { const x = await api.post(`/api/documentos/${b.dataset.baixar}/link`); window.open(x.url, '_blank', 'noopener'); } catch (e) { erroDe(e); } });

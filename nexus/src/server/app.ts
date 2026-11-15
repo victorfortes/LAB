@@ -24,6 +24,7 @@ import { diagnostico } from './diagnostico.ts';
 import { atividade } from './atividade.ts';
 import * as negociacoes from './negociacoes.ts';
 import * as controladoria from './controladoria.ts';
+import * as controladoriaAuto from './controladoria_auto.ts';
 import * as gerador from './gerador.ts';
 import { sugerirPrazo } from './publicacao_analise.ts';
 import * as processos from './processos.ts';
@@ -265,8 +266,12 @@ export function criarApp(ctx: Contexto) {
             exigirEscopo(integracao, 'agenda');
             const corpo = biAgenda.EsquemaCarga.safeParse(await req.json().catch(() => null));
             if (!corpo.success) return erro('dados inválidos', 400, corpo.error.issues.slice(0, 5));
-            return json(await banco.comoUsuario(integracao.usuarioId, (db) =>
-              biAgenda.receberCarga(db, integracao.organizacaoId, corpo.data, 'automacao', integracao.usuarioId)), 201);
+            const carga = await banco.comoUsuario(integracao.usuarioId, (db) =>
+              biAgenda.receberCarga(db, integracao.organizacaoId, corpo.data, 'automacao', integracao.usuarioId));
+            // Direciona a agenda nova (tarefas por responsável). Em transação própria: falha aqui não desfaz a carga.
+            const direcionamento = await banco.comoUsuario(integracao.usuarioId, (db) => controladoriaAuto.direcionarAgenda(db, integracao.organizacaoId, integracao.usuarioId))
+              .catch((e) => ({ erro: (e as Error).message }));
+            return json({ ...carga, direcionamento }, 201);
           }
           // Publicações que chegaram no Astrea, para a conferência diária com o DJEN do LAB.
           if (rota === '/api/integracao/publicacoes-astrea') {
@@ -624,6 +629,27 @@ export function criarApp(ctx: Contexto) {
         if (!d.success) return erro('Escolha um projeto e informe se o novo processo corre em segredo de justiça.', 400, d.error.issues);
         return json(await banco.comoUsuario(identidade.usuarioId, (db) =>
           controladoria.vincularPrazosAstrea(db, mPrazoAstrea[1]!, d.data, identidade)));
+      }
+      // Controladoria automatizada: fila com lançamento sugerido, confirmação em lote e direcionamento da agenda do Astrea.
+      if (rota === '/api/controladoria/sugestoes' && metodo === 'GET') {
+        exigir(identidade.papeis, 'controladoria.ler');
+        return json(await banco.comoUsuario(identidade.usuarioId, controladoriaAuto.filaDeSugestoes));
+      }
+      if (rota === '/api/controladoria/sugestoes/confirmar' && metodo === 'POST') {
+        exigir(identidade.papeis, 'controladoria.gerir'); exigir(identidade.papeis, 'prazo.escrever');
+        const d = controladoriaAuto.EsquemaConfirmacao.safeParse(await req.json().catch(() => null));
+        if (!d.success) return erro('dados inválidos', 400, d.error.issues.slice(0, 5));
+        return json(await banco.comoUsuario(identidade.usuarioId, (db) => controladoriaAuto.confirmarEmLote(db, d.data, identidade)));
+      }
+      if (rota === '/api/controladoria/padroes' && metodo === 'GET') {
+        exigir(identidade.papeis, 'controladoria.ler');
+        return json(await banco.comoUsuario(identidade.usuarioId, controladoriaAuto.padroes));
+      }
+      if (rota === '/api/controladoria/direcionar' && metodo === 'POST') {
+        exigir(identidade.papeis, 'controladoria.gerir');
+        const org = identidade.organizacoes.find((o) => o.tipo === 'escritorio')?.id;
+        if (!org) return erro('acesso negado', 403);
+        return json(await banco.comoUsuario(identidade.usuarioId, (db) => controladoriaAuto.direcionarAgenda(db, org, identidade.usuarioId)));
       }
       if (rota === '/api/controladoria/oabs' && metodo === 'GET') {
         exigir(identidade.papeis, 'controladoria.ler');
@@ -1114,6 +1140,15 @@ export function criarApp(ctx: Contexto) {
         exigir(identidade.papeis, 'fatura.gerir');
         return json(await como((db) => faturas.documentos(db)));
       }
+      // Baixa sem arquivo (data, forma, valor) e estorno. Só quem gere faturas; o cliente nunca.
+      const mBaixa = /^\/api\/faturas\/([0-9a-f-]{36})\/baixa(\/estorno)?$/.exec(rota);
+      if (mBaixa) {
+        if (ehCliente) return erro('acesso negado', 403);
+        exigir(identidade.papeis, 'fatura.gerir');
+        if (metodo === 'POST' && !mBaixa[2]) { const d = await corpoDe(faturas.EsquemaBaixa); return json(await como((db) => faturas.darBaixa(db, mBaixa[1]!, d, identidade))); }
+        if (metodo === 'POST' && mBaixa[2]) { const d = await corpoDe(z.object({ motivo: z.string().trim().min(3).max(500) })); return json(await como((db) => faturas.estornarBaixa(db, mBaixa[1]!, d.motivo, identidade))); }
+        return erro('método não permitido', 405);
+      }
       const mFat = /^\/api\/faturas\/([0-9a-f-]{36})(?:\/(documento|comprovante|conferencia|cancelamento))?$/.exec(rota);
       if (mFat) {
         const fid = mFat[1]!; const sub = mFat[2];
@@ -1310,7 +1345,9 @@ export function criarApp(ctx: Contexto) {
           exigir(identidade.papeis, 'controladoria.gerir');
           const org = identidade.organizacoes.find((o) => o.tipo === 'escritorio')?.id; if (!org) return erro('acesso negado', 403);
           const d = await corpoDe(biAgenda.EsquemaCarga);
-          return json(await como((db) => biAgenda.receberCarga(db, org, d, 'manual', identidade.usuarioId)), 201);
+          const carga = await como((db) => biAgenda.receberCarga(db, org, d, 'manual', identidade.usuarioId));
+          const direcionamento = await como((db) => controladoriaAuto.direcionarAgenda(db, org, identidade.usuarioId)).catch((e) => ({ erro: (e as Error).message }));
+          return json({ ...carga, direcionamento }, 201);
         }
         if (rota === '/api/bi-prazos/acessos-tv' && metodo === 'GET') return json(await como(biAgenda.listarAcessosTv));
         if (rota === '/api/bi-prazos/acessos-tv' && metodo === 'POST') { const d = await corpoDe(biAgenda.EsquemaAcessoTv); return json(await como((db) => biAgenda.criarAcessoTv(db, d, identidade)), 201); }

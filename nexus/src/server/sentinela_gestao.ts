@@ -33,7 +33,9 @@ export async function painelGeral(db: PoolClient) {
   const { rows: [rot] } = await db.query<{ criado_em: Date; ok: boolean }>('SELECT * FROM sentinela_ultima_rotina()');
   const minutos = rot ? Math.round((Date.now() - new Date(rot.criado_em).getTime()) / 60000) : null;
   const falhas24 = await um(`SELECT count(*)::int n FROM sentinela_tarefas WHERE status='falha' AND atualizado_em>now()-interval '24 hours'`);
-  const fontes = (await db.query<{ fonte: string; estado: string }>('SELECT fonte,estado FROM sentinela_saude')).rows;
+  // Fonte sem sucesso há mais de 26 h não está "operacional", mesmo que a última tentativa não tenha registrado falha.
+  const fontes = (await db.query<{ fonte: string; estado: string }>(`SELECT fonte, CASE WHEN estado = 'operacional' AND (ultimo_sucesso IS NULL OR ultimo_sucesso < now() - interval '26 hours') THEN 'degradado' ELSE estado END AS estado,
+     ultimo_sucesso, ultimo_erro FROM sentinela_saude`)).rows;
   const rotina = { ativa: minutos !== null && minutos <= 5 && rot!.ok, minutos, ultima: rot?.criado_em ?? null };
   const semaforo = !rotina.ativa || fontes.some((f) => f.estado === 'indisponivel') ? 'vermelho' : falhas24 || fontes.some((f) => f.estado === 'degradado') ? 'amarelo' : 'verde';
   return {
