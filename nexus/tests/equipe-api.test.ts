@@ -39,3 +39,9 @@ test('gestão não alcança usuário de outro escritório',async()=>{
 test('equipe só com e-mail institucional @nga.adv.br',async()=>{
  const r=await req(ta,'/api/escritorio/gestao-equipe',{nome:'Fora do Domínio',email:'fora@gmail.com',papel:'advogado'});expect(r.status).toBe(400);
 });
+test('administração e integrações não ficam trancadas pela regra do domínio',async()=>{
+ const hash=await hashDaSenha(senha);const m='f0300000-0000-4000-8000-000000000020';
+ await pg.dono.query("INSERT INTO usuarios(id,nome,email,senha_hash) VALUES($1,'Master','master@gmail.com',$2)",[m,hash]);
+ await pg.dono.query("INSERT INTO vinculos(usuario_id,organizacao_id,papel) VALUES($1,$2,'socio_administrador')",[m,org]);
+ const t=await entrar('master@gmail.com');expect((await req(t,'/api/escritorio/gestao-equipe')).status).toBe(200);
+});

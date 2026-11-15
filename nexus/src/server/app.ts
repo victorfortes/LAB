@@ -382,7 +382,9 @@ export function criarApp(ctx: Contexto) {
       // Cliente é quem NÃO tem vínculo com o escritório. Decidido aqui, uma vez.
       const ehCliente = !identidade.organizacoes.some((o) => o.tipo === 'escritorio');
       // Equipe do escritório só entra com e-mail institucional real (@nga.adv.br). Cliente usa o próprio e-mail no portal.
-      if (!ehCliente && !emailDoEscritorio(identidade.email) && rota !== '/api/sessao') {
+      // Exceções: contas de integração (robôs, @nga.local) e a administração (o acesso master nunca pode ficar trancado).
+      const isentoDoDominio = identidade.papeis.some((p) => p === 'integracao' || p === 'socio_administrador');
+      if (!ehCliente && !isentoDoDominio && !emailDoEscritorio(identidade.email) && rota !== '/api/sessao') {
         return erro(`o acesso da equipe exige o e-mail institucional @${DOMINIO_NGA}; peça à administração para corrigir o seu cadastro`, 403);
       }
 
