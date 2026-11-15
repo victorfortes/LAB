@@ -44,6 +44,8 @@ import * as faturaDoc from './fatura_documento.ts';
 import * as onboarding from './onboarding.ts';
 import * as avisos from './avisos.ts';
 import * as slack from './slack.ts';
+import * as pautas from './pautas.ts';
+import { DOMINIO_NGA, emailDoEscritorio } from './slack.ts';
 import * as relMensal from './relatorio_mensal.ts';
 import { rotasFrenteB } from './rotas_frente_b.ts';
 import * as sentinelaGestao from './sentinela_gestao.ts';
@@ -378,6 +380,10 @@ export function criarApp(ctx: Contexto) {
       const permissoes = [...new Set(identidade.papeis.flatMap((p) => PERMISSOES[p]))];
       // Cliente é quem NÃO tem vínculo com o escritório. Decidido aqui, uma vez.
       const ehCliente = !identidade.organizacoes.some((o) => o.tipo === 'escritorio');
+      // Equipe do escritório só entra com e-mail institucional real (@nga.adv.br). Cliente usa o próprio e-mail no portal.
+      if (!ehCliente && !emailDoEscritorio(identidade.email) && rota !== '/api/sessao') {
+        return erro(`o acesso da equipe exige o e-mail institucional @${DOMINIO_NGA}; peça à administração para corrigir o seu cadastro`, 403);
+      }
 
       const trocaPendente = await banco.semContexto((db) => deveTrocarSenha(db, identidade.usuarioId));
       if (rota === '/api/senha' && metodo === 'POST') {
@@ -1191,6 +1197,26 @@ export function criarApp(ctx: Contexto) {
       }
 
       // ------------------------------------------------------------------------- Slack ---
+      // Gestão de pauta por cliente: administração, sócios e coordenação (RLS 071 também barra os demais).
+      if (rota.startsWith('/api/pautas')) {
+        if (ehCliente) return erro('acesso negado', 403);
+        exigir(identidade.papeis, 'modulo.pautas');
+        const U = '([0-9a-f-]{36})';
+        let mp: RegExpExecArray | null;
+        if (rota === '/api/pautas' && metodo === 'GET') return json(await como((db) => pautas.painel(db)));
+        if ((mp = new RegExp(`^/api/pautas/projetos/${U}$`).exec(rota)) && metodo === 'GET') return json(await como((db) => pautas.doCliente(db, mp![1]!)));
+        if ((mp = new RegExp(`^/api/pautas/projetos/${U}/itens$`).exec(rota)) && metodo === 'POST') { const d = await corpoDe(pautas.EsquemaItem); return json(await como((db) => pautas.criarItem(db, mp![1]!, d, identidade)), 201); }
+        if ((mp = new RegExp(`^/api/pautas/projetos/${U}/reunioes$`).exec(rota)) && metodo === 'POST') { const d = await corpoDe(pautas.EsquemaReuniao); return json(await como((db) => pautas.agendarReuniao(db, mp![1]!, d, identidade)), 201); }
+        if ((mp = new RegExp(`^/api/pautas/itens/${U}$`).exec(rota))) {
+          if (metodo === 'PATCH') { const d = await corpoDe(pautas.EsquemaEdicaoItem); return json(await como((db) => pautas.editarItem(db, mp![1]!, d, identidade))); }
+          if (metodo === 'DELETE') return json(await como((db) => pautas.excluirItem(db, mp![1]!, identidade)));
+        }
+        if ((mp = new RegExp(`^/api/pautas/itens/${U}/tarefa$`).exec(rota)) && metodo === 'POST') { exigir(identidade.papeis, 'tarefa.escrever'); const d = await corpoDe(pautas.EsquemaTarefaDoItem); return json(await como((db) => pautas.gerarTarefa(db, mp![1]!, d, identidade)), 201); }
+        if ((mp = new RegExp(`^/api/pautas/reunioes/${U}/encerrar$`).exec(rota)) && metodo === 'POST') { const d = await corpoDe(pautas.EsquemaEncerramento); return json(await como((db) => pautas.encerrarReuniao(db, mp![1]!, d, identidade))); }
+        if ((mp = new RegExp(`^/api/pautas/reunioes/${U}$`).exec(rota)) && metodo === 'DELETE') return json(await como((db) => pautas.cancelarReuniao(db, mp![1]!, identidade)));
+        return erro('rota não encontrada', 404);
+      }
+
       if (rota.startsWith('/api/slack/')) {
         if (ehCliente) return erro('acesso negado', 403);
         const sub = rota.slice('/api/slack'.length); const gere = () => exigir(identidade.papeis, 'admin.gerir');

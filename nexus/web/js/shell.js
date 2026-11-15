@@ -16,6 +16,7 @@ const NAV_EQUIPE = [
   { rota: 'painel', rotulo: 'Painel geral', icone: 'home', permissao: 'modulo.painel' },
   { rota: 'tarefas', rotulo: 'Tarefas', icone: 'check', contagem: 'tarefas', permissao: 'tarefa.ler' },
   { rota: 'calendario', rotulo: 'Calendário', icone: 'calendar', permissao: 'prazo.ler' },
+  { rota: 'pautas', rotulo: 'Pautas', icone: 'board', permissao: 'modulo.pautas' },
   { rota: 'slack', rotulo: 'Slack', icone: 'comment', permissao: 'tarefa.ler' },
   { rota: 'clientes', rotulo: 'Clientes', icone: 'users', permissao: 'modulo.clientes' },
   { rota: 'projetos', rotulo: 'Projetos', icone: 'folder', permissao: 'projeto.ler' },
@@ -50,7 +51,7 @@ const ROTAS = {
     ['painel', 'painel'], ['tarefas', 'tarefas'], ['calendario', 'calendario'],
     ['projetos', 'projetos'], ['projetos/:id', 'projeto'], ['projetos/:id/:aba', 'projeto'],
     ['ferramentas', 'ferramentas'], ['ferramentas/:id', 'ferramentas'], ['controladoria', 'controladoria'],
-    ['relatorios', 'relatorios'], ['equipe', 'equipe'], ['ajustes', 'ajustes'], ['clientes', 'clientes'], ['clientes/:cliente', 'clientes'], ['slack', 'slack'], ['sentinela', 'sentinela'], ['sentinela/:aba', 'sentinela'], ['sentinela/:aba/:id', 'sentinela'], ['financeiro', 'financeiro'], ['financeiro/:aba', 'financeiro'], ['bi-prazos', 'bi_prazos'], ['ajustes/:aba', 'ajustes'], ['entregas', 'entregas'],
+    ['relatorios', 'relatorios'], ['equipe', 'equipe'], ['ajustes', 'ajustes'], ['clientes', 'clientes'], ['clientes/:cliente', 'clientes'], ['slack', 'slack'], ['pautas', 'pautas'], ['pautas/:projeto', 'pautas'], ['sentinela', 'sentinela'], ['sentinela/:aba', 'sentinela'], ['sentinela/:aba/:id', 'sentinela'], ['financeiro', 'financeiro'], ['financeiro/:aba', 'financeiro'], ['bi-prazos', 'bi_prazos'], ['ajustes/:aba', 'ajustes'], ['entregas', 'entregas'],
   ],
   cliente: [
     ['inicio', 'portal', { aba: 'inicio' }], ['andamento', 'portal', { aba: 'andamento' }],

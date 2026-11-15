@@ -258,12 +258,14 @@ describe('pauta, onboarding e avisos do Sentinela', () => {
 
 describe('Slack e relatório mensal', () => {
   const segredo = 'chave-do-cofre-de-teste';
+  let emailSlack = 'adm@nga.adv.br';
   const falso = (registro: { metodo: string; corpo: unknown }[]) => (async (u: string, init?: RequestInit) => {
     const metodo = String(u).replace('https://slack.com/api/', '').split('?')[0]!;
     registro.push({ metodo, corpo: init?.body ? (typeof init.body === 'string' && init.body.startsWith('{') ? JSON.parse(init.body) : String(init.body)) : null });
     if (metodo === 'oauth.v2.access') return Response.json({ ok: true, token_type: 'bot', access_token: 'xoxb-bot', team: { id: 'T0B6U2U040K', name: 'NGA' }, authed_user: { id: 'UADV', access_token: 'xoxp-user', scope: 'chat:write' } });
     if (metodo === 'users.lookupByEmail') return Response.json({ ok: true, user: { id: 'UFIN' } });
-    if (metodo === 'conversations.list') return Response.json({ ok: true, channels: [{ id: 'C111111', name: 'geral', is_member: true }, { id: 'D222222', is_im: true, user: 'UFIN' }] });
+    if (metodo === 'users.info') return Response.json({ ok: true, user: { id: 'UADV', profile: { email: emailSlack } } });
+    if (metodo === 'users.conversations' || metodo === 'conversations.list') return Response.json({ ok: true, channels: [{ id: 'C111111', name: 'geral', is_member: true }, { id: 'D222222', is_im: true, user: 'UFIN' }] });
     if (metodo === 'users.list') return Response.json({ ok: true, members: [{ id: 'UFIN', real_name: 'Financeiro' }, { id: 'UADV', real_name: 'Advogado' }] });
     if (metodo === 'conversations.history') return Response.json({ ok: true, messages: [{ ts: '1700000000.1', user: 'UFIN', text: 'Olá <@UADV>' }] });
     return Response.json({ ok: true, ts: '1.2' });
@@ -279,7 +281,12 @@ describe('Slack e relatório mensal', () => {
     const estado = new URL(r.corpo.url).searchParams.get('state')!;
     const reg: { metodo: string; corpo: unknown }[] = [];
     const adm = { usuarioId: U(1), nome: 'adm', email: 'adm@nga.adv.br', papeis: ['socio_administrador'] as never, organizacoes: [{ id: NGA, nome: 'NGA', tipo: 'escritorio', papel: 'socio_administrador' as never }] };
-    const ok = await banco.comoUsuario(U(1), (db) => slackSrv.concluir(db, { code: 'codigo-123', state: estado }, segredo, adm, falso(reg)));
+    // Conta do Slack com outro e-mail: recusada (o vínculo é pelo e-mail @nga.adv.br do LAB).
+    emailSlack = 'outra@gmail.com';
+    await expect(banco.comoUsuario(U(1), (db) => slackSrv.concluir(db, { code: 'codigo-123', state: estado }, segredo, adm, falso(reg)))).rejects.toThrow(/só contas @nga.adv.br/);
+    emailSlack = 'adm@nga.adv.br';
+    const estado2 = new URL((await api('adm@nga.adv.br', 'GET', '/api/slack/conectar?origem=https%3A%2F%2Fnga-lab-launchpad.lovable.app')).corpo.url).searchParams.get('state')!;
+    const ok = await banco.comoUsuario(U(1), (db) => slackSrv.concluir(db, { code: 'codigo-123', state: estado2 }, segredo, adm, falso(reg)));
     expect(ok).toMatchObject({ ok: true, bot: true });
     const conv = await banco.comoUsuario(U(1), (db) => slackSrv.conversas(db, adm, segredo, falso(reg)));
     expect(conv.conversas.map((x: { nome: string }) => x.nome)).toEqual(['geral', 'Financeiro']);

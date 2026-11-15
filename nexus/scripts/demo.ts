@@ -119,6 +119,25 @@ for (const [i, valor, natureza, bem] of creditos) {
      VALUES ($1,$2,$3,$4,$5,$6)`, [NGA, projeto, ids[i], valor, natureza, bem]);
 }
 
+// Recuperação extrajudicial fictícia, para a aba QGC → Adesões ao PRE.
+{
+  const re = (await dono.query<{ id: string }>(
+    `INSERT INTO projetos (organizacao_id,nome,tipo,prioridade,iniciado_em) VALUES ($1,'RE Comércio Demonstração','recuperacao_extrajudicial',2,'2026-10-01') RETURNING id`, [NGA])).rows[0]!.id;
+  await dono.query(`INSERT INTO projeto_equipe (projeto_id,organizacao_id,usuario_id,papel,desde) VALUES ($1,$2,$3,'lider','2026-10-01')`, [re, NGA, SOCIO]);
+  const RE: Array<[string, string, string, string | null]> = [
+    ['Banco Alfa (demo)', '2.400.000,00', 'garantia_real', 'aderiu'], ['Banco Beta (demo)', '1.100.000,00', 'garantia_real', 'negociando'],
+    ['Fornecedor Gama (demo)', '780.000,00', 'quirografario', 'aderiu'], ['Fornecedor Delta (demo)', '540.000,00', 'quirografario', 'negociando'],
+    ['Fornecedor Épsilon (demo)', '410.000,00', 'quirografario', null], ['Distribuidora Zeta ME (demo)', '120.000,00', 'me_epp', 'recusou'],
+    ['Receita (demo)', '900.000,00', 'tributario', null],
+  ];
+  for (const [nome, valor, natureza, situacao] of RE) {
+    const cr = (await dono.query<{ id: string }>(`INSERT INTO credores (organizacao_id,projeto_id,nome,me_epp) VALUES ($1,$2,$3,$4) RETURNING id`, [NGA, re, nome, natureza === 'me_epp'])).rows[0]!.id;
+    const c = (await dono.query<{ id: string }>(`INSERT INTO creditos (organizacao_id,projeto_id,credor_id,valor,natureza) VALUES ($1,$2,$3,$4,$5) RETURNING id`, [NGA, re, cr, parseReais(valor).toString(), natureza])).rows[0]!.id;
+    if (situacao) await dono.query(`INSERT INTO pre_adesoes (credito_id,organizacao_id,projeto_id,situacao,assinado_em) VALUES ($1,$2,$3,$4,CASE WHEN $4='aderiu' THEN DATE '2026-10-20' END)`, [c, NGA, re, situacao]);
+  }
+  await dono.query(`INSERT INTO pre_planos (projeto_id,organizacao_id,data_pedido) VALUES ($1,$2,'2026-10-15')`, [re, NGA]);
+}
+
 // ---- portal do cliente ----
 const CLIENTE_ORG = '22222222-2222-2222-2222-222222222222';
 const DIRETOR = 'aaaaaaaa-0000-0000-0000-000000000002';

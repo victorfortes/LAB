@@ -10,6 +10,7 @@
 import { secaoRelatorioMensal } from './relatorio_mensal.js';
 import { secaoAvisosEquipe } from './avisos_portal.js';
 import { abaOnboarding, abrirPainelOnboarding } from './projeto_onboarding.js';
+import { RECURSOS } from '../recursos.js';
 import { abaReunioesEAtas } from './projeto_reunioes.js';
 import { abaAndamentos } from './projeto_andamentos.js';
 import { api } from '../api.js';
@@ -33,7 +34,7 @@ export { novoProcessoSolto } from './projeto_extra.js';
 
 const ABAS = [
   { id: 'visao', rotulo: 'Visão geral', icone: 'home' },
-  { id: 'onboarding', rotulo: 'Onboarding', icone: 'flag', perm: 'projeto.ler' },
+  { id: 'onboarding', rotulo: 'Onboarding', icone: 'flag', perm: 'projeto.ler', recurso: 'onboarding' },
   { id: 'diagnostico', rotulo: 'Diagnóstico', icone: 'sparkle', perm: 'analise.executar' },
   { id: 'tarefas', rotulo: 'Tarefas', icone: 'check', perm: 'tarefa.ler', n: (c) => c.tarefas_abertas },
   { id: 'negociacoes', rotulo: 'Negociações', icone: 'target', perm: 'negociacao.ler' },
@@ -61,7 +62,7 @@ export default async function projeto({ id, aba }) {
   ]);
   h.contagens.tarefas_abertas = tarefasAbertas.resumo?.abertas ?? 0;
   const ctx = { id, h, catalogo, aba: null, ficha: 0 };
-  const abasVisiveis = () => ABAS.filter((a) => !a.perm || pode(a.perm));
+  const abasVisiveis = () => ABAS.filter((a) => (!a.recurso || RECURSOS[a.recurso]) && (!a.perm || pode(a.perm)));
   const inicial = abasVisiveis().some((a) => a.id === aba) ? aba : 'visao';
 
   const cliente = h.empresas.find((e) => e.papel === 'recuperanda') ?? h.empresas[0];
@@ -125,9 +126,11 @@ export default async function projeto({ id, aba }) {
       ctx.recarregar = async () => { await atualizarBadges(ctx); await desenhar(ctx); };
       ctx.irParaAba = (a) => abrirAba(ctx, a);
       // Botão fixo do painel lateral de onboarding, presente em todas as abas do projeto.
-      const fab = document.createElement('button'); fab.type = 'button'; fab.className = 'onb-fab'; fab.innerHTML = `${icone('flag')}<span>Onboarding</span>`;
-      fab.addEventListener('click', () => abrirPainelOnboarding(ctx)); document.body.appendChild(fab);
-      aoSair(() => { fab.remove(); document.querySelector('.onb-gaveta')?.remove(); });
+      if (RECURSOS.onboarding) {
+        const fab = document.createElement('button'); fab.type = 'button'; fab.className = 'onb-fab'; fab.innerHTML = `${icone('flag')}<span>Onboarding</span>`;
+        fab.addEventListener('click', () => abrirPainelOnboarding(ctx)); document.body.appendChild(fab);
+        aoSair(() => { fab.remove(); document.querySelector('.onb-gaveta')?.remove(); });
+      }
       abrirAba(ctx, inicial, true);
       ligarArvore(ctx, $('#arvore-fase', raiz)).catch(console.error);
     },
@@ -284,7 +287,7 @@ async function abaVisao(ctx) {
         <section class="card glass up nx-whats"><span class="nx-whats__ico">${icone('comment')}</span><div class="grow"><h2 class="card__title">Grupo do WhatsApp do cliente</h2>
           ${h.whatsappGrupoUrl ? html`<a class="nx-whats__link" href="${h.whatsappGrupoUrl}" target="_blank" rel="noopener noreferrer">${String(h.whatsappGrupoUrl).replace(/^https?:\/\//, '')} ↗</a>` : html`<p class="dica">Sem link. Ele aparece no início do portal do cliente assim que for informado.</p>`}
           ${editaProjeto ? html`<p><button type="button" class="btn btn--ghost btn--sm" data-whats-projeto>${h.whatsappGrupoUrl ? 'Trocar link' : 'Informar link'}</button></p>` : ''}</div></section>
-        <section class="card glass up"><header class="card__head"><div><h2 class="card__title">Onboarding e Drive</h2><p class="card__sub">Kickoff com Meet e pastas em CLIENTES REESTRUTURAÇÃO ou CLIENTES CIVEL.</p></div></header>
+        <section class="card glass up"><header class="card__head"><div><h2 class="card__title">Kickoff e Drive</h2><p class="card__sub">Kickoff com Meet e pastas em CLIENTES REESTRUTURAÇÃO ou CLIENTES CIVEL.</p></div></header>
           <div class="project-tools">${pode('tarefa.escrever') ? html`<button class="btn btn--accent" data-kickoff>Agendar kickoff</button>` : ''}<button class="btn btn--ghost" data-drive>Preparar pastas</button><button class="btn btn--ghost" data-drive-sync>Sincronizar documentos</button></div><p class="dica" data-drive-estado></p>
         </section>
       </div>`,

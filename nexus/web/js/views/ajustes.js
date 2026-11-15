@@ -12,9 +12,10 @@ import { estado, pode, ROTULO_DO_PAPEL } from '../estado.js';
 import { dataBR, esc, guardado, html, icone, ouvir, raw, relativo } from '../util.js';
 import { cabecalho, confirmar, erroDe, formulario, modal, toast, vazio } from '../ui.js';
 import { navegar } from '../shell.js';
+import { ajustesPlaybook } from './ajustes_playbook.js';
 
 const ESCOPOS = { 'processos': ['processos'], 'prazos': ['prazos'], 'documentos': ['documentos'], 'processos+documentos': ['processos', 'documentos'], 'todos': ['processos', 'prazos', 'documentos'], 'automação do Astrea (BI de Prazos + publicações)': ['agenda', 'publicacoes'] };
-const ABAS = [['geral', 'Geral'], ['acessos', 'Acessos'], ['fluxos', 'Fluxos'], ['tempo', 'Linhas do tempo'], ['automacoes', 'Automações'], ['slack', 'Slack'], ['credenciais', 'Credenciais']];
+const ABAS = [['geral', 'Geral'], ['acessos', 'Acessos'], ['playbook', 'Playbook'], ['fluxos', 'Fluxos'], ['tempo', 'Linhas do tempo'], ['automacoes', 'Automações'], ['slack', 'Slack'], ['credenciais', 'Credenciais']];
 const GATILHO = { projeto_criado: 'Quando um projeto for criado', fase_iniciada: 'Quando uma fase começar', documento_cliente_enviado: 'Quando o cliente enviar um documento', fatura_criada: 'Quando uma fatura for emitida', fatura_paga: 'Quando uma fatura for paga' };
 let abertoFluxo = null; let abertoTempo = null;
 
@@ -97,7 +98,7 @@ async function credenciais() {
 export default async function ajustes({ aba = 'geral' } = {}) {
   await concluirGoogle();
   if (!ABAS.some(([id]) => id === aba)) aba = 'geral';
-  const corpo = await ({ geral, acessos, fluxos, tempo, automacoes, credenciais, slack: ajustesSlack }[aba])();
+  const corpo = await ({ geral, acessos, fluxos, tempo, automacoes, credenciais, slack: ajustesSlack, playbook: () => ajustesPlaybook(() => navegar()) }[aba])();
   return {
     titulo: 'Ajustes',
     html: html`${cabecalho({ titulo: 'Ajustes', sub: 'Conta, acessos, fluxos, linhas do tempo e automações do escritório' })}

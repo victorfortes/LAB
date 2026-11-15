@@ -6,6 +6,7 @@
  * do banco (§6.1); esta tela apenas não finge que o resto existe.
  */
 import { avisosDoCliente, onboardingDoCliente } from './avisos_portal.js';
+import { RECURSOS } from '../recursos.js';
 import { api } from '../api.js';
 import { imprimirFatura, verFatura } from '../fatura_modelo.js';
 import { estado, pode } from '../estado.js';
@@ -39,7 +40,7 @@ export default async function portal({ aba }) {
   }
   const corpo = await ABAS[aba](proj);
   // Avisos do escritório (ex.: nova ação encontrada pelo Sentinela) abrem o início do portal.
-  if (aba === 'inicio') { const [av, onb] = await Promise.all([avisosDoCliente(), onboardingDoCliente(proj.projeto_id)]); if (onb) { corpo.html = html`${onb}<div class="mt"></div>${corpo.html}`; } if (av.html) { const d0 = corpo.depois; corpo.html = html`${av.html}<div class="mt"></div>${corpo.html}`; corpo.depois = (el, pj) => { av.depois(el); d0?.(el, pj); }; } }
+  if (aba === 'inicio') { const [av, onb] = await Promise.all([avisosDoCliente(), RECURSOS.onboarding ? onboardingDoCliente(proj.projeto_id) : null]); if (onb) { corpo.html = html`${onb}<div class="mt"></div>${corpo.html}`; } if (av.html) { const d0 = corpo.depois; corpo.html = html`${av.html}<div class="mt"></div>${corpo.html}`; corpo.depois = (el, pj) => { av.depois(el); d0?.(el, pj); }; } }
   const cab = aba === 'inicio' ? '' : cabecalho({ titulo: TITULOS[aba], sub: `${SUB[aba] ?? ''}`, resumo: corpo.resumo ?? [] });
   return {
     titulo: TITULOS[aba],

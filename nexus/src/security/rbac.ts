@@ -71,6 +71,8 @@ export type Permissao =
    */
   | 'modulo.painel' | 'modulo.clientes' | 'modulo.equipe' | 'modulo.relatorios'
   | 'modulo.ferramentas' | 'modulo.entregas'
+  /** Gestão de pauta por cliente: só administração, sócios e coordenação (visão geral). */
+  | 'modulo.pautas'
   /** BI de Prazos (prazos, eventos e audiências do escritório). Inclui a TV. */
   | 'modulo.bi_prazos'
   /** Dar e administrar acesso do CLIENTE ao portal. Chave de porta, como `integracao.gerir`. */
@@ -103,7 +105,7 @@ const ADVOGADO: Permissao[] = [
 /** Tudo o que a sócia, o sócio e a coordenação veem do escritório, de ponta a ponta. */
 const GESTAO: Permissao[] = [
   ...ADVOGADO, 'relatorio.gerar', 'modulo.clientes', 'modulo.equipe', 'modulo.relatorios',
-  'portal.acessos', 'fatura.gerir', 'config.gerir',
+  'portal.acessos', 'fatura.gerir', 'config.gerir', 'modulo.pautas',
 ];
 
 /**

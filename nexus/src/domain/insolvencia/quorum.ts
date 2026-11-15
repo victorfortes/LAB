@@ -132,10 +132,13 @@ export interface ResultadoCramDown {
   readonly cabivel: boolean;
   /** I — mais da metade do valor de TODOS os créditos presentes, sem distinção de classe. */
   readonly incisoI: { readonly atendido: boolean; readonly valorSim: Centavos; readonly valorPresente: Centavos };
-  /** II — aprovação de 2 classes; ou de 1 delas, se só houver 2 classes votantes. */
+  /** II — aprovação de 3 classes; de 2, se só houver 3 votantes; de 1, se só houver 2 (redação da Lei 14.112/2020). */
   readonly incisoII: { readonly atendido: boolean; readonly classesAprovadas: number; readonly classesVotantes: number; readonly exigidas: number };
-  /** III — na classe que rejeitou, voto favorável de mais de 1/3 dos credores. */
-  readonly incisoIII: { readonly atendido: boolean; readonly classesRejeitantes: readonly { classe: ClasseCredor; proporcao: number; atendido: boolean }[] };
+  /**
+   * III — na classe que rejeitou, voto favorável de mais de 1/3 dos credores, "computados na forma dos §§ 1º e 2º
+   * do art. 45": por cabeça nas classes I e IV; por cabeça E por valor nas classes II e III.
+   */
+  readonly incisoIII: { readonly atendido: boolean; readonly classesRejeitantes: readonly { classe: ClasseCredor; proporcao: number; proporcaoValor: number | null; atendido: boolean }[] };
   readonly ressalvas: readonly string[];
 }
 
@@ -178,10 +181,10 @@ export function apurarAssembleia(votos: readonly VotoLancado[]): ApuracaoDaAssem
     valorPresente,
   };
 
-  // Art. 58, § 1º, II — duas classes; ou uma, se só houver duas votantes.
+  // Art. 58, § 1º, II (Lei 14.112/2020) — três classes; ou duas, se só houver três votantes; ou uma, se só houver duas.
   const classesVotantes = classes.length;
   const classesAprovadas = classes.filter((c) => c.aprovada).length;
-  const exigidas = classesVotantes <= 2 ? 1 : 2;
+  const exigidas = classesVotantes >= 4 ? 3 : classesVotantes === 3 ? 2 : 1;
   const incisoII = {
     atendido: classesVotantes > 0 && classesAprovadas >= exigidas,
     classesAprovadas,
@@ -191,12 +194,17 @@ export function apurarAssembleia(votos: readonly VotoLancado[]): ApuracaoDaAssem
 
   // Art. 58, § 1º, III — mais de 1/3 dos credores na classe que rejeitou.
   const rejeitantes = classes.filter((c) => !c.aprovada);
-  const classesRejeitantes = rejeitantes.map((c) => ({
-    classe: c.classe,
-    proporcao: c.proporcaoSimPorCabeca,
+  const classesRejeitantes = rejeitantes.map((c) => {
     // "mais de 1/3": estritamente maior. Em inteiros, 3*sim > total.
-    atendido: c.sim.credores * 3 > c.presentes.credores,
-  }));
+    const porCabeca = c.sim.credores * 3 > c.presentes.credores;
+    const porValor = c.criterio === 'cabeca' ? null : c.presentes.valor > 0n && c.sim.valor * 3n > c.presentes.valor;
+    return {
+      classe: c.classe,
+      proporcao: c.proporcaoSimPorCabeca,
+      proporcaoValor: c.criterio === 'cabeca' || c.presentes.valor === 0n ? null : Number((c.sim.valor * 10000n) / c.presentes.valor) / 10000,
+      atendido: porCabeca && porValor !== false,
+    };
+  });
   const incisoIII = {
     atendido: classesRejeitantes.every((r) => r.atendido),
     classesRejeitantes,

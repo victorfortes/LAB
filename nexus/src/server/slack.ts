@@ -18,19 +18,33 @@ import { NaoEncontrado, PedidoInvalido } from './erros.ts';
 import { cifrar, decifrar } from './cofre.ts';
 
 export const ESCOPOS_BOT = ['chat:write', 'chat:write.public', 'users:read', 'users:read.email', 'channels:read', 'groups:read', 'im:write'];
-export const ESCOPOS_USUARIO = ['channels:read', 'channels:history', 'groups:read', 'groups:history', 'im:read', 'im:history', 'mpim:read', 'mpim:history', 'users:read', 'chat:write'];
+export const ESCOPOS_USUARIO = ['channels:read', 'channels:history', 'groups:read', 'groups:history', 'im:read', 'im:history', 'mpim:read', 'mpim:history', 'users:read', 'users:read.email', 'chat:write'];
+/** Domínio institucional: só quem tem e-mail real do escritório usa o LAB e o Slack por ele. */
+export const DOMINIO_NGA = 'nga.adv.br';
+export const emailDoEscritorio = (email: string | null | undefined) => !!email && email.trim().toLowerCase().endsWith(`@${DOMINIO_NGA}`);
 export const EQUIPE_NGA = 'T0B6U2U040K';
 
 type Buscar = typeof fetch;
 async function slackApi(token: string, metodo: string, params: Record<string, string | number | boolean | undefined> = {}, buscar: Buscar = fetch, post = false) {
   const limpo = Object.fromEntries(Object.entries(params).filter(([, v]) => v !== undefined).map(([k, v]) => [k, String(v)]));
-  const r = await buscar(`https://slack.com/api/${metodo}${post ? '' : `?${new URLSearchParams(limpo)}`}`, {
-    method: post ? 'POST' : 'GET', signal: AbortSignal.timeout(15_000),
-    headers: { authorization: `Bearer ${token}`, ...(post ? { 'content-type': 'application/json; charset=utf-8' } : {}) },
-    ...(post ? { body: JSON.stringify(params) } : {}),
-  });
+  let r: Response;
+  try {
+    r = await buscar(`https://slack.com/api/${metodo}${post ? '' : `?${new URLSearchParams(limpo)}`}`, {
+      method: post ? 'POST' : 'GET', signal: AbortSignal.timeout(15_000),
+      headers: { authorization: `Bearer ${token}`, ...(post ? { 'content-type': 'application/json; charset=utf-8' } : {}) },
+      ...(post ? { body: JSON.stringify(params) } : {}),
+    });
+  } catch (e) {
+    // Rede ou demora do Slack: resposta clara em vez de "erro interno".
+    throw new PedidoInvalido(`o Slack não respondeu a tempo (${metodo}); tente de novo em instantes`);
+  }
+  if (r.status === 429) throw new PedidoInvalido(`o Slack pediu uma pausa (limite de chamadas); tente de novo em ${r.headers.get('retry-after') ?? '30'} s`);
   const d = await r.json().catch(() => ({ ok: false, error: `HTTP ${r.status}` })) as Record<string, any>;
-  if (!d.ok) throw new PedidoInvalido(`Slack recusou ${metodo}: ${d.error ?? 'erro desconhecido'}`);
+  if (!d.ok) {
+    if (d.error === 'missing_scope') throw new PedidoInvalido('a sua conexão com o Slack é antiga e não tem as permissões novas; clique em Desconectar e conecte de novo');
+    if (d.error === 'invalid_auth' || d.error === 'token_revoked' || d.error === 'account_inactive') throw new PedidoInvalido('a conexão com o Slack expirou; conecte de novo');
+    throw new PedidoInvalido(`Slack recusou ${metodo}: ${d.error ?? 'erro desconhecido'}`);
+  }
   return d;
 }
 
@@ -90,6 +104,14 @@ export async function concluir(db: PoolClient, d: z.infer<typeof EsquemaConclusa
   if (!t.ok) throw new PedidoInvalido(`o Slack recusou a conexão: ${t.error}`);
   const user = t.authed_user ?? {};
   if (!user.access_token) throw new PedidoInvalido('o Slack não devolveu o token da sua conta');
+  if (t.team?.id && t.team.id !== EQUIPE_NGA) throw new PedidoInvalido('esta conta não é do Slack da NGA; entre com o workspace do escritório');
+  // Vínculo pelo e-mail: a conta do Slack tem de ser a MESMA pessoa do LAB (mesmo e-mail @nga.adv.br).
+  const { rows: [eu] } = await db.query<{ email: string }>('SELECT email FROM usuarios WHERE id = $1', [i.usuarioId]);
+  let emailSlack: string | null = null;
+  try { emailSlack = String((await slackApi(user.access_token, 'users.info', { user: user.id }, buscar)).user?.profile?.email ?? '').toLowerCase() || null; } catch { emailSlack = null; }
+  if (!emailSlack) throw new PedidoInvalido('o Slack não informou o e-mail da conta; conecte de novo e autorize a leitura do e-mail');
+  if (!emailDoEscritorio(emailSlack)) throw new PedidoInvalido(`a conta do Slack usa ${emailSlack}; só contas @${DOMINIO_NGA} podem ser vinculadas`);
+  if (!eu || emailSlack !== eu.email.toLowerCase()) throw new PedidoInvalido(`a conta do Slack (${emailSlack}) não é a mesma do seu acesso ao LAB (${eu?.email ?? '?'}); entre no Slack com o seu e-mail @${DOMINIO_NGA}`);
   await db.query(`INSERT INTO slack_usuarios (usuario_id, organizacao_id, slack_user_id, team_id, team_nome, token, escopos) VALUES ($1,$2,$3,$4,$5,$6,$7)
     ON CONFLICT (usuario_id) DO UPDATE SET slack_user_id = EXCLUDED.slack_user_id, team_id = EXCLUDED.team_id, team_nome = EXCLUDED.team_nome, token = EXCLUDED.token, escopos = EXCLUDED.escopos, conectado_em = now()`,
     [i.usuarioId, e.organizacao_id, user.id, t.team?.id ?? '', t.team?.name ?? null, cifrar(user.access_token, segredo), user.scope ?? null]);
@@ -114,18 +136,46 @@ async function meuToken(db: PoolClient, i: Identidade, segredo: string) {
   return { token: decifrar(u.token, segredo), eu: u.slack_user_id };
 }
 
+// users.list é Tier 2 (cerca de 20 chamadas/min): guarda por 10 min para não estourar o limite e virar erro.
+const cachePessoas = new Map<string, { em: number; pessoas: Map<string, { nome: string; foto?: string }> }>();
+async function pessoasDoSlack(token: string, chave: string, buscar: Buscar) {
+  const c = cachePessoas.get(chave);
+  if (c && Date.now() - c.em < 600_000) return c.pessoas;
+  const pessoas = new Map<string, { nome: string; foto?: string }>();
+  let cursor: string | undefined;
+  for (let pagina = 0; pagina < 5; pagina++) {
+    const r = await slackApi(token, 'users.list', { limit: 200, cursor }, buscar);
+    for (const m of r.members ?? []) {
+      if (m.deleted) continue;
+      pessoas.set(m.id, { nome: m.profile?.display_name || m.real_name || m.name, foto: m.profile?.image_72 || m.profile?.image_48 || undefined });
+    }
+    cursor = r.response_metadata?.next_cursor || undefined;
+    if (!cursor) break;
+  }
+  cachePessoas.set(chave, { em: Date.now(), pessoas });
+  return pessoas;
+}
+
+/**
+ * Só as conversas de que a PESSOA participa (users.conversations), como no próprio Slack.
+ * conversations.list traz todos os canais públicos do workspace, inclusive os que ela nunca entrou.
+ */
 export async function conversas(db: PoolClient, i: Identidade, segredo: string, buscar: Buscar = fetch) {
   const { token, eu } = await meuToken(db, i, segredo);
-  const [lista, pessoas] = await Promise.all([
-    slackApi(token, 'conversations.list', { types: 'public_channel,private_channel,im,mpim', exclude_archived: true, limit: 300 }, buscar),
-    slackApi(token, 'users.list', { limit: 400 }, buscar),
-  ]);
-  const nomes = new Map<string, { nome: string; foto?: string }>((pessoas.members ?? []).map((m: any) => [m.id, { nome: m.profile?.display_name || m.real_name || m.name, foto: m.profile?.image_48 }]));
-  const canais = (lista.channels ?? []).filter((c: any) => !c.is_im || nomes.get(c.user)).map((c: any) => ({
-    id: c.id, tipo: c.is_im ? 'dm' : c.is_mpim ? 'grupo' : c.is_private ? 'privado' : 'canal', membro: c.is_member !== false,
+  const lista: any[] = [];
+  let cursor: string | undefined;
+  for (let pagina = 0; pagina < 5; pagina++) {
+    const r = await slackApi(token, 'users.conversations', { types: 'public_channel,private_channel,im,mpim', exclude_archived: true, limit: 200, cursor }, buscar);
+    lista.push(...(r.channels ?? []));
+    cursor = r.response_metadata?.next_cursor || undefined;
+    if (!cursor) break;
+  }
+  const nomes = await pessoasDoSlack(token, eu, buscar);
+  const canais = lista.filter((c: any) => !c.is_im || nomes.get(c.user)).map((c: any) => ({
+    id: c.id, tipo: c.is_im ? 'dm' : c.is_mpim ? 'grupo' : c.is_private ? 'privado' : 'canal', membro: true,
     nome: c.is_im ? nomes.get(c.user)?.nome ?? 'Mensagem direta' : c.is_mpim ? String(c.purpose?.value || c.name).replace(/^mpdm-|--\d+$/g, '').replace(/--/g, ', ') : c.name,
     foto: c.is_im ? nomes.get(c.user)?.foto ?? null : null, atualizado: Number(c.updated ?? 0),
-  })).filter((c: { membro: boolean; tipo: string }) => c.membro || c.tipo === 'canal');
+  }));
   return { eu, conversas: canais, pessoas: Object.fromEntries(nomes) };
 }
 

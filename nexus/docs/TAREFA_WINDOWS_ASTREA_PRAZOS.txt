@@ -1,0 +1,85 @@
+Rodar a extração automática de prazos, eventos e audiências do Astrea, atualizar o banco de dados do painel público e republicar a página do painel com os dados embutidos, tudo sem intervenção humana. Siga exatamente este fluxo.
+
+CONTEXTO
+Victor de Oliveira Fortes (victor@nga.adv.br) é advogado na NGA Advogados. Este é o computador de trabalho dele, Windows. O Astrea (https://astrea.net.br) não tem API pública, então a extração é feita por automação de navegador. O painel está em https://claude.ai/artifact/96urJR9w2tU1dp76yGvEqE e tem banco de dados próprio, acessível pela ferramenta ArtifactData. O banco só entrega dados ao vivo a visitantes logados. Visitantes deslogados (TV do escritório, aba anônima) veem apenas o "seed" fixado na última versão publicada do HTML. Por isso, depois de gravar no banco, é OBRIGATÓRIO republicar a página com os dados novos embutidos (Passo 5).
+
+FORMATO DO BANCO (formato 2, em partes). O limite do banco é 256 KiB por documento, então as linhas ficam divididas:
+- Coleção "prazos_rows", documentos s000, s001, s002... Cada um é {"idx": <número>, "stamp": <updatedAt>, "rows": [até 200 linhas]}.
+- Documento "prazos/base" (índice): {"format": 2, "shards": ["s000","s001",...], "total": <nº de linhas>, "updatedAt": <ISO UTC>, "nota": <texto>}. Ele NÃO contém rows.
+- O painel só mostra os dados quando TODAS as partes listadas no índice existem com stamp igual ao updatedAt do índice. Por isso toda parte regravada leva o mesmo stamp e o índice é gravado por último.
+- Cada linha tem os campos: caso, conclusao, data, juizo, numero, resp, status, tipo, titulo. O campo tipo é "Prazo", "Evento" ou "Audiência". Linhas de evento e de audiência têm também "hora"; linhas de prazo não têm. O painel trata Evento e Audiência juntos, na aba Eventos.
+- Datas são sempre texto "DD/MM/AAAA". "conclusao" é texto no formato "DD/MM/AAAA - HH:MM" (ou vazio). "hora" é texto "HH:MM".
+
+FERRAMENTAS
+Use o Chrome real do Victor pela extensão Claude-in-Chrome (mcp__claude-in-chrome__*), NUNCA o navegador embutido; o Chrome já tem a sessão do Astrea. NUNCA digite senha; se qualquer tela pedir login, PARE e envie push ao usuário. Use ArtifactData para ler e escrever no banco e a ferramenta Artifact (actions "read" e "publish") para a página.
+
+PASSO 1: Abrir o Astrea e configurar filtros (a ordem importa)
+1. Abra uma aba nova em https://astrea.net.br/#/main/calendar. Se aparecer login, PARE e envie push.
+2. Em "MINHA RESPONSABILIDADE", clique em "marcar todas" (lado "PESSOAS") e "APLICAR".
+3. No filtro de tipo/status ("Todas a concluir"): deixe marcados SOMENTE os tipos "Prazos", "Eventos" e "Audiências" (desmarque "Tarefas" e qualquer outro) e selecione o Status "Todas" (nunca "Em andamento", senão os concluídos não vêm). Clique em "APLICAR". Este passo é crítico.
+4. No dropdown de período, selecione "Este mês".
+5. Confirme (screenshot ou get_page_text) que o período é o mês atual, que todas as pessoas estão marcadas, que os únicos tipos marcados são Prazos, Eventos e Audiências e que o status é "Todas". Corrija antes de seguir se algo estiver errado.
+6. A extração cobre TRÊS períodos a cada execução: "Mês anterior", "Este mês" e "Próximo mês" (se algum desses nomes não existir exatamente assim, use a opção equivalente, conferindo as opções com get_page_text). Anote em DD/MM/AAAA a data_inicio (primeiro dia de "Mês anterior") e a data_fim (último dia de "Próximo mês"). O período "Mês anterior" existe porque prazos cujo vencimento cai num mês e que só são concluídos no Astrea já no mês seguinte nunca eram revisitados pela extração de dois períodos, ficando com status "Em andamento" (e aparecendo como "Atrasado" no painel) mesmo depois de concluídos de fato; incluir o mês anterior garante que o status desses prazos seja atualizado na primeira execução após a conclusão.
+
+PASSO 2: Exportar (uma vez para cada período; primeiro "Mês anterior", depois "Este mês", depois "Próximo mês")
+1. Clique no menu de 3 pontos no canto superior direito da Agenda e em "Exportar planilha". Abre uma nova aba #/report/calendar/[...].
+2. O relatório pode levar de segundos a vários minutos. Espere em incrementos de 10 a 15 segundos, checando com get_page_text se terminou (lista de compromissos ou "Não há eventos no período selecionado!").
+3. Espere no máximo 10 minutos por período. Nesse tempo, confira periodicamente C:\Users\Victor\Downloads com device_list_dir procurando um novo "Agenda*.xlsx" (mtimeMs posterior ao início desta execução).
+4. Se passar de 10 minutos sem arquivo, ou o relatório travar, ou disser "Não há eventos" no período "Este mês" quando claramente deveria haver dados: PARE, feche as abas extras e envie push explicando. No máximo 2 tentativas por período.
+5. Se o período "Próximo mês" disser "Não há eventos" de forma legítima (nada lançado ainda), siga em frente sem ele e passe a considerar data_fim como o último dia de "Este mês" (isso restringe a limpeza do Passo 4). Se o período "Mês anterior" disser "Não há eventos" (também pode ser legítimo, se tudo daquele mês já foi limpo), siga em frente sem ele e passe a considerar data_inicio como o primeiro dia de "Este mês".
+
+PASSO 3: Processar e validar (sem mesclar planilhas, só ler, unir e filtrar)
+1. Identifique os .xlsx recém-baixados (os "Agenda*.xlsx" mais recentes com mtimeMs posterior ao início da execução, um por período) e estagie com device_stage_files.
+2. Com Python (openpyxl) via Bash, leia cada arquivo exportado (até três, um por período: "Mês anterior", "Este mês", "Próximo mês"; 15 colunas: Data, Hora, Tipo, Responsável, Título, Título do processo/caso/atendimento, Número do processo, Juízo, Observação da atividade, Etiquetas, Envolvidos, Status, Prioridade, Data de criação, Data de conclusão) e una as linhas de todos os arquivos numa lista só (concatenação simples).
+3. NORMALIZE cada linha antes de qualquer comparação: todo texto com strip; Data como texto "DD/MM/AAAA" (se o openpyxl devolver datetime, formate com strftime("%d/%m/%Y")); Hora como texto "HH:MM" (se vier time ou datetime, formate; se vier vazia, ""); Número do processo vazio ou None vira ""; Data de conclusão como texto "DD/MM/AAAA - HH:MM" no mesmo formato já usado no banco (se vier datetime, formate assim; se vier vazia, "").
+4. Classifique pelo Tipo, comparando sem acento e em minúsculas: "prazo" é prazo; "evento" e "audiencia" são eventos. Grave no campo tipo exatamente "Prazo", "Evento" ou "Audiência". Ignore qualquer outro tipo (por exemplo Tarefa), mas liste na notificação os tipos distintos que apareceram, para sabermos se o filtro do Passo 1 falhou.
+5. VALIDAÇÃO OBRIGATÓRIA: no exportado de "Este mês" tem de existir pelo menos um PRAZO com Status "Concluído". Se nenhum prazo vier concluído, o filtro de Status "Todas" não foi aplicado: PARE, não grave nada, feche as abas e envie push avisando que a exportação veio sem concluídos. Se o exportado de "Este mês" tiver zero prazos, PARE do mesmo jeito. (Eventos não entram nesta validação.)
+
+PASSO 4: Comparar com o banco, gravar diferenças e remover órfãs
+1. Leia o índice: ArtifactData get, url "https://claude.ai/artifact/96urJR9w2tU1dp76yGvEqE", collection "prazos", doc_id "base". Guarde o "version" (V_indice), a lista "shards" e o "updatedAt".
+2. Leia as partes: ArtifactData list da coleção "prazos_rows" (use out_dir para salvar em arquivos e leia com Python). Guarde o "version" de cada parte. Confira que todas as partes listadas no índice existem e que o stamp de cada uma é igual ao updatedAt do índice. Se faltar parte ou o stamp divergir (execução anterior interrompida), PARE, não grave e envie push.
+3. Monte a lista "existentes" concatenando as rows das partes na ordem do índice (s000, s001...). Guarde também o total de linhas antes (total_antes).
+4. Monte a chave de cada linha. Prazo: (numero, titulo, data); se numero vier vazio, use (caso, titulo, data). Evento ou Audiência: (tipo, numero, titulo, data, hora); se numero vier vazio, use (tipo, caso, titulo, data, hora). Linhas antigas do banco sem campo tipo ou com tipo "Prazo" são prazos.
+5. Para cada linha normalizada do exportado (Passo 3.4), monte a chave:
+   - Chave que NÃO existe nas existentes: é NOVA. Monte {"caso": <Título do processo/caso>, "conclusao": <Data de conclusão>, "data": <Data>, "juizo": <Juízo>, "numero": <Número do processo>, "resp": <Responsável>, "status": <Status>, "tipo": <"Prazo", "Evento" ou "Audiência">, "titulo": <Título>} (para evento e audiência, acrescente "hora": <Hora>) e adicione ao FIM da lista.
+   - Chave que JÁ EXISTE: compare apenas "status" e "conclusao". Se diferirem, atualize só esses dois campos na linha existente (não crie linha, não mexa nos outros campos). Conte as atualizações, separando prazos e eventos.
+6. LIMPEZA DE ÓRFÃS (evita "prazos fantasmas" quando o Astrea prorroga, corrige número ou título de algo ainda em aberto):
+   a. Monte o conjunto de chaves de TODAS as linhas do exportado (todos os períodos exportados nesta execução).
+   b. Uma linha existente com status EXATAMENTE "Em andamento" só é candidata se a sua PRÓPRIA data (campo "data") estiver dentro de [data_inicio, data_fim] do Passo 1.6. Fora desse intervalo, NUNCA é órfã nesta execução, mesmo que a chave não apareça no exportado. Dentro do intervalo e com a chave fora do conjunto: é órfã, remova da lista.
+   c. NUNCA remova linha com status "Concluído" (é histórico).
+   d. Conte as órfãs removidas separadamente para prazos e para eventos/audiências. Se passar de 20 prazos ou de 20 eventos/audiências em uma execução, PARE antes de gravar, não remova nada e envie push dizendo que a limpeza achou uma quantidade incomum (pode ser problema na exportação). Só prossiga nas próximas execuções depois da confirmação do usuário.
+7. TRAVA DE SEGURANÇA: se o total de linhas final for menor que 90% de total_antes, PARE antes de gravar e envie push (pode indicar exportação incompleta).
+8. Defina updatedAt como a data/hora atual em UTC no formato "AAAA-MM-DDTHH:MM:SSZ" (por exemplo, Python datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")). Use este MESMO valor no stamp de todas as partes, no índice e no Passo 5.
+9. Divida a lista final em partes de 200 linhas, ids s000, s001, ... (3 dígitos). Cada parte: {"idx": <n>, "stamp": <updatedAt>, "rows": [...]}. Confira que cada parte serializada tem menos de 200 KB; se alguma passar, use 150 linhas por parte. O índice: {"format": 2, "shards": [todos os ids], "total": <nº de linhas>, "updatedAt": <updatedAt>, "nota": <copie o texto de "nota" do índice atual sem alterar>}.
+10. Grave com UMA chamada ArtifactData action "batch" (atômica): um "set" por parte (partes que já existem levam if_version com o version lido no item 2; partes novas não levam), um "set" no índice com if_version = V_indice, e um "delete" (com o if_version da parte) para cada parte antiga que sobrou além das novas. Use file_path para os dados (arquivos JSON locais). Se o corpo do batch passar de 1 MiB ou de 50 entradas, grave as partes em chamadas "set" separadas e o índice POR ÚLTIMO, e só então apague as partes que sobraram.
+11. Se der conflito de versão: repita os itens 1 a 10 a partir do banco atual, uma única vez. Se falhar de novo, PARE, não vá ao Passo 5 e envie push.
+12. Depois de gravar, confira com ArtifactData get no índice e list em "prazos_rows" que o índice tem o novo updatedAt, que todas as partes têm esse stamp e que a soma das linhas é igual a "total".
+
+PASSO 5: Republicar a página com os dados embutidos (OBRIGATÓRIO; pule somente se o Passo 4 foi abortado)
+1. Artifact action "read", url "https://claude.ai/artifact/96urJR9w2tU1dp76yGvEqE", page true, para obter o HTML atual (o resultado informa o arquivo local).
+2. Nesse HTML, substitua SOMENTE o conteúdo do bloco <script id="seedData" type="application/json">...</script> pelo JSON da lista final completa de rows (prazos e eventos juntos) e SOMENTE o valor da linha `let UPDATED_AT = "...";` pelo updatedAt do Passo 4.8. Não altere mais nada no HTML (nem o script, nem o estilo).
+3. Salve em um arquivo local novo e publique com Artifact action "publish", url "https://claude.ai/artifact/96urJR9w2tU1dp76yGvEqE", file_path apontando para esse arquivo. Não passe capabilities, contract nem icon (devem ser mantidos como estão).
+4. Se a publicação for recusada porque existe uma versão mais nova publicada por outra sessão: refaça o item 1 (read com page true), reaplique as duas substituições do item 2 sobre o HTML mais novo e publique de novo, no máximo 2 vezes. Não reenvie o arquivo antigo.
+5. Confirme pela resposta da ferramenta que a publicação teve sucesso. Se falhar, PARE e envie push deixando claro que o banco foi atualizado mas a página não foi republicada (visitantes deslogados e a TV continuam com dados antigos até a próxima execução).
+
+PASSO 5B: Enviar a mesma base ao NGA LAB (BI de Prazos dentro do sistema)
+Rode este passo sempre que o Passo 4 gravou o banco, mesmo que o Passo 5 tenha falhado. Pule só se o Passo 4 foi abortado.
+1. Leia o token em C:\Users\Victor\.nga\nexus_token.txt (uma linha, começa com "nga_int_"). Nunca mostre o token em mensagem, log ou notificação. Se o arquivo não existir, pule para o Passo 5C e avise no push que falta o token.
+2. Com Python via Bash (urllib, sem bibliotecas extras), faça POST em https://nga-lab-launchpad.lovable.app/api/integracao/agenda com os cabeçalhos "Authorization: Bearer <token>", "Content-Type: application/json" e "User-Agent: NGA-LAB-automacao-astrea/1.0" (sem o User-Agent, o Cloudflare do site responde 403 "error code: 1010") e o corpo {"updatedAt": <o mesmo updatedAt do Passo 4.8>, "rows": <a MESMA lista final completa de rows do Passo 4, prazos e eventos juntos, exatamente como foi embutida no Passo 5>}. Use timeout de 120 segundos.
+3. Resposta 201 traz {"total", "prazos", "eventos", "antes"}: guarde esses números para a notificação final.
+4. Resposta 400 com "menos de 90%" é a trava de segurança do NGA LAB: NÃO reenvie com "forcar"; avise no push.
+5. Resposta 400 com outro texto: copie o texto do erro no push (ele diz qual linha ou campo foi recusado).
+6. Qualquer outra falha (401, 403, 5xx, sem rede): tente de novo uma única vez depois de 30 segundos; se falhar de novo, avise no push que o painel foi atualizado mas o NGA LAB não, com o código de resposta.
+7. Este passo nunca desfaz nem bloqueia os Passos 4 e 5.
+
+PASSO 5C: Publicações do dia no Astrea (para a conferência Astrea × NGA LAB)
+1. No Chrome, abra https://astrea.net.br/#/main/publications (se não abrir, use o menu "Publicações" do Astrea). Se pedir login, PARE este passo e avise no push. Nunca digite senha.
+2. Filtre a data de hoje (se for segunda-feira, desde a sexta-feira anterior). Leia com get_page_text cada publicação: data, número do processo, tribunal, órgão, um resumo (até 500 caracteres) e o prazo, se o Astrea mostrar.
+3. Faça POST em https://nga-lab-launchpad.lovable.app/api/integracao/publicacoes-astrea com o mesmo token e os mesmos cabeçalhos e o corpo {"publicacoes": [{"data": "DD/MM/AAAA", "numero": "...", "tribunal": "...", "orgao": "...", "resumo": "...", "prazo": "DD/MM/AAAA"}]}. Omita "prazo" quando não houver. Lista vazia é válida (dia sem publicação).
+4. Guarde para a notificação quantas publicações foram enviadas e a resposta do NGA LAB ({"recebidas", "novas"}). Falha aqui também não desfaz nada dos passos anteriores.
+
+PASSO 6: Encerrar
+Feche todas as abas que você abriu (Astrea, relatórios e publicações).
+
+RESULTADO
+Ao final, envie uma notificação curta informando: (a) prazos novos e eventos/audiências novos adicionados; (b) prazos e eventos/audiências já existentes com status ou conclusão atualizados; (c) órfãs removidas (prazos e eventos); (d) se a gravação no banco foi bem-sucedida; (e) se a republicação da página foi bem-sucedida; (f) resultado do envio ao NGA LAB (Passo 5B: total, prazos, eventos e linhas antes; ou o motivo da falha); (g) publicações do Astrea enviadas ao NGA LAB (Passo 5C); (h) tipos distintos encontrados no exportado, se houver algum além de Prazo, Evento e Audiência. Exemplo: "12 prazos e 3 eventos novos, 28 prazos e 1 evento atualizados, 2 órfãs removidas, banco gravado e página republicada com sucesso; NGA LAB: 1.234 linhas (980 prazos, 254 eventos), antes 1.230; 17 publicações enviadas". Em caso de aborto (exportação sem concluídos, parte inconsistente no banco, conflito de versão não resolvido, excesso de órfãs, trava de 90%, falha de publicação, recusa do NGA LAB), descreva o motivo.

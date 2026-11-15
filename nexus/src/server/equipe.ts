@@ -7,7 +7,8 @@ import { auditar } from '../store/conexao.ts';
 import { PedidoInvalido,NaoEncontrado } from './erros.ts';
 import * as tarefas from './tarefas.ts';
 const papeis=['socio_administrador','socio','coordenacao','advogado','controladoria','financeiro','administrativo','estagiario'] as const;
-export const EsquemaPessoa=z.object({nome:z.string().trim().min(2).max(200),email:z.string().trim().toLowerCase().email().max(200),papel:z.enum(papeis)});
+const emailNga=z.string().trim().toLowerCase().email().max(200).refine(e=>e.endsWith('@nga.adv.br'),'a equipe usa o e-mail institucional @nga.adv.br');
+export const EsquemaPessoa=z.object({nome:z.string().trim().min(2).max(200),email:emailNga,papel:z.enum(papeis)});
 export const EsquemaAcesso=z.object({papel:z.enum(papeis).optional(),revogar:z.boolean().optional()}).refine(d=>d.revogar===true || !!d.papel,'informe o acesso desejado');
 export const EsquemaSenha=z.object({token:z.string().regex(/^[0-9a-f]{64}$/),senha:z.string().min(12).max(256)});
 export const EsquemaMarco=z.object({titulo:z.string().trim().min(1).max(300),descricao:z.string().max(5000).default(''),dataPrevista:z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),visivelCliente:z.boolean().default(false)});
@@ -41,7 +42,7 @@ export async function acesso(db:PoolClient,id:string,d:z.infer<typeof EsquemaAce
  await auditar(db,{organizacaoId:o,usuarioId:i.usuarioId,acao:d.revogar?'equipe.acesso_revogado':'equipe.acesso_alterado',entidade:'usuario',entidadeId:id,depois:d});return {id};
 }
 export const gerarLink=link;
-export const EsquemaDados=z.object({nome:z.string().trim().min(2).max(200).optional(),email:z.string().trim().toLowerCase().email().max(200).optional()}).refine(d=>!!d.nome||!!d.email,'informe nome ou e-mail');
+export const EsquemaDados=z.object({nome:z.string().trim().min(2).max(200).optional(),email:emailNga.optional()}).refine(d=>!!d.nome||!!d.email,'informe nome ou e-mail');
 async function editar(db:PoolClient,args:unknown[]){
  try{return await db.query('SELECT editar_pessoa_equipe($1,$2,$3,$4,$5)',args);}
  catch(e){const erro=e as {code?:string;message:string};if(erro.code==='P0001')throw new PedidoInvalido(erro.message);if(erro.code==='42501')throw new NaoEncontrado('pessoa não encontrada nesta equipe');throw e;}

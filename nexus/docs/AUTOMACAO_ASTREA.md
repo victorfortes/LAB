@@ -20,7 +20,7 @@ Endereço da API: `https://nga-lab-launchpad.lovable.app` (o mesmo do Nexus).
 PASSO 5B: Enviar a mesma base ao Nexus (BI de Prazos dentro do sistema)
 1. Leia o token em C:\Users\Victor\.nga\nexus_token.txt (não mostre o token em nenhuma mensagem).
 2. Com Python via Bash, faça POST em https://nga-lab-launchpad.lovable.app/api/integracao/agenda com os cabeçalhos
-   "Authorization: Bearer <token>" e "Content-Type: application/json" e o corpo
+   "Authorization: Bearer <token>", "Content-Type: application/json" e "User-Agent: NGA-LAB-automacao-astrea/1.0" (sem o User-Agent, o Cloudflare do site responde 403 "error code: 1010") e o corpo
    {"updatedAt": <o mesmo updatedAt do Passo 4.8>, "rows": <a MESMA lista final completa do Passo 5.2>}.
 3. Resposta 201 traz {"total", "prazos", "eventos", "antes"}: inclua esses números na notificação final.
 4. Resposta 400 com "menos de 90%" é a trava de segurança do Nexus: NÃO reenvie com "forcar"; avise no push.
@@ -32,7 +32,7 @@ PASSO 5C: Publicações do dia no Astrea (para a conferência Astrea × Nexus)
    envie push. Nunca digite senha.
 2. Filtre a data de hoje (e, se for segunda-feira, desde a sexta). Leia com get_page_text cada publicação:
    data, número do processo, tribunal, órgão, um resumo (até 500 caracteres) e o prazo, se o Astrea mostrar.
-3. Faça POST em https://nga-lab-launchpad.lovable.app/api/integracao/publicacoes-astrea com o mesmo token e o
+3. Faça POST em https://nga-lab-launchpad.lovable.app/api/integracao/publicacoes-astrea com o mesmo token e os mesmos cabeçalhos e o
    corpo {"publicacoes": [{"data": "DD/MM/AAAA", "numero": "...", "tribunal": "...", "orgao": "...",
    "resumo": "...", "prazo": "DD/MM/AAAA"}]}. Lista vazia é válida (dia sem publicação).
 4. Inclua na notificação: quantas publicações foram enviadas e a resposta do Nexus.

@@ -10,6 +10,7 @@ import type { Deposito } from './arquivos.ts';
 import type { Identidade } from '../security/sessao.ts';
 import * as qgc from './qgc.ts';
 import * as fechamentos from './fechamentos.ts';
+import * as preAgc from './pre_agc.ts';
 
 export interface ContextoRota {
   rota: string; metodo: string; req: Request; identidade: Identidade & { papeis: readonly Papel[] }; ehCliente: boolean;
@@ -55,6 +56,40 @@ export async function rotasFrenteB(c: ContextoRota): Promise<Response | null> {
     exigir(i.papeis, 'credito.escrever'); const pid = m[1]!;
     const d = await corpo(req, z.object({ documentoId: z.string().uuid() }));
     return json(await como((db) => qgc.importarRelacaoFinal(db, pid, d.documentoId, c.deposito, i)), 201);
+  }
+
+  // Recuperação extrajudicial: adesões ao plano (art. 163). Interno do escritório.
+  if ((m = p('pre'))) {
+    if (c.ehCliente) return c.erro('acesso negado', 403);
+    const pid = m[1]!;
+    if (metodo === 'GET') { exigir(i.papeis, 'credito.ler'); return json(await como((db) => preAgc.painelPre(db, pid))); }
+    if (metodo === 'PUT') { exigir(i.papeis, 'credito.escrever'); const d = await corpo(req, preAgc.EsquemaPlanoPre); return json(await como((db) => preAgc.salvarPlanoPre(db, pid, d, i))); }
+  }
+  if ((m = new RegExp(`^/api/projetos/${UUID}/pre/adesoes/${UUID}$`).exec(rota)) && metodo === 'PUT') {
+    if (c.ehCliente) return c.erro('acesso negado', 403);
+    exigir(i.papeis, 'credito.escrever');
+    const d = await corpo(req, preAgc.EsquemaAdesao); return json(await como((db) => preAgc.salvarAdesao(db, m![1]!, m![2]!, d, i)));
+  }
+  // Recuperação judicial: simulador do quórum da AGC (arts. 37, 41, 45 e 58).
+  if ((m = p('agc/simulador'))) {
+    if (c.ehCliente) return c.erro('acesso negado', 403);
+    const pid = m[1]!;
+    if (metodo === 'GET') {
+      exigir(i.papeis, 'agc.ler');
+      const nome = new URL(req.url).searchParams.get('cenario');
+      return json(await como((db) => preAgc.painelAgc(db, pid, nome ? nome.slice(0, 60) : null)));
+    }
+    if (metodo === 'PUT') {
+      exigir(i.papeis, 'agc.ler');
+      const d = await corpo(req, preAgc.EsquemaCenario);
+      if (!d.rascunho) exigir(i.papeis, 'credito.escrever');
+      return json(await como((db) => preAgc.salvarCenario(db, pid, d, i)));
+    }
+    if (metodo === 'DELETE') {
+      exigir(i.papeis, 'credito.escrever');
+      const nome = new URL(req.url).searchParams.get('cenario') ?? '';
+      return json(await como((db) => preAgc.removerCenario(db, pid, nome.slice(0, 60), i)));
+    }
   }
 
   // Fechamento financeiro mensal: o cliente informa, a NGA lê e confere.

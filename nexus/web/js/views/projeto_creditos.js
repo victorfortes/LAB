@@ -3,6 +3,7 @@ import { api } from '../api.js';
 import { pode } from '../estado.js';
 import { dataBR, guardado, html, icone, ouvir, paraCentavos, raw, reais } from '../util.js';
 import { confirmar, erroDe, formulario, modal, toast, vazio } from '../ui.js';
+import { qgcAgc, qgcPre } from './projeto_pre_agc.js';
 
 export const NATUREZAS = {
   trabalhista: 'Trabalhista', acidente_trabalho: 'Acidente de trabalho', garantia_real: 'Garantia real', quirografario: 'Quirografário',
@@ -19,13 +20,18 @@ const seloClasse = (classe, sujeito) => sujeito === false ? html`<span class="se
 
 /** Aba QGC: automático (lido do balancete, editável) e validado (o que vai para a relação de credores). */
 export async function abaCreditos(ctx) {
-  const modo = guardado.ler(`qgcModo.${ctx.id}`, 'automatico');
-  const corpo = modo === 'validado' ? await qgcValidado(ctx) : await qgcAutomatico(ctx);
+  // Terceira vista conforme o tipo: adesões ao PRE (recuperação extrajudicial) ou simulador da AGC (recuperação judicial).
+  const extra = ctx.h.tipo === 'recuperacao_extrajudicial' ? ['pre', 'Adesões ao PRE', qgcPre]
+    : ctx.h.tipo === 'recuperacao_judicial' ? ['agc', 'Simulador da AGC', qgcAgc] : null;
+  let modo = guardado.ler(`qgcModo.${ctx.id}`, 'automatico');
+  if (!['automatico', 'validado', extra?.[0]].includes(modo)) modo = 'automatico';
+  const corpo = extra && modo === extra[0] ? await extra[2](ctx) : modo === 'validado' ? await qgcValidado(ctx) : await qgcAutomatico(ctx);
   const seg = html`<div class="seg up" role="group" aria-label="Vista do QGC"><span class="seg__pill" aria-hidden="true"></span>
     <button type="button" class="seg__btn" data-qgc-modo="automatico" aria-pressed="${modo === 'automatico'}"><span>QGC automático</span></button>
-    <button type="button" class="seg__btn" data-qgc-modo="validado" aria-pressed="${modo === 'validado'}"><span>QGC validado</span></button></div>`;
+    <button type="button" class="seg__btn" data-qgc-modo="validado" aria-pressed="${modo === 'validado'}"><span>QGC validado</span></button>
+    ${extra ? html`<button type="button" class="seg__btn" data-qgc-modo="${extra[0]}" aria-pressed="${modo === extra[0]}"><span>${extra[1]}</span></button>` : ''}</div>`;
   return {
-    html: html`<div class="flex" style="margin-bottom:12px">${seg}<span class="grow"></span>${corpo.acoes ?? ''}</div>${corpo.html}`,
+    html: html`<div class="qgc-barra">${seg}<span class="grow"></span><div class="qgc-barra__acoes">${corpo.acoes ?? ''}</div></div>${corpo.html}`,
     depois(el) {
       ouvir(el, 'click', '[data-qgc-modo]', (b) => { guardado.gravar(`qgcModo.${ctx.id}`, b.dataset.qgcModo); ctx.recarregar(); });
       corpo.depois?.(el);
