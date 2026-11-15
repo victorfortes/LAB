@@ -52,7 +52,10 @@ export async function abaDiagnostico(ctx) {
             <p class="dica" style="margin:10px 0 0">A leitura reconhece o tipo do documento, confere CNPJ/CPF e valores, audita citações legais e isola qualquer trecho que tente dar ordens ao sistema. Nada daqui decide classe de crédito: isso continua sendo ato seu.</p>
           </div></div></section>
 
-      <div class="grid2 mt diag-topo">
+      <div class="mt"></div>${rel.html}
+
+      <h3 class="mini-h mt">Bastidores da leitura</h3>
+      <div class="grid2 diag-topo">
           <section class="card glass up"><header class="card__head"><div><h2 class="card__title">Pontos de atenção</h2><p class="card__sub">O que merece o seu olhar primeiro</p></div></header>
             ${d.pontos.length ? html`<ul class="lista">${d.pontos.map((p) => html`<li ${p.aba ? raw(`data-aba-ir="${p.aba}" style="cursor:pointer"`) : ''}><span class="empty__ico" style="width:38px;height:38px;border-radius:12px">${icone(ICONE_PONTO[p.tom])}</span>
               <div><b>${p.titulo}</b><small>${p.detalhe}</small></div><div class="fim"><span class="selo ${TOM[p.tom]}">${p.tom === 'erro' ? 'urgente' : p.tom === 'aviso' ? 'atenção' : 'nota'}</span></div></li>`)}</ul>`
@@ -64,7 +67,7 @@ export async function abaDiagnostico(ctx) {
               <span class="mono-sm">${k.enviados}/${k.total}</span></div>`) : html`<p class="dica">Sem checklist.</p>`}</section>
 
       </div>
-      <div class="mt"></div>${rel.html}<div class="mt"></div>${soc.html}<div class="mt"></div>${rx}
+      <div class="mt"></div>${soc.html}<div class="mt"></div>${rx}
       <div class="grid-hub mt">
         <div style="display:grid;gap:var(--gap)">
           <section class="card glass up"><header class="card__head"><div><h2 class="card__title">Documentos recebidos</h2><p class="card__sub">Cada um é lido assim que chega</p></div></header>

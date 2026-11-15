@@ -14,7 +14,7 @@ import type { PatrimonioDosSocios } from './socios.ts';
 
 export interface DocumentoLido { id: string; nome: string; area: string; estado: string; qualidade: Qualidade; detalhe: string | null }
 export interface EntradaDoDiagnostico {
-  projeto: { nome: string; razaoSocial: string | null; posicao: 'devedor' | 'credor' };
+  projeto: { nome: string; razaoSocial: string | null; posicao: 'devedor' | 'credor'; cnpj?: string | null; segmento?: string | null };
   dataBase: string; geradoPor: string; versao: number;
   documentos: DocumentoLido[];
   checklist: ItemDoChecklist[];
@@ -57,6 +57,7 @@ export function montarRelatorio(e: EntradaDoDiagnostico) {
     razaoSocial: e.projeto.razaoSocial ?? e.projeto.nome, primeiroExercicio: anos.length ? Math.min(...anos) : null, anoBase: Number(e.dataBase.slice(0, 4)),
     pendentesArt51: cobertura.itens.filter((i) => i.status === 'pendente' || i.status === 'marcado_sem_arquivo').map((i) => i.titulo),
     mapa, patrimonioLiquido: balancos.at(-1)?.patrimonioLiquido ?? null, posicao: e.projeto.posicao,
+    checklist: cobertura.itens.map((i) => ({ titulo: i.titulo, artigo: i.artigo, status: i.status })),
   });
 
   // Resumo: cada card tem borda de status. Só entram números que existem.
@@ -66,14 +67,14 @@ export function montarRelatorio(e: EntradaDoDiagnostico) {
   const ult = balancos.at(-1); if (ult) cards.push({ rotulo: `Patrimônio líquido em ${ult.exercicio}`, valor: `R$ ${(ult.patrimonioLiquido / 1e6).toFixed(1).replace('.', ',')} mi`, status: ult.patrimonioLiquido < 0 ? 'vermelho' : 'verde', ref: ult.ref.arquivo });
   // O extrato que mais recebe é o que mostra a dependência de fomento.
   const ex = [...extratos].sort((a, b) => b.entradasTotal - a.entradasTotal)[0]; if (ex?.percentualFomentoNasEntradas != null) cards.push({ rotulo: 'Das entradas do extrato vieram de fomento', valor: `${Math.round(ex.percentualFomentoNasEntradas)}%`, status: ex.percentualFomentoNasEntradas >= 25 ? 'vermelho' : 'ambar' });
-  cards.push({ rotulo: 'Itens do checklist entregues por completo', valor: `${cobertura.percentuais.entregue}%`, status: cobertura.percentuais.entregue < 50 ? 'vermelho' : cobertura.percentuais.entregue < 80 ? 'ambar' : 'verde' });
+  cards.push({ rotulo: 'Itens do checklist entregues por completo', valor: `${Math.round(cobertura.percentuais.entregue)}%`, status: cobertura.percentuais.entregue < 50 ? 'vermelho' : cobertura.percentuais.entregue < 80 ? 'ambar' : 'verde' });
 
   const porArea = new Map<string, typeof cobertura.itens>();
   for (const i of cobertura.itens) if (i.status !== 'entregue') porArea.set(i.area, [...(porArea.get(i.area) ?? []), i]);
 
   const relatorio = {
     versao: e.versao, geradoEm: e.dataBase, geradoPor: e.geradoPor, aviso: AVISO,
-    capa: { marca: 'NGA LAB', titulo: 'Diagnóstico inicial da documentação', razaoSocial: e.projeto.razaoSocial ?? e.projeto.nome, projeto: e.projeto.nome, escopo: 'Financeiro, contábil e patrimônio', dataBase: e.dataBase, posicao: e.projeto.posicao, confidencialidade: 'Confidencial. Sujeito a sigilo profissional.' },
+    capa: { marca: 'NGA LAB', titulo: 'Diagnóstico inicial da documentação', razaoSocial: e.projeto.razaoSocial ?? e.projeto.nome, cnpj: e.projeto.cnpj ?? null, segmento: e.projeto.segmento ?? null, projeto: e.projeto.nome, escopo: 'Financeiro, contábil e patrimônio', dataBase: e.dataBase, posicao: e.projeto.posicao, confidencialidade: 'Confidencial. Sujeito a sigilo profissional.' },
     resumo: {
       titulo: riscos.some((r) => r.prioridade === 'Alta') ? 'Há pontos críticos a esclarecer antes de avançar' : 'Quadro inicial sem pontos críticos calculáveis',
       conclusao: (e.projeto.posicao === 'credor'
@@ -90,13 +91,15 @@ export function montarRelatorio(e: EntradaDoDiagnostico) {
       marcadosSemArquivo: cobertura.itens.filter((i) => i.status === 'marcado_sem_arquivo').map((i) => i.titulo),
     },
     faltantes: { porArea: [...porArea].map(([area, itens]) => ({ area, incompletos: itens.length, total: cobertura.itens.filter((i) => i.area === area).length, itens: itens.map((i) => ({ numero: i.numero, titulo: i.titulo, artigo: i.artigo, marcador: i.status === 'parcial' || i.status === 'sem_resposta' ? 'ambar' : 'vermelho', marcadoSemArquivo: i.status === 'marcado_sem_arquivo' })) })),
-      pendentes: cobertura.pendentesTotal, parcialOuSemResposta: cobertura.contagem.parcial + cobertura.contagem.sem_resposta, foraDoChecklist: e.foraDoChecklist ?? FORA_PADRAO },
+      pendentes: cobertura.pendentesTotal, parcialOuSemResposta: cobertura.contagem.parcial + cobertura.contagem.sem_resposta,
+      // O que a lei exige e o checklist não cobre: os incisos do art. 51 sem item correspondente (sem checklist, a lista padrão).
+      foraDoChecklist: e.foraDoChecklist ?? (cobertura.total ? juridico.documentosArt51.filter((d) => d.situacao === 'fora_do_checklist').map((d) => `${d.documento} (art. 51, ${d.inciso})`) : FORA_PADRAO) },
     contabilI: faturamento || dre.length ? { faturamento, dre } : semDados(['DRE contábil e gerencial por exercício', 'Faturamento fiscal e gerencial por ano', 'Notas fiscais emitidas']),
     contabilII: balancos.length ? { balancos, ausentes: exerciciosAusentes(e.balancos), assinaturaTardia: e.balancos.filter(assinaturaTardia).map((b) => ({ exercicio: b.exercicio, assinadoEm: b.assinadoEm })) } : semDados(['Balanço patrimonial de cada exercício', 'Balancetes do ano corrente', 'Razão analítico das contas de adiantamento e de sócios']),
     financeiroI: extratos.length ? { extratos } : semDados(['Extratos de todas as contas bancárias dos últimos 12 meses']),
     financeiroII: passivo ? { passivo, abc } : semDados(['Relatório consolidado de endividamento', 'Relatório do passivo fiscal', 'Contratos de financiamento e garantias']),
     patrimonio: { semDados: !e.socios?.socios.length, socios: e.socios?.socios.length ? e.socios : null, pedir: ['Relação de bens da empresa e dos sócios', 'IRPF dos sócios e avalistas', 'Matrículas imobiliárias atualizadas', 'Organograma e empresas do grupo'], parteRelacionadaPorBanco: extratos.map((x) => ({ banco: x.banco, ...x.grupos.parteRelacionada })) },
-    juridico: { ...juridico, aviso: 'Leitura indicativa a partir dos documentos. Confira a redação vigente da Lei 11.101/2005 e os julgados antes de usar em peça.' },
+    juridico: { ...juridico, aviso: 'Leitura indicativa a partir dos documentos, conferida com a Lei 11.101/2005 na redação da Lei 14.112/2020. Confira os julgados antes de usar em peça.' },
     endividamento: e.endividamento ?? [],
     riscos,
     proximosPassos: [

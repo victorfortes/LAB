@@ -1,5 +1,6 @@
 /**
- * Relatório do diagnóstico inicial dentro da aba: a MESMA página que vira PDF, mostrada aqui como é.
+ * Diagnóstico inicial dentro da aba: o MESMO documento que vira PDF, com todas as seções, renderizado na tela
+ * (sem visualizador de PDF). "Gerar PDF" pagina esse documento em A4 paisagem e abre a impressão.
  *
  * Gerar tem duas etapas: primeiro os arquivos do cliente são lidos um a um (cada leitura numa chamada,
  * para caber no limite da nuvem e mostrar o progresso), depois a versão é montada. Nenhuma versão é
@@ -9,6 +10,7 @@ import { api } from '../api.js';
 import { pode } from '../estado.js';
 import { dataHoraBR, html, icone, ouvir } from '../util.js';
 import { erroDe, formulario, modal, toast, vazio } from '../ui.js';
+import { paginar } from '../diag_paginar.js';
 
 const TIPOS = [['balanco', 'Balanço (por exercício)'], ['dre_contabil', 'DRE contábil'], ['dre_gerencial', 'DRE gerencial'], ['faturamento', 'Faturamento (fiscal x gerencial)'], ['extrato', 'Extrato bancário'], ['passivo_fonte', 'Passivo por fonte'], ['clientes_abc', 'Clientes (curva ABC)'], ['partes_relacionadas', 'Partes relacionadas (nomes)'], ['checklist_respostas', 'Respostas do checklist']];
 const MODELO = {
@@ -35,6 +37,7 @@ export async function gerarComProgresso(ctx, botao) {
     }
     mostrar('Montando o relatório…');
     const v = await api.post(`${base}/versoes`, { motivo: 'manual', lerArquivos: false });
+    versaoNaTela.delete(ctx.id);
     toast(`Versão ${v.numero} gerada${feitos ? ` · ${feitos} arquivo(s) lido(s)` : ''}${avisos.length ? ` · ${avisos.length} aviso(s) no relatório` : ''}`);
     ctx.recarregar();
   } catch (e) {
@@ -49,62 +52,106 @@ async function htmlDaVersao(ctx, numero) {
   return r.text();
 }
 
-/** Quadro com o relatório: página A4 paisagem escalada para a largura do cartão. */
-function encaixar(quadro) {
-  const largura = quadro.parentElement.clientWidth; const escala = Math.min(1, largura / 1123);
-  quadro.style.transform = `scale(${escala})`; quadro.style.marginBottom = `${Math.round(quadro.dataset.altura * (escala - 1))}px`;
+/**
+ * Tema da aba: o documento usa as mesmas regras do PDF; aqui só as variáveis mudam para as do app e as seções
+ * viram blocos em fluxo, sem página.
+ */
+const TELA_CSS = `
+:host{display:block}
+.dg.dg-tela{--fundo:transparent;--papel:transparent;--tinta:var(--text,#EAF1F8);--tinta2:var(--text-2,#B4C2D3);--suave:var(--text-3,#8DA0B5);--acento:var(--lab-amber,#F0A32E);
+  --fonte:var(--font,Barlow,system-ui,sans-serif);--painel:rgba(255,255,255,.025);font-size:10pt;background:transparent}
+.dg-tela .dg-fluxo{padding:0}
+.dg-tela .dg-fluxo .dg-secao+.dg-secao{break-before:auto}
+.dg-tela .dg-secao{border:1px solid var(--linha);border-radius:18px;padding:26px 28px 10px;margin:0 0 16px;background:rgba(255,255,255,.02);scroll-margin-top:90px}
+.dg-tela .dg-sec-cab h2{font-size:21px}
+.dg-tela .dg-lead{font-size:14px;max-width:none}
+.dg-tela .dg-tab{font-size:12.5px}.dg-tela .dg-tab th{font-size:10.5px}.dg-tela .dg-tab .sub,.dg-tela .dg-nota{font-size:11.5px}
+.dg-tela .dg-ach{font-size:13px;grid-template-columns:200px 1fr 90px}.dg-tela .dg-it{font-size:13px}
+.dg-tela .dg-kpi b{font-size:24px}.dg-tela .dg-kpi span{font-size:11.5px}
+.dg-tela .dg-fig{max-width:1100px}
+.dg-nav{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 16px}
+.dg-nav button{font:500 12.5px var(--fonte);color:var(--tinta2);background:rgba(255,255,255,.04);border:1px solid var(--linha);border-radius:999px;padding:6px 12px;cursor:pointer}
+.dg-nav button:hover{color:var(--tinta);border-color:var(--acento)}
+.dg-nav button b{color:var(--acento);font-weight:600;margin-right:6px}
+@media (max-width:980px){.dg-tela .dg-linha>[class^="c"]{grid-column:span 12;margin-bottom:12px}.dg-tela .dg-ach{grid-template-columns:1fr}.dg-tela .dg-ach>span:last-child{text-align:left}.dg-tela .dg-secao{padding:18px 16px 6px}}
+`;
+
+/** Põe as seções do relatório (o mesmo HTML do PDF) dentro de um Shadow DOM: o CSS do documento não vaza para o app. */
+function montarNaTela(host, docHtml) {
+  const doc = new DOMParser().parseFromString(docHtml, 'text/html');
+  const raiz = host.shadowRoot ?? host.attachShadow({ mode: 'open' });
+  const estilo = document.createElement('style');
+  estilo.textContent = [...doc.querySelectorAll('style')].map((x) => x.textContent).join('\n') + TELA_CSS;
+  const corpo = document.createElement('div'); corpo.className = 'dg dg-tela';
+  const nav = document.createElement('nav'); nav.className = 'dg-nav'; nav.setAttribute('aria-label', 'Seções do diagnóstico');
+  const secoes = [...doc.querySelectorAll('.dg-fluxo .dg-secao')];
+  for (const sec of secoes) {
+    const b = document.createElement('button'); b.type = 'button';
+    const n = document.createElement('b'); n.textContent = String(sec.dataset.n).padStart(2, '0');
+    b.append(n, sec.dataset.titulo ?? ''); b.dataset.ir = sec.id; nav.append(b);
+  }
+  const fluxo = document.createElement('div'); fluxo.className = 'dg-fluxo';
+  fluxo.append(...secoes.map((x) => document.importNode(x, true)));
+  corpo.append(nav, fluxo);
+  raiz.replaceChildren(estilo, corpo);
+  nav.addEventListener('click', (e) => { const b = e.target.closest('button[data-ir]'); if (b) raiz.getElementById(b.dataset.ir)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); });
 }
+
+/**
+ * PDF: com Chromium no servidor, baixa o arquivo pronto. Sem ele (nuvem), monta o mesmo documento num iframe
+ * fora da tela, pagina (capa, sumário com páginas, "n / N") e abre a impressão do navegador.
+ */
+export async function gerarPdf(ctx, numero, botao) {
+  const base = `/api/projetos/${ctx.id}/diagnostico`;
+  const texto = botao?.innerHTML; if (botao) { botao.disabled = true; botao.textContent = 'Preparando o PDF…'; }
+  const restaurar = () => { if (botao) { botao.disabled = false; botao.innerHTML = texto; } };
+  try {
+    const r = await fetch(`${base}/versoes/${numero}/pdf`, { credentials: 'same-origin' });
+    if (r.ok) { const u = URL.createObjectURL(await r.blob()); const a = document.createElement('a'); a.href = u; a.download = `diagnostico-v${numero}.pdf`; a.click(); setTimeout(() => URL.revokeObjectURL(u), 30_000); restaurar(); return; }
+    const docHtml = await htmlDaVersao(ctx, numero);
+    const q = document.createElement('iframe');
+    q.setAttribute('aria-hidden', 'true'); q.tabIndex = -1;
+    q.style.cssText = 'position:fixed;left:-10000px;top:0;width:297mm;height:210mm;border:0;pointer-events:none';
+    q.srcdoc = docHtml; document.body.appendChild(q);
+    await new Promise((ok) => { q.onload = ok; });
+    const d = q.contentDocument;
+    try { await Promise.race([d.fonts?.ready, new Promise((ok) => setTimeout(ok, 2500))]); } catch { /* segue com a fonte de reserva */ }
+    paginar(d);
+    const empresa = (d.body.dataset.empresa || 'cliente').replace(/[^\p{L}\p{N}]+/gu, '_').replace(/^_|_$/g, '');
+    const titulo = document.title; document.title = `Diagnostico_Inicial_${empresa}_v${numero}`;
+    q.contentWindow.focus(); q.contentWindow.print();
+    setTimeout(() => { document.title = titulo; }, 1000);
+    setTimeout(() => q.remove(), 60_000);
+    toast('Na janela de impressão, escolha "Salvar como PDF". A página já sai em A4 paisagem, sem margens extras.');
+  } catch (e) { erroDe(e); }
+  restaurar();
+}
+
+/** Versão mostrada na aba, por projeto (a atual quando não há escolha). */
+const versaoNaTela = new Map();
 
 export async function secaoRelatorio(ctx) {
   const escreve = pode('analise.executar');
   const base = `/api/projetos/${ctx.id}/diagnostico`;
   const [versoes, extracoes] = await Promise.all([api.get(`${base}/versoes`).catch(() => []), api.get(`${base}/extracoes`).catch(() => [])]);
-  const atual = versoes[0];
+  const atual = versoes.find((v) => v.numero === versaoNaTela.get(ctx.id)) ?? versoes[0];
   return {
-    html: html`<section class="card glass up" data-diag-rel><header class="card__head"><div><h2 class="card__title">Relatório do diagnóstico ${atual ? html`<span class="selo info">v${atual.numero}</span>` : ''}</h2>
-      <p class="card__sub">${atual ? html`Gerado em ${dataHoraBR(atual.geradoEm)} por ${atual.geradoPor ?? '—'} · é exatamente o que sai no PDF` : 'Gere a primeira versão para ver o relatório aqui.'}</p></div>
-      ${atual ? html`<div class="nx-acts"><button class="btn btn--ghost btn--sm" data-cheia="${atual.numero}">${icone('eye')}Tela cheia</button><button class="btn btn--accent btn--sm" data-pdf="${atual.numero}">${icone('download')}Baixar PDF</button></div>` : ''}</header>
-      ${atual ? html`<div class="diag-folha" data-folha><iframe title="Relatório do diagnóstico" data-quadro="${atual.numero}" data-altura="794" style="width:1123px;height:794px;border:0;transform-origin:0 0;border-radius:12px;background:#0B111D"></iframe></div>`
-        : vazio('doc', 'Nenhuma versão gerada', 'Clique em “Gerar diagnóstico”. Os arquivos do cliente são lidos um a um e o relatório aparece aqui, igual ao PDF.')}
+    html: html`<section class="card glass up" data-diag-rel><header class="card__head"><div><h2 class="card__title">Diagnóstico ${atual ? html`<span class="selo info">v${atual.numero}${atual !== versoes[0] ? ' (anterior)' : ''}</span>` : ''}</h2>
+      <p class="card__sub">${atual ? html`Gerado em ${dataHoraBR(atual.geradoEm)} por ${atual.geradoPor ?? '—'} · o mesmo conteúdo do PDF entregue ao cliente` : 'Gere a primeira versão para ver o diagnóstico aqui.'}</p></div>
+      ${atual ? html`<div class="nx-acts">${atual !== versoes[0] ? html`<button class="btn btn--ghost btn--sm" data-ver="${versoes[0].numero}">Voltar à atual</button>` : ''}<button class="btn btn--accent" data-pdf="${atual.numero}">${icone('download')}Gerar PDF</button></div>` : ''}</header>
+      ${atual ? html`<div class="diag-doc" data-diag-doc="${atual.numero}"><p class="dica">Carregando o diagnóstico…</p></div>`
+        : vazio('doc', 'Nenhuma versão gerada', 'Clique em “Gerar diagnóstico”. Os arquivos do cliente são lidos um a um e o diagnóstico completo aparece aqui; o PDF sai do mesmo conteúdo.')}
       ${versoes.length > 1 ? html`<details class="mt"><summary class="link">Versões anteriores (${versoes.length - 1})</summary><table class="tbl mt"><thead><tr><th>Versão</th><th>Gerada</th><th>Por</th><th class="num">Docs</th><th class="num">Riscos altos</th><th></th></tr></thead><tbody>${versoes.map((v, i) => html`<tr><td><b>v${v.numero}</b><small>${v.motivo === 'rodada_de_entrega' ? 'rodada de entrega' : 'manual'}</small></td><td>${dataHoraBR(v.geradoEm)}</td><td>${v.geradoPor ?? '—'}</td><td class="num">${v.documentos}</td><td class="num">${v.riscosAltos}</td>
-        <td><div class="nx-acts"><button class="btn btn--ghost btn--sm" data-cheia="${v.numero}">${icone('eye')}Ver</button><button class="btn btn--ghost btn--sm" data-pdf="${v.numero}">${icone('download')}PDF</button>${versoes[i + 1] ? html`<button class="btn btn--ghost btn--sm" data-cmp="${versoes[i + 1].numero}" data-para="${v.numero}">Comparar com v${versoes[i + 1].numero}</button>` : ''}</div></td></tr>`)}</tbody></table></details>` : ''}
+        <td><div class="nx-acts"><button class="btn btn--ghost btn--sm" data-ver="${v.numero}">${icone('eye')}Ver</button><button class="btn btn--ghost btn--sm" data-pdf="${v.numero}">${icone('download')}PDF</button>${versoes[i + 1] ? html`<button class="btn btn--ghost btn--sm" data-cmp="${versoes[i + 1].numero}" data-para="${v.numero}">Comparar com v${versoes[i + 1].numero}</button>` : ''}</div></td></tr>`)}</tbody></table></details>` : ''}
       <details class="mt"><summary class="link">Números extraídos dos documentos (${extracoes.length})</summary>
       ${extracoes.length ? html`<ul class="lista mt">${extracoes.map((x) => html`<li><div><b>${TIPOS.find(([t]) => t === x.tipo)?.[1] ?? x.tipo}</b><small>${x.referencia} · leitura ${x.qualidade} · ${x.origem}</small></div>${escreve ? html`<div class="fim"><button class="btn btn--ghost btn--sm perigo-btn" data-del="${x.id}" aria-label="Excluir">${icone('trash')}</button></div>` : ''}</li>`)}</ul>` : html`<p class="dica">Nada extraído ainda. Planilhas e PDFs com texto são lidos ao gerar; o resto você registra à mão, sempre com o arquivo e a página de origem.</p>`}
       ${escreve ? html`<button class="btn btn--ghost mt" data-extrair>${icone('plus')}Registrar números de um documento</button>` : ''}</details></section>`,
     depois(el) {
-      const quadro = el.querySelector('[data-quadro]');
-      if (quadro) {
-        htmlDaVersao(ctx, quadro.dataset.quadro).then((doc) => {
-          quadro.srcdoc = doc;
-          quadro.onload = () => { const paginas = quadro.contentDocument?.querySelectorAll('.pg').length || 1; quadro.dataset.altura = String(paginas * 794); quadro.style.height = `${paginas * 794}px`; encaixar(quadro); };
-        }).catch((e) => { quadro.replaceWith(Object.assign(document.createElement('p'), { className: 'selo erro', textContent: e.message })); });
-        const ro = new ResizeObserver(() => encaixar(quadro)); ro.observe(quadro.parentElement);
-      }
-      ouvir(el, 'click', '[data-cheia]', async (b) => {
-        try {
-          const doc = await htmlDaVersao(ctx, b.dataset.cheia);
-          const f = document.createElement('iframe'); f.srcdoc = doc; f.title = 'Relatório em tela cheia';
-          f.style.cssText = 'position:fixed;inset:0;width:100vw;height:100vh;border:0;z-index:9999;background:#0B111D';
-          document.body.appendChild(f);
-          const sair = () => { f.remove(); document.removeEventListener('fullscreenchange', aoMudar); };
-          const aoMudar = () => { if (!document.fullscreenElement) sair(); };
-          f.onload = () => f.contentDocument?.addEventListener('keydown', (e) => { if (e.key === 'Escape') sair(); });
-          try { await f.requestFullscreen(); document.addEventListener('fullscreenchange', aoMudar); } catch { toast('Pressione Esc para fechar o relatório.'); }
-        } catch (e) { erroDe(e); }
-      });
-      ouvir(el, 'click', '[data-pdf]', async (b) => {
-        const r = await fetch(`${base}/versoes/${b.dataset.pdf}/pdf`, { credentials: 'same-origin' });
-        if (r.ok) { const u = URL.createObjectURL(await r.blob()); const a = document.createElement('a'); a.href = u; a.download = `diagnostico-v${b.dataset.pdf}.pdf`; a.click(); return; }
-        // Sem Chromium no servidor (caso da nuvem): o navegador imprime o mesmo HTML em A4 paisagem.
-        try {
-          const doc = await htmlDaVersao(ctx, b.dataset.pdf);
-          const q = document.createElement('iframe');
-          q.setAttribute('aria-hidden', 'true'); q.style.cssText = 'position:fixed;right:0;bottom:0;width:297mm;height:210mm;border:0;opacity:0;pointer-events:none';
-          q.srcdoc = doc; document.body.appendChild(q);
-          q.onload = () => { setTimeout(() => { q.contentWindow.focus(); q.contentWindow.print(); setTimeout(() => q.remove(), 60_000); }, 400); };
-          toast('Na janela de impressão, escolha "Salvar como PDF". O relatório já sai em A4 paisagem.');
-        } catch (e) { erroDe(e); }
-      });
+      const host = el.querySelector('[data-diag-doc]');
+      if (host) htmlDaVersao(ctx, host.dataset.diagDoc).then((doc) => montarNaTela(host, doc))
+        .catch((e) => { host.replaceChildren(Object.assign(document.createElement('p'), { className: 'selo erro', textContent: e.message })); });
+      ouvir(el, 'click', '[data-ver]', (b) => { versaoNaTela.set(ctx.id, Number(b.dataset.ver)); ctx.recarregar(); });
+      ouvir(el, 'click', '[data-pdf]', (b) => gerarPdf(ctx, b.dataset.pdf, b));
       ouvir(el, 'click', '[data-cmp]', async (b) => {
         try {
           const c = await api.get(`${base}/comparacao?de=${b.dataset.cmp}&para=${b.dataset.para}`);

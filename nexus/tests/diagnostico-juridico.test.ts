@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 import { juntarFaturamento, lerDocumentoPdf, lerToken } from '../src/domain/diagnostico/documentos.ts';
-import { enquadramento, folhasDoPassivo, mapaDoEndividamento } from '../src/domain/diagnostico/juridico.ts';
+import { CATEGORIA, QUORUNS, documentosDoArt51, enquadramento, folhasDoPassivo, mapaDoEndividamento } from '../src/domain/diagnostico/juridico.ts';
+import { montarRelatorio } from '../src/domain/diagnostico/relatorio.ts';
+import { renderizarDiagnostico } from '../src/server/diagnostico_html.ts';
 
 const BALANCO = [
   'Empresa: EJE INDUSTRIA DE METAIS LTDA Folha: 0001', 'Balanço encerrado em: 31/12/2025', 'Descrição Saldo Atual',
@@ -76,5 +78,71 @@ describe('leitura jurídica', () => {
   test('instituição financeira é impeditivo do art. 2º', () => {
     const e = enquadramento({ razaoSocial: 'BANCO ALFA S.A.', primeiroExercicio: null, anoBase: 2026, pendentesArt51: [], mapa: null, patrimonioLiquido: null, posicao: 'devedor' });
     expect(e.rj.requisitos.find((r) => r.fundamento === 'art. 2º')!.situacao).toBe('impeditivo');
+  });
+});
+
+describe('revisão contra a Lei 11.101 (redação da Lei 14.112/2020)', () => {
+  test('classes do art. 41 por natureza do crédito', () => {
+    expect(CATEGORIA['Trabalhista e encargos'].classe).toContain('art. 41, I');
+    expect(CATEGORIA['Fornecedores'].classe).toContain('III e IV');
+    expect(CATEGORIA['Bancos e financiamentos'].fundamento).toContain('art. 41, II, e § 2º');
+    expect(CATEGORIA['Sócios e partes relacionadas'].fundamento).toMatch(/art\. 43.*art\. 163, § 3º, II/);
+  });
+  test('fora da RJ e da RE: tributos (art. 6º, § 7º-B; art. 161, § 1º), fiduciário e ACC (art. 49, §§ 3º e 4º; art. 86, II)', () => {
+    expect(CATEGORIA['Tributário e parcelamentos']).toMatchObject({ rj: 'nao_sujeito', re: 'excluido' });
+    expect(CATEGORIA['Tributário e parcelamentos'].fundamento).toContain('art. 6º, § 7º-B');
+    expect(CATEGORIA['Tributário e parcelamentos'].fundamento).toContain('art. 161, § 1º');
+    expect(CATEGORIA['Bancos e financiamentos'].fundamento).toContain('art. 86, II');
+    // bens de capital essenciais: proteção é do art. 49, § 3º, parte final (não do art. 6º, § 4º sozinho)
+    expect(CATEGORIA['Garantia fiduciária e leasing'].fundamento).toContain('art. 49, § 3º, parte final');
+    // trabalhista na RJ: classe I pelo total; o teto de 150 salários-mínimos é regra da falência
+    expect(CATEGORIA['Trabalhista e encargos'].fundamento).toContain('rege a classificação na falência');
+    expect(CATEGORIA['Trabalhista e encargos'].fundamento).toContain('art. 161, § 1º');
+  });
+  test('quóruns: art. 163 pede mais da metade por espécie e admite 1/3 + 90 dias', () => {
+    expect(QUORUNS.re.find((q) => q.fundamento === 'art. 163, caput')!.regra).toContain('mais da metade');
+    expect(QUORUNS.re.find((q) => q.fundamento === 'art. 163, § 7º')!.regra).toMatch(/1\/3.*90 dias/);
+    expect(QUORUNS.rj.map((q) => q.fundamento)).toEqual(expect.arrayContaining(['art. 45, § 1º', 'art. 45, § 2º', 'art. 58, § 1º', 'art. 45-A']));
+  });
+  test('documentos do art. 51: cruza pelo fundamento do item e, sem ele, pelo título', () => {
+    const d = documentosDoArt51([
+      { titulo: 'Balanço Patrimonial, 3 últimos exercícios', artigo: 'Art. 51, II, Lei 11.101/2005', status: 'entregue' },
+      { titulo: 'DRE', artigo: 'Art. 51, II', status: 'pendente' },
+      { titulo: 'Lista completa de credores', artigo: 'Art. 51, III', status: 'pendente' },
+      { titulo: 'Certidões de protesto', artigo: null, status: 'entregue' },
+      { titulo: 'Relatório detalhado do Passivo Fiscal', artigo: 'Art. 51, X', status: 'entregue' },
+    ]);
+    const s = Object.fromEntries(d.map((x) => [x.inciso, x.situacao]));
+    expect(d).toHaveLength(11);
+    expect(s).toMatchObject({ II: 'parcial', III: 'pendente', VIII: 'entregue', X: 'entregue', I: 'fora_do_checklist', XI: 'fora_do_checklist' });
+  });
+  test('enquadramento traz os requisitos comuns, os do art. 163, § 6º, e o art. 51 cruzado', () => {
+    const e = enquadramento({ razaoSocial: 'ALFA LTDA', primeiroExercicio: 2020, anoBase: 2026, pendentesArt51: [], mapa: null, patrimonioLiquido: null, posicao: 'devedor', checklist: [{ titulo: 'Lista completa de credores', artigo: 'Art. 51, III', status: 'pendente' }] });
+    expect(e.comuns.map((q) => q.fundamento)).toEqual(['art. 1º', 'art. 2º', 'art. 48, caput', 'art. 48, I', 'art. 48, II e III', 'art. 48, IV']);
+    expect(e.re.requisitos.some((q) => q.fundamento === 'arts. 162 e 163, § 6º')).toBe(true);
+    expect(e.rj.requisitos.find((q) => q.fundamento === 'art. 51')!.situacao).toBe('pendente');
+    expect(e.documentosArt51.find((d) => d.inciso === 'III')!.situacao).toBe('pendente');
+  });
+});
+
+describe('documento do diagnóstico (aba e PDF)', () => {
+  const bal = lerDocumentoPdf('Balanço 2025.pdf', [BALANCO]).extracoes.find((x) => x.tipo === 'balanco')!;
+  const mapa = mapaDoEndividamento({ fonte: 'Balanço contábil 2025', ref: { arquivo: 'Balanço 2025.pdf' }, contas: folhasDoPassivo(bal.dados.contas as { conta: string; saldo: number }[]) })!;
+  const base = { projeto: { nome: 'P', razaoSocial: 'EJE INDUSTRIA DE METAIS LTDA', posicao: 'devedor' as const, cnpj: '11.222.333/0001-81' }, dataBase: '2026-11-10', geradoPor: 'T', versao: 2, documentos: [], checklist: [], portal: { obrigatorios: 0, enviados: 0, aprovados: 0 }, balancos: [], dres: [], extratos: [], passivo: [], clientesAbc: [], relacionadas: [] };
+  const r = montarRelatorio({ ...base, endividamento: [mapa], faturamento: [{ ano: 2024, ref: { arquivo: 'f.pdf' }, fiscal: 10e6, gerencial: 20e6 }, { ano: 2025, ref: { arquivo: 'f.pdf' }, fiscal: 12e6, gerencial: 25e6 }] });
+  const h = renderizarDiagnostico(r);
+  test('capa, sumário com as 12 seções e gráficos na largura útil da página (265 mm)', () => {
+    expect(h).toContain('CNPJ 11.222.333/0001-81');
+    expect((h.match(/data-pag="/g) ?? []).length).toBe(12);
+    expect(h).toContain('viewBox="0 0 265 ');
+    expect(h).toContain('Classe III (art. 41, III)');
+  });
+  test('versão antiga, gravada sem os campos novos, continua abrindo', () => {
+    const antiga = JSON.parse(JSON.stringify(r));
+    delete antiga.juridico.comuns; delete antiga.juridico.documentosArt51; delete antiga.capa.cnpj;
+    for (const c of antiga.endividamento[0].categorias) delete c.classe;
+    const x = renderizarDiagnostico(antiga);
+    expect(x).toContain('Gere uma nova versão');
+    expect((x.match(/class="dg-secao"/g) ?? []).length).toBe(12);
   });
 });

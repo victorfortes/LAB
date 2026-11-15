@@ -209,7 +209,7 @@ export function matrizDeRiscos(s: SinaisDeRisco): Risco[] {
   const f = s.faturamento;
   if (f && f.diferencaAcumulada > 0 && (f.percentualSobreFiscal ?? 0) >= 20) r.push({
     tema: 'Receita fora do fiscal', natureza: 'fato', prioridade: 'Alta',
-    achado: `O faturamento gerencial supera o fiscal em ${brl(f.diferencaAcumulada)} no período (${f.percentualSobreFiscal}% sobre o fiscal).`,
+    achado: `O faturamento gerencial supera o fiscal em ${brl(f.diferencaAcumulada)} no período (${(f.percentualSobreFiscal ?? 0).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}% sobre o fiscal).`,
     porQueImporta: credor ? `Indício a esclarecer: receita não escriturada fiscalmente reduz a confiabilidade da base de crédito e pode indicar tributação omitida (legislação tributária; ${NOTA}).`
       : `Receita sem lastro fiscal compromete a credibilidade do pedido e pode ter consequência tributária e penal a esclarecer (LREF art. 51, II; ${NOTA}).`,
   });
@@ -217,7 +217,7 @@ export function matrizDeRiscos(s: SinaisDeRisco): Risco[] {
   if (opostos.length) r.push({
     tema: 'Contabilidade sem lastro', natureza: 'fato', prioridade: 'Alta',
     achado: `Resultado contábil e gerencial com sinais opostos em ${opostos.map((d) => d.ano).join(', ')}.`,
-    porQueImporta: `Duas versões do resultado impedem demonstrar a situação econômica (LREF art. 51, II e § 6º; ${NOTA}).`,
+    porQueImporta: `Duas versões do resultado impedem demonstrar a situação econômica (LREF art. 51, II; ${NOTA}).`,
   });
   const naoFecham = (s.balancos ?? []).filter((b) => !b.fecha);
   if (naoFecham.length) r.push({
@@ -229,18 +229,18 @@ export function matrizDeRiscos(s: SinaisDeRisco): Risco[] {
   if (iliq.length) r.push({
     tema: 'Liquidez de curto prazo', natureza: 'fato', prioridade: 'Alta',
     achado: `Liquidez corrente abaixo de 1,0 em ${iliq.map((b) => `${b.exercicio} (${b.liquidezCorrente!.toLocaleString('pt-BR')})`).join(', ')}.`,
-    porQueImporta: `Indica dificuldade de honrar o passivo de curto prazo; pesa na urgência e na via escolhida (LREF art. 20-B; ${NOTA}).`,
+    porQueImporta: `Indica dificuldade de honrar o passivo de curto prazo; pesa na urgência, na via escolhida e na exposição das causas da crise (LREF art. 51, I; ${NOTA}).`,
   });
   for (const e of s.extratos ?? []) {
     if ((e.percentualFomentoNasEntradas ?? 0) >= 25) r.push({
       tema: 'Fomento e recebíveis', natureza: 'fato', prioridade: 'Alta',
-      achado: `${e.percentualFomentoNasEntradas}% das entradas do ${e.banco} vieram de fomento (factoring, FIDC ou securitizadora).`,
+      achado: `${(e.percentualFomentoNasEntradas ?? 0).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}% das entradas do ${e.banco} vieram de fomento (factoring, FIDC ou securitizadora).`,
       porQueImporta: `Recebíveis cedidos podem estar fora do alcance da recuperação; verificar cessão fiduciária (LREF art. 49, § 3º; ${NOTA}).`,
     });
     if (e.grupos.parteRelacionada.entradas + e.grupos.parteRelacionada.saidas > 0 && Math.abs(e.grupos.parteRelacionada.liquido) > 0) r.push({
       tema: 'Partes relacionadas', natureza: 'hipotese', prioridade: 'Media',
       achado: `Fluxo líquido de ${brl(e.grupos.parteRelacionada.liquido)} com partes relacionadas no ${e.banco}.`,
-      porQueImporta: `Hipótese de trabalho: verificar documentação de cada fluxo e eventual confusão patrimonial (LREF art. 129; ${NOTA}).`,
+      porQueImporta: `Hipótese de trabalho: verificar documentação de cada fluxo e eventual confusão patrimonial; em falência, esses atos podem ser revistos (LREF arts. 129 e 130; ${NOTA}).`,
     });
   }
   if (s.passivo?.fiscal && s.passivo.fiscal.maximo !== s.passivo.fiscal.minimo) r.push({

@@ -119,8 +119,10 @@ export async function gerar(db: PoolClient, projetoId: string, motivo: 'manual' 
   const leitura = dep && opcoes.lerArquivos !== false ? await lerPlanilhasDoProjeto(db, projetoId, dep, identidade) : { planilhasLidas: 0, extracoes: 0, avisos: [] as string[] };
   const { rows: antigos } = await db.query<{ avisos: string[] }>('SELECT avisos FROM diagnostico_leituras WHERE projeto_id = $1', [projetoId]);
   const avisosDeLeitura = [...new Set([...antigos.flatMap((a) => a.avisos), ...leitura.avisos])];
-  const { rows: pj } = await db.query<{ organizacao_id: string; nome: string; posicao_cliente: 'devedor' | 'credor'; razao: string | null }>(
-    `SELECT p.organizacao_id, p.nome, p.posicao_cliente, (SELECT coalesce(e.razao_social, e.nome_fantasia) FROM projetos_empresas pe JOIN empresas e ON e.id = pe.empresa_id WHERE pe.projeto_id = p.id ORDER BY pe.papel LIMIT 1) AS razao
+  const { rows: pj } = await db.query<{ organizacao_id: string; nome: string; posicao_cliente: 'devedor' | 'credor'; razao: string | null; cnpj: string | null; segmento: string | null }>(
+    `SELECT p.organizacao_id, p.nome, p.posicao_cliente, p.segmento,
+            (SELECT coalesce(e.razao_social, e.nome_fantasia) FROM projetos_empresas pe JOIN empresas e ON e.id = pe.empresa_id WHERE pe.projeto_id = p.id ORDER BY pe.papel LIMIT 1) AS razao,
+            (SELECT e.cnpj FROM projetos_empresas pe JOIN empresas e ON e.id = pe.empresa_id WHERE pe.projeto_id = p.id ORDER BY pe.papel LIMIT 1) AS cnpj
        FROM projetos p WHERE p.id = $1`, [projetoId]);
   if (!pj[0]) throw new NaoEncontrado('projeto não encontrado');
   const { rows: docs } = await db.query<{ id: string; titulo: string; nome_original: string | null; categoria: string | null; estado: string | null; detalhe: string | null }>(
@@ -172,7 +174,7 @@ export async function gerar(db: PoolClient, projetoId: string, motivo: 'manual' 
   const hoje = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
 
   const relatorio = montarRelatorio({
-    projeto: { nome: pj[0].nome, razaoSocial: pj[0].razao, posicao: pj[0].posicao_cliente }, dataBase: hoje, geradoPor: quem, versao: numero,
+    projeto: { nome: pj[0].nome, razaoSocial: pj[0].razao, posicao: pj[0].posicao_cliente, cnpj: pj[0].cnpj, segmento: pj[0].segmento }, dataBase: hoje, geradoPor: quem, versao: numero,
     documentos, checklist, portal,
     balancos: com('balanco').filter((x) => ['ativoCirculante', 'ativoNaoCirculante', 'passivoCirculante', 'passivoNaoCirculante', 'patrimonioLiquido'].every((k) => typeof (x.dados as Record<string, unknown>)[k] === 'number')).map((x) => ({ ...(x.dados as object), ref: refDe(x.referencia) }) as never),
     dres: [...com('dre_contabil').map((x) => ({ ...(x.dados as object), tipo: 'contabil', ref: refDe(x.referencia) })), ...com('dre_gerencial').map((x) => ({ ...(x.dados as object), tipo: 'gerencial', ref: refDe(x.referencia) }))] as never,
@@ -208,11 +210,20 @@ export async function comparar(db: PoolClient, projetoId: string, de: number, pa
 }
 export async function html(db: PoolClient, projetoId: string, numero: number) { return renderizarDiagnostico((await obterVersao(db, projetoId, numero)).relatorio); }
 
-/** PDF paisagem a partir do MESMO HTML, via Chromium (Playwright). Só roda onde o Playwright existe: na nuvem (Edge) devolve null. */
+/**
+ * PDF paisagem a partir do MESMO HTML, via Chromium (Playwright), com a mesma paginação do navegador
+ * (`web/js/diag_paginar.js`: capa, sumário com páginas, "n / N"). Só roda onde o Playwright existe: na nuvem
+ * (Edge) devolve null e a aba imprime pelo navegador.
+ */
 export async function pdf(htmlDoc: string): Promise<Uint8Array | null> {
-  let chromium: { launch: (o?: object) => Promise<{ newPage: () => Promise<{ setContent: (h: string, o?: object) => Promise<void>; pdf: (o: object) => Promise<Uint8Array> }>; close: () => Promise<void> }> };
+  type Pagina = { setContent: (h: string, o?: object) => Promise<void>; addScriptTag: (o: { content: string }) => Promise<unknown>; evaluate: (f: string) => Promise<unknown>; pdf: (o: object) => Promise<Uint8Array> };
+  let chromium: { launch: (o?: object) => Promise<{ newPage: (o?: object) => Promise<Pagina>; close: () => Promise<void> }> };
   try { chromium = (await import(/* @vite-ignore */ 'playwright' as string)).chromium; } catch { return null; }
+  const paginador = await (async () => { try { const { readFile } = await import('node:fs/promises'); return (await readFile(new URL('../../web/js/diag_paginar.js', import.meta.url), 'utf8')).replace(/^export /m, ''); } catch { return null; } })();
   const nav = await chromium.launch();
-  try { const pg = await nav.newPage(); await pg.setContent(htmlDoc, { waitUntil: 'load' }); return await pg.pdf({ width: '297mm', height: '210mm', printBackground: true, margin: { top: '0', right: '0', bottom: '0', left: '0' } }); }
-  finally { await nav.close(); }
+  try {
+    const pg = await nav.newPage({ viewport: { width: 1123, height: 794 } }); await pg.setContent(htmlDoc, { waitUntil: 'load' });
+    if (paginador) { await pg.evaluate('document.fonts.ready'); await pg.addScriptTag({ content: `${paginador}\npaginar(document);` }); }
+    return await pg.pdf({ width: '297mm', height: '210mm', printBackground: true, preferCSSPageSize: true, margin: { top: '0', right: '0', bottom: '0', left: '0' } });
+  } finally { await nav.close(); }
 }
