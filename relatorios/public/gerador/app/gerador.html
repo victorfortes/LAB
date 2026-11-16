@@ -1016,9 +1016,9 @@ label .mp-campo .mp-ico{color:var(--gold)}label .mp-campo .mp-txt{font-weight:50
 <div class="panel-body" id="panel-astrea">
 <form id="report-form">
 <label class="upload" id="dropzone" for="arquivo">
-<input id="arquivo" name="arquivo" type="file" accept="application/pdf,.pdf" required>
+<input id="arquivo" name="arquivo" type="file" accept="application/pdf,.pdf" multiple required>
 <span class="upload-icon" aria-hidden="true">↑</span>
-<span class="upload-copy"><strong id="file-label">Selecionar PDF do Astrea</strong><small id="file-help">Arraste o arquivo aqui ou clique para procurar · máximo 50 MB</small></span>
+<span class="upload-copy"><strong id="file-label">Selecionar PDF do Astrea</strong><small id="file-help">Arraste o(s) arquivo(s) aqui ou clique para procurar · pode enviar mais de um · máximo 50 MB cada</small></span>
 <span class="upload-action">Escolher arquivo</span>
 </label>
 
@@ -1060,6 +1060,8 @@ label .mp-campo .mp-ico{color:var(--gold)}label .mp-campo .mp-txt{font-weight:50
 <label><span>Nome do cliente na capa</span><input id="neg-cliente" placeholder="Ex.: Estaçofer"></label>
 <label class="competencia"><span>Período de referência</span><input id="neg-competencia" type="month"></label>
 </div>
+<div class="fields"><label class="full"><span>Semear o quadro a partir de um PDF do Astrea <small style="color:var(--muted)">opcional — cria um card por contraparte, que você organiza nas colunas</small></span><input type="file" id="neg-astrea" accept="application/pdf,.pdf"></label></div>
+<div style="margin:-2px 0 12px"><button type="button" class="kb-add-btn" id="neg-astrea-btn">Importar negociações do Astrea</button> <span class="side-note" id="neg-astrea-status"></span></div>
 
 <h3 class="sub-heading">Diagnóstico e estratégia por credor <span>opcional, aparece como página antes do painel de negociações</span></h3>
 <div class="diag-add-row">
@@ -1171,6 +1173,7 @@ label .mp-campo .mp-ico{color:var(--gold)}label .mp-campo .mp-txt{font-weight:50
 <div style="display:flex;gap:10px">
 <button class="mini-btn" id="rev-voltar" type="button">Voltar</button>
 <button class="pdf-button" id="rev-gerar" type="button"><span>Gerar relatório executivo</span><b aria-hidden="true">↓</b></button>
+<button class="mini-btn" id="rev-estudio" type="button" hidden>Editar no estúdio</button>
 </div>
 </div>
 <div class="alert" id="rev-alert" role="alert" hidden></div>
@@ -1278,6 +1281,12 @@ label .mp-campo .mp-ico{color:var(--gold)}label .mp-campo .mp-txt{font-weight:50
 <h4>Datas dos marcos do procedimento</h4>
 <p style="font-size:12px;color:var(--muted);margin:0 0 12px">Preencha as datas conforme o procedimento avança. O sistema deriva sozinho a fase atual (o primeiro marco sem data após o último preenchido). Deixe em branco o que ainda não ocorreu.</p>
 <div class="config-grid" id="cf-marcos-campos"></div>
+</div>
+<div class="review-group" id="cf-agcs-group" style="margin-top:22px;display:none">
+<h4>Assembleias de credores (AGC)</h4>
+<p style="font-size:12px;color:var(--muted);margin:0 0 12px">Registre cada assembleia com a sua data e situação. Elas entram na linha do tempo no lugar do marco único de assembleia — uma linha por AGC.</p>
+<div id="cf-agcs-lista"></div>
+<button class="mini-btn" id="cf-agcs-add" type="button" style="margin-top:8px">+ Adicionar AGC</button>
 </div>
 <div class="form-footer">
 <p><span aria-hidden="true">✓</span> Configuração salva localmente, por cliente.</p>
@@ -3747,12 +3756,33 @@ function montarMarcosDoCliente(cliente, ctx) {
   if (!tpl || tpl === "nenhum" || !TIMELINE_TEMPLATES[tpl]) return [];
   var datas = (cliente && cliente.marcos) || {};
   var template = TIMELINE_TEMPLATES[tpl];
-  var ultimoConcluido = -1;
-  var marcos = template.map(function (m, i) {
+  var marcos = template.map(function (m) {
     var data = datas[m.chave] || null;
-    if (data) ultimoConcluido = i;
     return { chave: m.chave, rotulo: m.rotulo, data: data, status: data ? "concluido" : "pendente", origem: data ? { tipo: "cadastro" } : null };
   });
+  // Recuperação extrajudicial: negociação e colheita de adesões são pré-processuais.
+  // Quando essas fases iniciais ficaram sem data e uma fase posterior (o ajuizamento
+  // do pedido de homologação) já tem data, o relatório começa direto no ajuizamento —
+  // os marcos anteriores sem data somem, em vez de aparecerem como "fase atual".
+  if (tpl === "re") {
+    var primeiraComData = -1;
+    for (var k = 0; k < marcos.length; k++) { if (marcos[k].data) { primeiraComData = k; break; } }
+    if (primeiraComData > 0) marcos = marcos.slice(primeiraComData);
+  }
+  // RJ: uma ou mais AGCs, cada uma com a sua situação (designada, suspensa, não instalada,
+  // realizada), no lugar do marco único de assembleia. Ficam em ordem de data na linha do tempo.
+  if (tpl === "rj" && cliente && cliente.agcs && cliente.agcs.length) {
+    var AGC_ROT = { designada: "AGC designada", suspensa: "AGC instalada e suspensa", nao_instalada: "AGC não instalada", realizada: "Assembleia Geral de Credores" };
+    var tsAgc = function (v) { var pp = String(v || "").split("/"); return pp.length === 3 ? Date.UTC(+pp[2], +pp[1] - 1, +pp[0]) : 1e15; };
+    var ags = cliente.agcs.filter(function (a) { return a && (a.data || a.status); }).slice()
+      .sort(function (a, b) { return tsAgc(a.data) - tsAgc(b.data); })
+      .map(function (a) { return { chave: "AGC_REALIZADA", rotulo: AGC_ROT[a.status] || "Assembleia Geral de Credores", data: a.data || null, status: a.data ? "concluido" : "pendente", origem: a.data ? { tipo: "cadastro" } : null, agcStatus: a.status || null }; });
+    var iAgc = -1;
+    for (var g = 0; g < marcos.length; g++) { if (marcos[g].chave === "AGC_REALIZADA") { iAgc = g; break; } }
+    if (iAgc >= 0 && ags.length) Array.prototype.splice.apply(marcos, [iAgc, 1].concat(ags));
+  }
+  var ultimoConcluido = -1;
+  marcos.forEach(function (m, i) { if (m.data) ultimoConcluido = i; });
   if (ultimoConcluido + 1 < marcos.length) {
     marcos[ultimoConcluido + 1].status = "atual";
     if (ultimoConcluido + 2 < marcos.length) marcos[ultimoConcluido + 2].status = "proximo";
@@ -5754,7 +5784,7 @@ GeradorRelatorioPDF.prototype._paginaAndamento = function (doc, dados, pagina) {
         y = self.H - 60;
       }
       // último parágrafo é o do mês: sai em dourado para o cliente achar rápido
-      var doMes = idx === pars.length - 1 && pars.length > 1;
+      var doMes = idx === pars.length - 1;
       self._text(doc, self.M + (j === 0 ? 8 : 0), y, linha, { size: fonte, color: doMes ? "#E3C59C" : t.texto, just: just });
       y -= entrelinha;
     });
@@ -6082,8 +6112,10 @@ GeradorRelatorioPDF.prototype._paginaAndamentoCredor = function (doc, d, pagina)
   };
 
   var pars = d.narrativa.split(/\n{1,}/).map(function (p) { return p.trim(); }).filter(Boolean);
-  var doMes = pars.length > 1 ? pars[pars.length - 1] : null;
-  var historico = pars.length > 1 ? pars.slice(0, -1) : pars;
+  // O último parágrafo é sempre o andamento mais recente (NESTE MÊS), mesmo quando o
+  // advogado escreveu um único parágrafo; o restante vai para o histórico cronológico.
+  var doMes = pars.length ? pars[pars.length - 1] : null;
+  var historico = pars.slice(0, -1);
   var y = yInicio;
   var OPC = { tamanho: 10, entrelinha: 5.15 };
 
@@ -6256,8 +6288,15 @@ GeradorRelatorioPDF.prototype._capaCredor = function (doc, dados) {
     fileLabel.textContent = file.name;
     fileHelp.textContent = (file.size / 1024 / 1024).toFixed(1).replace(".", ",") + " MB · PDF selecionado";
   }
+  function showFiles(files) {
+    if (!files || !files.length) return;
+    if (files.length === 1) { showFile(files[0]); return; }
+    var mb = 0; for (var i = 0; i < files.length; i++) mb += files[i].size;
+    fileLabel.textContent = files.length + " arquivos selecionados";
+    fileHelp.textContent = (mb / 1024 / 1024).toFixed(1).replace(".", ",") + " MB · " + files.length + " PDFs do Astrea (relatório consolidado)";
+  }
 
-  fileInput.addEventListener("change", function () { showFile(fileInput.files[0]); setStep(2, 1); });
+  fileInput.addEventListener("change", function () { showFiles(fileInput.files); setStep(2, 1); });
   ["dragenter", "dragover"].forEach(function (evt) {
     dropzone.addEventListener(evt, function (e) { e.preventDefault(); dropzone.classList.add("dragging"); });
   });
@@ -6265,13 +6304,8 @@ GeradorRelatorioPDF.prototype._capaCredor = function (doc, dados) {
     dropzone.addEventListener(evt, function (e) { e.preventDefault(); dropzone.classList.remove("dragging"); });
   });
   dropzone.addEventListener("drop", function (event) {
-    var file = event.dataTransfer.files[0];
-    if (file) {
-      var transfer = new DataTransfer();
-      transfer.items.add(file);
-      fileInput.files = transfer.files;
-      showFile(file);
-    }
+    var files = event.dataTransfer.files;
+    if (files && files.length) { fileInput.files = files; showFiles(files); }
   });
 
   // Páginas puladas por não terem texto: o usuário precisa saber quais foram.
@@ -6308,6 +6342,27 @@ GeradorRelatorioPDF.prototype._capaCredor = function (doc, dados) {
     }
   }
 
+  // Item 5: consolida vários PDFs do Astrea num só relatório. Dedup de processos pelo número e de
+  // atividades por (processo · data · descrição), para dois exports que se sobreponham não contarem em dobro.
+  function mesclarAstrea(lista) {
+    var out = { tarefasFuturasCasos: [], processos: [], atividades: [], tarefasFuturas: [], naoClassificados: [], duplicatasIgnoradas: 0, paginasSemTexto: [], casosAdministrativos: [], atividadesAdministrativas: [], avisos: [], baseCasos: false };
+    var procVistos = {}, atVistos = {};
+    var soDig = function (v) { return String(v || "").replace(/\D+/g, ""); };
+    // Chaves de conteúdo completo: duas fichas com o mesmo número mas partes/distribuição diferentes NÃO
+    // são a mesma ficha; duas atividades só são a mesma se número, data, tipo e descrição batem por inteiro.
+    var chaveProc = function (pr) { return soDig(pr.numero_processo) + "|" + (pr.titulo || "") + "|" + (pr.envolvidos || "") + "|" + (pr.distribuicao || ""); };
+    var chaveAt = function (a) { return soDig(a.numero_processo) + "|" + (a.data || "") + "|" + (a.tipo || "") + "|" + String(a.descricao || ""); };
+    lista.forEach(function (ex, di) {
+      (ex.processos || []).forEach(function (pr) { var k = chaveProc(pr); if (soDig(pr.numero_processo) === "" ) k = "_s" + di + "_" + out.processos.length; if (procVistos[k]) return; procVistos[k] = 1; out.processos.push(pr); });
+      (ex.atividades || []).forEach(function (a) { var k = chaveAt(a); if (atVistos[k]) return; atVistos[k] = 1; out.atividades.push(a); });
+      ["atividadesAdministrativas", "casosAdministrativos", "tarefasFuturas", "tarefasFuturasCasos", "naoClassificados", "avisos"].forEach(function (campo) { (ex[campo] || []).forEach(function (x) { out[campo].push(x); }); });
+      out.duplicatasIgnoradas += ex.duplicatasIgnoradas || 0;
+      if (ex.baseCasos) out.baseCasos = true;
+    });
+    out.avisos.unshift("Relatório consolidado de " + lista.length + " arquivos do Astrea: " + out.processos.length + " processo(s) e " + out.atividades.length + " atividade(s) após remover repetidos. A conferência automática roda por arquivo; o consolidado soma as leituras principais.");
+    return out;
+  }
+
   form.addEventListener("submit", async function (event) {
     event.preventDefault();
     alertBox.hidden = true;
@@ -6317,10 +6372,13 @@ GeradorRelatorioPDF.prototype._capaCredor = function (doc, dados) {
     progressText.textContent = "Lendo o PDF do Astrea…";
 
     try {
-      var file = fileInput.files[0];
-      if (!file) throw new Error("Selecione um arquivo PDF exportado do Astrea.");
-      if (!/\.pdf$/i.test(file.name)) throw new Error("Selecione um arquivo PDF exportado do Astrea.");
-      if (file.size > MAX_UPLOAD_BYTES) throw new Error("O PDF excede o limite de 50 MB.");
+      var arquivos = Array.prototype.slice.call(fileInput.files || []);
+      if (!arquivos.length) throw new Error("Selecione um arquivo PDF exportado do Astrea.");
+      arquivos.forEach(function (f) {
+        if (!/\.pdf$/i.test(f.name)) throw new Error("Selecione apenas arquivos PDF exportados do Astrea.");
+        if (f.size > MAX_UPLOAD_BYTES) throw new Error("O PDF \"" + f.name + "\" excede o limite de 50 MB.");
+      });
+      var file = arquivos[0];
 
       var competenciaEl = form.querySelector('[name="competencia"]');
       var competencia = competenciaEl ? competenciaEl.value : ""; // "YYYY-MM"
@@ -6330,12 +6388,18 @@ GeradorRelatorioPDF.prototype._capaCredor = function (doc, dados) {
       var inicio = new Date(Date.UTC(ano, mes - 1, 1));
       var fim = new Date(Date.UTC(ano, mes, 0));
 
-      var arrayBuffer = await file.arrayBuffer();
-      var pdfDoc = await abrirPDF(new Uint8Array(arrayBuffer));
-
-      progressText.textContent = "Extraindo fichas e histórico de atividades…";
       var _parse = (typeof window !== "undefined" && window.parseAstreaPDF) ? window.parseAstreaPDF : parseAstreaPDF;
-      var extraido = await _parse(pdfDoc);
+      var pdfDocs = [], extraidos = [];
+      for (var _fi = 0; _fi < arquivos.length; _fi++) {
+        progressText.textContent = arquivos.length > 1 ? ("Extraindo fichas e histórico — arquivo " + (_fi + 1) + " de " + arquivos.length + "…") : "Extraindo fichas e histórico de atividades…";
+        var _ab = await arquivos[_fi].arrayBuffer();
+        var _pd = await abrirPDF(new Uint8Array(_ab));
+        pdfDocs.push(_pd);
+        extraidos.push(await _parse(_pd));
+      }
+      var pdfDoc = pdfDocs[0];
+      var multiDoc = extraidos.length > 1;
+      var extraido = multiDoc ? mesclarAstrea(extraidos) : extraidos[0];
 
       // Base sem nenhuma ficha não pode virar painel zerado: isso esconde o
       // problema. Dizemos o que foi lido e por que não serve.
@@ -6381,7 +6445,9 @@ GeradorRelatorioPDF.prototype._capaCredor = function (doc, dados) {
       regrasParaMotor.destaquesComite = !!(clienteCad && clienteCad.config && clienteCad.config.destaquesComite);
       window.NGA_BASE_CASOS = !!extraido.baseCasos;
       var calculo = calcularIndicadores(extraido.processos, extraido.atividades, inicio, fim, regrasParaMotor, extraido.atividadesAdministrativas || [], extraido.casosAdministrativos || []);
-      calculo = await auditarGeracao(pdfDoc, extraido, calculo, inicio, fim, function () { return calcularIndicadores(extraido.processos, extraido.atividades, inicio, fim, regrasParaMotor, extraido.atividadesAdministrativas || [], extraido.casosAdministrativos || []); });
+      // A conferência automática relê o texto bruto de UM PDF; no consolidado de vários arquivos ela roda
+      // por arquivo (a leitura principal de cada um) e não reprocessa o conjunto — o aviso do consolidado diz isso.
+      if (!multiDoc) calculo = await auditarGeracao(pdfDoc, extraido, calculo, inicio, fim, function () { return calcularIndicadores(extraido.processos, extraido.atividades, inicio, fim, regrasParaMotor, extraido.atividadesAdministrativas || [], extraido.casosAdministrativos || []); });
       // P53: mês sem nenhum registro no Astrea não sai zerado. Usa o último mês anterior com registros
       // (em geral o mês passado) e deixa o aviso de que não houve atualização no período pedido.
       if (!(calculo && calculo.indicadores && calculo.indicadores.quantidade_total_atividades_periodo)) {
@@ -6625,6 +6691,57 @@ GeradorRelatorioPDF.prototype._capaCredor = function (doc, dados) {
   });
 
   renderKanban();
+
+  // Item 7: semeia o quadro de negociações (extrajudicial) a partir de um PDF do Astrea —
+  // um card por contraparte, com a fase e a última movimentação; o advogado organiza nas colunas.
+  (function () {
+    var btn = document.getElementById("neg-astrea-btn");
+    if (!btn) return;
+    btn.addEventListener("click", async function () {
+      var status = document.getElementById("neg-astrea-status");
+      var inp = document.getElementById("neg-astrea");
+      var file = inp && inp.files && inp.files[0];
+      if (!file) { status.textContent = "Escolha o PDF de fichas exportado do Astrea."; return; }
+      if (!/\.pdf$/i.test(file.name)) { status.textContent = "Selecione um arquivo PDF."; return; }
+      btn.disabled = true; status.textContent = "Lendo o PDF do Astrea…";
+      try {
+        var _parse = (typeof window !== "undefined" && window.parseAstreaPDF) ? window.parseAstreaPDF : parseAstreaPDF;
+        var pdfDoc = await abrirPDF(new Uint8Array(await file.arrayBuffer()));
+        var ext = await _parse(pdfDoc);
+        var procs = ext.processos || [];
+        if (!procs.length) { status.textContent = "Nenhuma ficha de processo encontrada neste PDF."; btn.disabled = false; return; }
+        var cliInput = document.getElementById("neg-cliente");
+        if (!cliInput.value.trim()) {
+          var freq = {};
+          procs.forEach(function (pp) { var c = (pp.cliente_carteira || "").trim(); if (c) freq[c] = (freq[c] || 0) + 1; });
+          var topo = Object.keys(freq).sort(function (a, b) { return freq[b] - freq[a]; })[0];
+          if (topo) cliInput.value = topo;
+        }
+        var ts = function (v) { var q = String(v || "").split("/"); return q.length === 3 ? Date.UTC(+q[2], +q[1] - 1, +q[0]) : 0; };
+        var ultAt = {};
+        (ext.atividades || []).forEach(function (a) {
+          var k = String(a.numero_processo || "").replace(/\D+/g, ""); if (!k) return;
+          var t = ts(a.data_efetiva || a.data);
+          if (!ultAt[k] || t > ultAt[k]._ts) ultAt[k] = { _ts: t, data: a.data_efetiva || a.data, desc: a.descricao };
+        });
+        var vistos = {}, novos = 0;
+        procs.forEach(function (pp) {
+          var contraparte = String(pp.envolvidos || pp.titulo || pp.numero_processo || "").replace(/\s+/g, " ").trim();
+          if (!contraparte) return;
+          var chave = contraparte.toLowerCase();
+          if (vistos[chave]) return; vistos[chave] = 1;
+          var k = String(pp.numero_processo || "").replace(/\D+/g, "");
+          var ua = ultAt[k];
+          var obs = [pp.fase || pp.status || "", ua ? ("última mov. " + ua.data + ": " + String(ua.desc || "").replace(/\s+/g, " ").trim().slice(0, 120)) : ""].filter(Boolean).join(" · ");
+          kbState.andamento.push({ credor: contraparte.slice(0, 90), observacao: obs });
+          novos++;
+        });
+        renderKanban();
+        status.textContent = novos + ' negociação(ões) criada(s) em "Em andamento" a partir do Astrea. Organize nas colunas e ajuste os textos antes de gerar.';
+      } catch (e) { status.textContent = "Não foi possível ler o PDF: " + ((e && e.message) || e); }
+      finally { btn.disabled = false; }
+    });
+  })();
 
   // ---- diagnóstico e estratégia por credor, página opcional antes do kanban ----
   var diagEstrategias = [];
@@ -6943,6 +7060,7 @@ GeradorRelatorioPDF.prototype._capaCredor = function (doc, dados) {
     mostrar("rev-passos-group", !narr);
     mostrar("rev-onde", !credor);
     mostrar("rev-marcos-group", !credor);
+    mostrar("rev-estudio", narr);
     var btn = document.getElementById("rev-gerar");
     if (btn) btn.querySelector("span").textContent = narr ? "Gerar relatório narrativo" : "Gerar relatório executivo";
     if (!narr) return;
@@ -6979,6 +7097,7 @@ GeradorRelatorioPDF.prototype._capaCredor = function (doc, dados) {
           '<textarea class="narr-texto" rows="10" data-ni="' + i + '" data-campo="texto" placeholder="Histórico do processo em texto corrido, um parágrafo por evento relevante.">' + escapeHtml(it.texto) + '</textarea>' +
           '<div class="narr-acoes">' +
             '<button type="button" class="mini-btn" data-fatos="' + i + '">Inserir fatos do mês</button>' +
+            '<button type="button" class="mini-btn" data-status-astrea="' + i + '">Puxar status do Astrea</button>' +
             '<button type="button" class="mini-btn" data-ia="' + i + '">Redigir parágrafo do mês com IA</button>' +
             '<span class="side-note" data-status="' + i + '"></span>' +
           '</div>' +
@@ -6995,6 +7114,26 @@ GeradorRelatorioPDF.prototype._capaCredor = function (doc, dados) {
         ta.value = (ta.value.trim() ? ta.value.trim() + "\n\n" : "") + rasc;
         ta.scrollTop = ta.scrollHeight;
         st.textContent = "Fatos do mês inseridos no fim. Reescreva em linguagem para o cliente antes de gerar.";
+      });
+    });
+    // Item 2b: preenche a "Situação atual" a partir da última movimentação do processo no PDF do Astrea.
+    box.querySelectorAll("[data-status-astrea]").forEach(function (b) {
+      b.addEventListener("click", function () {
+        var i = Number(b.dataset.statusAstrea), it = lerItem(i);
+        var st = box.querySelector('[data-status="' + i + '"]');
+        var ats = atividadesDoItem(estado, it).slice().filter(function (a) { return a.data || a.data_efetiva; });
+        if (!ats.length) { st.textContent = "Nenhuma movimentação deste processo no Astrea para gerar o status."; return; }
+        var ts = function (a) { var q = String(a.data_efetiva || a.data || "").split("/"); return q.length === 3 ? Date.UTC(+q[2], +q[1] - 1, +q[0]) : 0; };
+        ats.sort(function (x, y) { return ts(y) - ts(x); });
+        var a = ats[0];
+        var t = Etiquetas.limpar(a.descricao || "").replace(/^[-\s]*\d+\.\s*/, "");
+        var m = /-\s*Realizado:\s*(.+)$/i.exec(t); if (m) t = m[1];
+        t = t.replace(/\s+/g, " ").trim().replace(/[.;,\s]+$/, "");
+        if (t === t.toUpperCase()) t = t.charAt(0) + t.slice(1).toLowerCase();
+        var status = "Em " + (a.data_efetiva || a.data) + ": " + (t ? t.charAt(0).toUpperCase() + t.slice(1) : (a.tipo || "movimentação")) + ".";
+        var inp = box.querySelector('input[data-ni="' + i + '"][data-campo="situacao"]');
+        if (inp) inp.value = status;
+        st.textContent = "Situação preenchida pela última movimentação do Astrea (" + (a.data_efetiva || a.data) + "). Revise antes de gerar.";
       });
     });
     box.querySelectorAll("[data-ia]").forEach(function (b) {
@@ -7215,6 +7354,47 @@ GeradorRelatorioPDF.prototype._capaCredor = function (doc, dados) {
     }, 30);
   }
 
+  // Item 1: abre o narrativo de credor no estúdio como páginas editáveis (canvas),
+  // com a situação, o crédito, a prosa do andamento (parágrafo a parágrafo) e os marcos.
+  function editarNarrativoNoEstudio(estado) {
+    if (!estado || !estado.itensNarrativos) return;
+    var itens = estado.itensNarrativos.map(function (_, i) { return lerItem(i); });
+    var semTexto = itens.filter(function (it) { return !it.texto; });
+    if (semTexto.length) {
+      revAlert.textContent = "Falta o andamento processual de: " + semTexto.map(function (it) { return it.quadro.procedimento || it.quadro.autos || "processo sem nome"; }).join(", ") + ".";
+      revAlert.hidden = false; return;
+    }
+    var P = window.NGA_PINTURA;
+    if (!P || !window.NGA_CTX || !window.NGA_ESTUDIO || !window.NGA_MODELOS) {
+      revAlert.textContent = "O estúdio não está disponível nesta tela."; revAlert.hidden = false; return;
+    }
+    var blocos = [];
+    itens.forEach(function (it) {
+      var titulo = it.quadro.procedimento || it.quadro.autos || estado.clienteCad.nome;
+      var b = window.NGA_MODELOS.blocoDesign("Andamento — " + titulo);
+      b.moldura = { ativa: true, titulo: titulo, kicker: "ANDAMENTO PROCESSUAL" };
+      var y = 54;
+      if (it.situacao) { b.elementos.push(P.novo("texto", 18, y, { texto: "Situação atual: " + it.situacao, tam: 12, peso: "bold", w: 261, cor: "#BE8E57" })); y += 12; }
+      var resumo = [it.quadro.credito ? "Crédito indicado: " + it.quadro.credito : "", it.quadro.classe ? "Classificação: " + it.quadro.classe : ""].filter(Boolean).join("   ·   ");
+      if (resumo) { b.elementos.push(P.novo("texto", 18, y, { texto: resumo, tam: 9.5, w: 261, cor: "#CDD4DA" })); y += 9; }
+      (it.texto || "").split(/\n+/).map(function (par) { return par.trim(); }).filter(Boolean).forEach(function (par) {
+        b.elementos.push(P.novo("texto", 18, y, { texto: par, tam: 10.5, w: 261, cor: "#E6ECF1" }));
+        y += Math.max(9, Math.ceil(par.length / 92) * 5 + 4);
+      });
+      var pseudo = { config: { templateTimeline: it.template }, marcos: it.marcos };
+      var marcos = montarMarcosDoCliente(pseudo).filter(function (m) { return m.data; });
+      if (marcos.length) {
+        y += 4;
+        b.elementos.push(P.novo("texto", 18, y, { texto: "LINHA DO TEMPO", tam: 8, peso: "bold", w: 261, cor: "#BE8E57" })); y += 7;
+        marcos.forEach(function (m) { b.elementos.push(P.novo("texto", 18, y, { texto: "• " + m.data + " — " + m.rotulo, tam: 9.5, w: 261, cor: "#E6ECF1" })); y += 6; });
+      }
+      blocos.push(b);
+    });
+    if (!blocos.length) { revAlert.textContent = "Nada para editar no estúdio."; revAlert.hidden = false; return; }
+    window.NGA_CTX.definirBlocos(blocos);
+    window.NGA_ESTUDIO.abrirDoLivre(0);
+  }
+
   // A config do cliente pode ter mudado depois do upload do PDF: o cadastro é relido na hora de gerar.
   function atualizarConfigDoCliente(estado) {
     if (!estado || !estado.clienteCad || !estado.clienteCad.id) return Promise.resolve();
@@ -7232,6 +7412,10 @@ GeradorRelatorioPDF.prototype._capaCredor = function (doc, dados) {
   document.getElementById("rev-gerar").addEventListener("click", function () {
     atualizarConfigDoCliente(ultimoResultado).then(gerarDaRevisao);
   });
+  (function () {
+    var be = document.getElementById("rev-estudio");
+    if (be) be.addEventListener("click", function () { revAlert.hidden = true; var e = ultimoResultado; if (e && e.modelo === "narrativo") editarNarrativoNoEstudio(e); });
+  })();
   function gerarDaRevisao() {
     revAlert.hidden = true;
     var estado = ultimoResultado;
@@ -7387,6 +7571,8 @@ GeradorRelatorioPDF.prototype._capaCredor = function (doc, dados) {
   function renderCamposMarcos(template, datas) {
     var grupo = document.getElementById("cf-marcos-group");
     var campos = document.getElementById("cf-marcos-campos");
+    var agcGrupo = document.getElementById("cf-agcs-group");
+    if (agcGrupo) { agcGrupo.style.display = (template === "rj") ? "" : "none"; if (template === "rj") renderAgcs(); }
     var tpl = (typeof TIMELINE_TEMPLATES !== "undefined") ? TIMELINE_TEMPLATES : (window.TIMELINE_TEMPLATES || {});
     var marcos = tpl[template];
     if (!marcos) { grupo.style.display = "none"; campos.innerHTML = ""; return; }
@@ -7406,6 +7592,8 @@ GeradorRelatorioPDF.prototype._capaCredor = function (doc, dados) {
   var TEMPLATE_DO_TIPO = { rj: "rj", re: "re", falencia: "falencia", civel: "civel", prejudicial: "nenhum" };
   var ROTULO_TEMPLATE = { rj: "Recuperação Judicial", re: "Recuperação Extrajudicial", falencia: "Falência", civel: "Cível" };
   var acompEditando = [];
+  var agcsEditando = [];
+  var AGC_STATUS = [["designada","Designada"],["suspensa","Instalada e suspensa"],["nao_instalada","Não instalada"],["realizada","Realizada"]];
 
   function aplicarTipoNoForm(tipo, manterTemplate) {
     var credor = tipo === "credor", civel = tipo === "civel", multiplo = credor || civel;
@@ -7413,6 +7601,8 @@ GeradorRelatorioPDF.prototype._capaCredor = function (doc, dados) {
     document.getElementById("cf-acomp-title").textContent = civel ? "Processos cíveis acompanhados" : "Processos acompanhados como credor";
     document.getElementById("cf-acomp-desc").textContent = civel ? "Adicione cada processo cível com seus próprios autos, etapas e datas. O relatório narrativo reúne todos em um PDF." : "Cada processo tem sua própria linha do tempo e seu próprio texto de andamento. O relatório narrativo reúne todos em um PDF.";
     document.getElementById("cf-marcos-group").style.display = multiplo ? "none" : "";
+    var cfAgcGrupo = document.getElementById("cf-agcs-group");
+    if (cfAgcGrupo && multiplo) cfAgcGrupo.style.display = "none";
     var wrapTpl = document.getElementById("cf-template-wrap");
     if (wrapTpl) wrapTpl.style.display = multiplo ? "none" : "";
     if (multiplo) { renderAcompanhamentos(); return; }
@@ -7490,6 +7680,42 @@ GeradorRelatorioPDF.prototype._capaCredor = function (doc, dados) {
     renderAcompanhamentos();
   });
 
+  // --- AGCs (apenas RJ): várias assembleias, cada uma com data e situação ---
+  function lerAgcsDoForm() {
+    var lista = document.getElementById("cf-agcs-lista");
+    if (!lista) return agcsEditando;
+    var out = [];
+    lista.querySelectorAll(".agc-row").forEach(function (row) {
+      var data = row.querySelector("[data-agc-data]").value.trim();
+      var status = row.querySelector("[data-agc-status]").value;
+      if (data || status) out.push({ data: data, status: status });
+    });
+    agcsEditando = out;
+    return out;
+  }
+
+  function renderAgcs() {
+    var lista = document.getElementById("cf-agcs-lista");
+    if (!lista) return;
+    lista.innerHTML = agcsEditando.map(function (a, i) {
+      var opcoes = AGC_STATUS.map(function (s) {
+        return '<option value="' + s[0] + '"' + (a.status === s[0] ? " selected" : "") + ">" + escapeHtml(s[1]) + "</option>";
+      }).join("");
+      return '<div class="agc-row" data-i="' + i + '" style="display:flex;gap:10px;align-items:flex-end;margin-bottom:8px">' +
+        '<label style="flex:0 0 150px"><span class="lbl">Data</span><input data-agc-data placeholder="dd/mm/aaaa" value="' + escapeHtml(a.data || "") + '"></label>' +
+        '<label style="flex:1"><span class="lbl">Situação</span><select data-agc-status>' + opcoes + "</select></label>" +
+        '<button type="button" class="mini-btn" data-agc-remover="' + i + '">Remover</button>' +
+      "</div>";
+    }).join("");
+    lista.querySelectorAll("[data-agc-remover]").forEach(function (b) {
+      b.addEventListener("click", function () { lerAgcsDoForm(); agcsEditando.splice(Number(b.dataset.agcRemover), 1); renderAgcs(); });
+    });
+  }
+  (function () {
+    var add = document.getElementById("cf-agcs-add");
+    if (add) add.addEventListener("click", function () { lerAgcsDoForm(); agcsEditando.push({ data: "", status: "designada" }); renderAgcs(); });
+  })();
+
   function abrirFormCliente(id) {
     clienteEditandoId = id;
     cfAlert.hidden = true;
@@ -7516,6 +7742,7 @@ GeradorRelatorioPDF.prototype._capaCredor = function (doc, dados) {
     if (id) {
       Clientes.obter(id).then(function (c) {
         acompEditando = JSON.parse(JSON.stringify(c.acompanhamentos || []));
+        agcsEditando = JSON.parse(JSON.stringify(c.agcs || []));
         if (c.config && c.config.tipo === "civel" && !acompEditando.length && (c.config.narrativo || Object.keys(c.marcos || {}).length)) {
           var antigo = c.config.narrativo || {};
           acompEditando.push(Object.assign(novoAcompanhamento(), { autos: antigo.autos || "", procedimento: antigo.procedimento || "", devedor: antigo.devedor || "", credito: antigo.credito || "", classe: antigo.classe || "", situacao: antigo.situacao || "", texto: antigo.texto || "", template: c.config.templateTimeline || "civel", marcos: c.marcos || {} }));
@@ -7524,6 +7751,7 @@ GeradorRelatorioPDF.prototype._capaCredor = function (doc, dados) {
       });
     } else {
       acompEditando = [];
+      agcsEditando = [];
       set({}, {});
     }
     clienteFormPanel.scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -7561,22 +7789,27 @@ GeradorRelatorioPDF.prototype._capaCredor = function (doc, dados) {
     document.querySelectorAll(".cf-marco-data").forEach(function (inp) {
       if (inp.value.trim()) marcos[inp.dataset.chave] = inp.value.trim();
     });
+    // AGCs só fazem sentido na Recuperação Judicial.
+    var agcs = (config.templateTimeline === "rj") ? lerAgcsDoForm() : [];
     var acomps = null;
     if (config.tipo === "credor" || config.tipo === "civel") {
       config.templateTimeline = "nenhum";
       acomps = lerAcompanhamentosDoForm().filter(function (a) { return a.procedimento || a.autos; });
-      if (!acomps.length) { cfAlert.textContent = "Informe ao menos um processo acompanhado, com procedimento ou número dos autos."; cfAlert.hidden = false; return; }
+      // Cliente cível pode ser cadastrado sem processo (ex.: caso novo, ainda sem autos). O credor,
+      // que existe para acompanhar vários processos, continua exigindo ao menos um.
+      if (!acomps.length && config.tipo === "credor") { cfAlert.textContent = "Informe ao menos um processo acompanhado, com procedimento ou número dos autos."; cfAlert.hidden = false; return; }
     }
     var salvar;
     if (clienteEditandoId) {
       salvar = Clientes.obter(clienteEditandoId).then(function (c) {
         c.nome = nome; c.slug = slugify(nome); c.config = Object.assign({}, c.config, config); c.marcos = marcos;
         c.acompanhamentos = acomps || [];
+        c.agcs = agcs;
         return Clientes.salvar(c);
       });
     } else {
       salvar = Clientes.novo(nome, config).then(function (c) {
-        c.marcos = marcos; if (acomps) c.acompanhamentos = acomps; return Clientes.salvar(c);
+        c.marcos = marcos; if (acomps) c.acompanhamentos = acomps; c.agcs = agcs; return Clientes.salvar(c);
       });
     }
     salvar.then(function () { atualizarConfigDoCliente(ultimoResultado); clienteFormPanel.hidden = true; renderClientes(); popularSelectClientes(); });
