@@ -8,7 +8,7 @@
  */
 import { $, $$, esc, guardado, html, icone, iniciais, matiz, ouvir, raw } from './util.js';
 import { api, aoPerderSessao } from './api.js';
-import { estado, ehCliente, pode, ROTULO_DO_PAPEL } from './estado.js';
+import { estado, ehCliente, ehParceiro, pode, ROTULO_DO_PAPEL } from './estado.js';
 import { animarAneis, animarBarras, contar, fundo, lente } from './fx.js';
 import { menu, paleta, toast, erroDe } from './ui.js';
 
@@ -16,6 +16,7 @@ const NAV_EQUIPE = [
   { rota: 'painel', rotulo: 'Painel geral', icone: 'home', permissao: 'modulo.painel' },
   { rota: 'tarefas', rotulo: 'Tarefas', icone: 'check', contagem: 'tarefas', permissao: 'tarefa.ler' },
   { rota: 'calendario', rotulo: 'Calendário', icone: 'calendar', permissao: 'prazo.ler' },
+  { rota: 'novos-clientes', rotulo: 'Novos clientes', icone: 'sparkle', permissao: 'projeto.escrever' },
   { rota: 'pautas', rotulo: 'Pautas', icone: 'board', permissao: 'modulo.pautas' },
   { rota: 'slack', rotulo: 'Slack', icone: 'comment', permissao: 'tarefa.ler' },
   { rota: 'clientes', rotulo: 'Clientes', icone: 'users', permissao: 'modulo.clientes' },
@@ -39,11 +40,13 @@ const NAV_CLIENTE = [
   { rota: 'caixa', rotulo: 'Financeiro', icone: 'chart' },
   { rota: 'relatorios', rotulo: 'Relatórios', icone: 'relatorio' },
   { rota: 'atas', rotulo: 'Atas de reunião', icone: 'doc' },
+  { rota: 'manuais', rotulo: 'Manuais', icone: 'list' },
 ];
 const liberada = (n) => (!n.permissao || pode(n.permissao)) && (!n.dono || pode('modulo.entregas') || estado.eu?.podeVerEntregas);
-const nav = () => (ehCliente() ? NAV_CLIENTE : NAV_EQUIPE.filter(liberada));
+const NAV_PARCEIRO = ['projetos', 'tarefas', 'calendario'];
+const nav = () => (ehCliente() ? NAV_CLIENTE : ehParceiro() ? NAV_EQUIPE.filter((n) => NAV_PARCEIRO.includes(n.rota)) : NAV_EQUIPE.filter(liberada));
 /** Onde cada perfil começa: quem não tem Painel (o financeiro) abre direto o que é seu. */
-const inicioPadrao = () => (ehCliente() ? 'inicio' : nav()[0]?.rota ?? 'ajustes');
+const inicioPadrao = () => (ehCliente() ? 'inicio' : ehParceiro() ? 'projetos' : nav()[0]?.rota ?? 'ajustes');
 
 /** Tabela de rotas: [padrão, módulo da view, parâmetros extras]. */
 const ROTAS = {
@@ -51,12 +54,12 @@ const ROTAS = {
     ['painel', 'painel'], ['tarefas', 'tarefas'], ['calendario', 'calendario'],
     ['projetos', 'projetos'], ['projetos/:id', 'projeto'], ['projetos/:id/:aba', 'projeto'],
     ['ferramentas', 'ferramentas'], ['ferramentas/:id', 'ferramentas'], ['controladoria', 'controladoria'],
-    ['relatorios', 'relatorios'], ['equipe', 'equipe'], ['ajustes', 'ajustes'], ['clientes', 'clientes'], ['clientes/:cliente', 'clientes'], ['slack', 'slack'], ['pautas', 'pautas'], ['pautas/:projeto', 'pautas'], ['sentinela', 'sentinela'], ['sentinela/:aba', 'sentinela'], ['sentinela/:aba/:id', 'sentinela'], ['financeiro', 'financeiro'], ['financeiro/:aba', 'financeiro'], ['bi-prazos', 'bi_prazos'], ['ajustes/:aba', 'ajustes'], ['entregas', 'entregas'],
+    ['relatorios', 'relatorios'], ['equipe', 'equipe'], ['ajustes', 'ajustes'], ['clientes', 'clientes'], ['clientes/:cliente', 'clientes'], ['slack', 'slack'], ['novos-clientes', 'novos_clientes'], ['novos-clientes/:id', 'novos_clientes'], ['pautas', 'pautas'], ['pautas/clientes', 'pautas', { clientes: true }], ['pautas/equipe/:equipe', 'pautas'], ['pautas/:projeto', 'pautas'], ['sentinela', 'sentinela'], ['sentinela/:aba', 'sentinela'], ['sentinela/:aba/:id', 'sentinela'], ['financeiro', 'financeiro'], ['financeiro/:aba', 'financeiro'], ['bi-prazos', 'bi_prazos'], ['ajustes/:aba', 'ajustes'], ['entregas', 'entregas'],
   ],
   cliente: [
     ['inicio', 'portal', { aba: 'inicio' }], ['andamento', 'portal', { aba: 'andamento' }],
     ['documentos', 'portal', { aba: 'documentos' }], ['plano', 'portal', { aba: 'plano' }],
-    ['caixa', 'portal', { aba: 'caixa' }], ['relatorios', 'portal', { aba: 'relatorios' }], ['faturas', 'portal', { aba: 'faturas' }], ['atas', 'portal', { aba: 'atas' }],
+    ['caixa', 'portal', { aba: 'caixa' }], ['relatorios', 'portal', { aba: 'relatorios' }], ['faturas', 'portal', { aba: 'faturas' }], ['atas', 'portal', { aba: 'atas' }], ['manuais', 'portal', { aba: 'manuais' }],
   ],
 };
 
@@ -132,6 +135,8 @@ export function montarCasca() {
   aoPerderSessao(() => { toast('Sua sessão expirou. Entre de novo.', 'aviso'); location.reload(); });
   atualizarLateral();
   setInterval(() => { if (!document.hidden) atualizarLateral(); }, 30000);
+  // Novo cliente fechado: o escritório inteiro vê a comemoração (canto inferior esquerdo).
+  if (!ehCliente()) { const festa = () => import('./views/novos_clientes.js').then((m) => m.verificarCelebracoes()).catch(() => {}); setTimeout(festa, 2500); setInterval(() => { if (!document.hidden) festa(); }, 60000); }
   navegar();
 }
 
@@ -349,6 +354,7 @@ function menuPendencias(ancora) {
 
 function menuCriar(ancora) {
   const itens = [];
+  if (pode('projeto.escrever')) itens.push({ rotulo: 'Novo cliente (CNPJ)', icone: 'sparkle', acao: () => ir('novos-clientes') });
   if (pode('projeto.escrever')) itens.push({ rotulo: 'Novo projeto', icone: 'folder', acao: () => import('./views/projetos.js').then((m) => m.novoProjeto()) });
   if (pode('tarefa.escrever')) itens.push({ rotulo: 'Nova tarefa', icone: 'check', acao: () => import('./views/tarefas.js').then((m) => m.novaTarefa()) });
   if (pode('processo.escrever') && pode('projeto.escrever')) itens.push({ rotulo: 'Novo processo', icone: 'scale', acao: () => import('./views/projeto.js').then((m) => m.novoProcessoSolto()) });

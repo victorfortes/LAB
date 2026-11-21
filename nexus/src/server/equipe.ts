@@ -25,7 +25,7 @@ async function link(db:PoolClient,usuarioId:string,i:Identidade){
  const token=tokenNovo();await db.query('UPDATE equipe_redefinicoes SET usado_em=now() WHERE usuario_id=$1 AND usado_em IS NULL',[usuarioId]);
  await db.query('INSERT INTO equipe_redefinicoes(token_hash,usuario_id,organizacao_id,criado_por) VALUES($1,$2,$3,$4)',[hashDoToken(token),usuarioId,o,i.usuarioId]);
  await auditar(db,{organizacaoId:o,usuarioId:i.usuarioId,acao:'equipe.link_senha_criado',entidade:'usuario',entidadeId:usuarioId});
- return {usuarioId,caminho:`/definir-senha?token=${token}`,expiraEm:new Date(Date.now()+30*60000).toISOString(),aviso:'Link de uso único, válido por 30 minutos. Compartilhe diretamente com a pessoa; não fica salvo em claro.'};
+ return {usuarioId,caminho:`/definir-senha?token=${token}`,expiraEm:new Date(Date.now()+30*60000).toISOString(),aviso:'Link de uso único, válido por 30 minutos. Compartilhe diretamente com a pessoa; não fica salvo em claro. Ao usar o link, o segundo fator (autenticador) da pessoa é zerado e ela o ativa de novo.'};
 }
 async function gerir(db:PoolClient,args:unknown[]){
  try{return await db.query<{id:string}>('SELECT gerir_pessoa_equipe($1,$2,$3,$4,$5,$6,$7) id',args);}
@@ -59,7 +59,7 @@ export async function excluir(db:PoolClient,id:string,i:Identidade){
  await editar(db,[o,id,null,null,true]);
  await auditar(db,{organizacaoId:o,usuarioId:i.usuarioId,acao:'equipe.cadastro_excluido',entidade:'usuario',entidadeId:id,antes});return {ok:true};
 }
-export async function definirSenha(db:PoolClient,d:z.infer<typeof EsquemaSenha>){await db.query('SELECT definir_senha_equipe($1,$2)',[hashDoToken(d.token),await hashDaSenha(d.senha)]);return {ok:true};}
+export async function definirSenha(db:PoolClient,d:z.infer<typeof EsquemaSenha>){await db.query('SELECT equipe_redefinicao_zera_mfa($1)',[hashDoToken(d.token)]);await db.query('SELECT definir_senha_equipe($1,$2)',[hashDoToken(d.token),await hashDaSenha(d.senha)]);return {ok:true};}
 export async function visao(db:PoolClient,id:string){
  const p=(await db.query('SELECT id FROM projetos WHERE id=$1',[id])).rows[0];if(!p)throw new NaoEncontrado('projeto não encontrado');
  const marcos=(await db.query('SELECT id,titulo,descricao,data_prevista AS "dataPrevista",concluido_em AS "concluidoEm",visivel_cliente AS "visivelCliente" FROM projeto_marcos WHERE projeto_id=$1 ORDER BY data_prevista NULLS LAST,criado_em',[id])).rows;

@@ -31,18 +31,25 @@ export function mostrarLogin(aoEntrar) {
     entradaAberta=true;
     try {
       await modal({titulo:'Entrar no NGA LAB',subtitulo:'Use o e-mail e a senha que a NGA lhe passou.',
-        corpo:String(html`<form id="lf" class="stack" style="gap:14px" novalidate><label class="field"><span>E-mail</span><input class="input" name="email" type="email" autocomplete="username" required autofocus></label><label class="field"><span>Senha</span><input class="input" name="senha" type="password" autocomplete="current-password" required></label><div class="modal__err" id="lerr" role="alert"></div><button class="btn btn--accent" type="submit" style="justify-content:center;padding:13px">${icone('lock')}<span data-login-rotulo>Entrar</span></button><p class="dica">Acesso restrito. Cada cliente enxerga somente o próprio projeto.</p></form>`),
+        corpo:String(html`<form id="lf" class="stack" style="gap:14px" novalidate><label class="field"><span>E-mail</span><input class="input" name="email" type="email" autocomplete="username" required autofocus></label><label class="field"><span>Senha</span><input class="input" name="senha" type="password" autocomplete="current-password" required></label><label class="field" data-mfa style="display:none"><span>Código do aplicativo autenticador</span><input class="input" name="codigo" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="6 dígitos"></label><div class="modal__err" id="lerr" role="alert"></div><button class="btn btn--accent" type="submit" style="justify-content:center;padding:13px">${icone('lock')}<span data-login-rotulo>Entrar</span></button><p class="dica">Acesso restrito. Cada cliente enxerga somente o próprio projeto.</p></form>`),
         acoes:[{id:'cancelar',rotulo:'Voltar ao lobby'}],
         aoAbrir(el){
           el.addEventListener('acao',()=>el.fechar(null));
           const form=$('#lf',el);
           form.addEventListener('submit',async e=>{
             e.preventDefault();const btn=$('button[type=submit]',form),err=$('#lerr',el),rotulo=$('[data-login-rotulo]',form);
-            const email=form.elements.email.value.trim(),senha=form.elements.senha.value;
+            const email=form.elements.email.value.trim(),senha=form.elements.senha.value,codigo=form.elements.codigo.value.replace(/\s/g,'');
+            const campoMfa=$('[data-mfa]',form),pedeCodigo=campoMfa.style.display!=='none';
             if(!email||!senha){err.textContent='Informe e-mail e senha.';return;}
+            if(pedeCodigo&&!/^\d{6}$/.test(codigo)){err.textContent='Digite os 6 dígitos do aplicativo autenticador.';form.elements.codigo.focus();return;}
             btn.disabled=true;rotulo.textContent='Entrando…';err.textContent='';
-            try {await api.post('/api/sessao',{email,senha});el.fechar(true);aoEntrar();}
-            catch(ex){err.textContent=ex.message;btn.disabled=false;rotulo.textContent='Entrar';form.elements.senha.select();}
+            try {await api.post('/api/sessao',pedeCodigo?{email,senha,codigo}:{email,senha});el.fechar(true);aoEntrar();}
+            catch(ex){
+              err.textContent=ex.message;btn.disabled=false;rotulo.textContent='Entrar';
+              if(ex.detalhe?.mfa){campoMfa.style.display='';form.elements.codigo.value='';form.elements.codigo.focus();}
+              else if(pedeCodigo&&ex.status===401&&/código/.test(ex.message)){form.elements.codigo.select();}
+              else form.elements.senha.select();
+            }
           });
         },
       });

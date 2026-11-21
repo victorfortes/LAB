@@ -6,6 +6,7 @@
  * do banco (§6.1); esta tela apenas não finge que o resto existe.
  */
 import { avisosDoCliente, onboardingDoCliente } from './avisos_portal.js';
+import { abaManuais, boasVindas } from '../manuais.js';
 import { RECURSOS } from '../recursos.js';
 import { api } from '../api.js';
 import { imprimirFatura, verFatura } from '../fatura_modelo.js';
@@ -16,8 +17,9 @@ import { cabecalho, erroDe, formulario, toast, vazio } from '../ui.js';
 import { painelFinanceiroProjeto } from './projeto_financeiro.js';
 import { atualizarLateral, navegar } from '../shell.js';
 
-const TITULOS = { inicio: 'Visão geral', andamento: 'Andamento', documentos: 'Documentos', faturas: 'Faturas', plano: 'Plano de pagamento', caixa: 'Financeiro', atas: 'Atas de reunião', relatorios: 'Relatórios' };
+const TITULOS = { manuais: 'Manuais', inicio: 'Visão geral', andamento: 'Andamento', documentos: 'Documentos', faturas: 'Faturas', plano: 'Plano de pagamento', caixa: 'Financeiro', atas: 'Atas de reunião', relatorios: 'Relatórios' };
 const SUB = {
+  manuais: 'Guias do portal, o vídeo de como enviar documentos e os contatos oficiais do escritório.',
   andamento: 'O que aconteceu em cada processo, em linguagem simples.', documentos: 'O que a NGA precisa de você e o que já foi conferido.',
   faturas: 'Honorários e despesas, com o comprovante de cada pagamento.', plano: 'As obrigações do plano de recuperação judicial aprovado, com credor, valor e vencimento.',
   caixa: 'O fechamento de cada mês e a saúde financeira da empresa.', atas: 'Pauta, decisões e encaminhamentos de cada reunião.', relatorios: 'Acompanhamento mensal e quadros preparados para você.',
@@ -38,7 +40,9 @@ export default async function portal({ aba }) {
     return { titulo: 'Portal', html: html`<div class="empty up"><div class="empty__ico">${icone('lock')}</div><h3>Nenhum processo liberado ainda</h3>
       <p>Seu acesso está ativo, mas o escritório ainda não vinculou um projeto a você.</p></div>` };
   }
-  const corpo = await ABAS[aba](proj);
+  const corpo = aba === 'manuais' ? await abaManuais(proj) : await ABAS[aba](proj);
+  // Primeiro acesso: os manuais são de leitura obrigatória (popup em etapas, com vídeo e contatos no fim).
+  if (!estado.boasVindasVistas) { estado.boasVindasVistas = true; queueMicrotask(() => boasVindas(proj)); }
   // Avisos do escritório (ex.: nova ação encontrada pelo Sentinela) abrem o início do portal.
   if (aba === 'inicio') { const [av, onb] = await Promise.all([avisosDoCliente(), RECURSOS.onboarding ? onboardingDoCliente(proj.projeto_id) : null]); if (onb) { corpo.html = html`${onb}<div class="mt"></div>${corpo.html}`; } if (av.html) { const d0 = corpo.depois; corpo.html = html`${av.html}<div class="mt"></div>${corpo.html}`; corpo.depois = (el, pj) => { av.depois(el); d0?.(el, pj); }; } }
   const cab = aba === 'inicio' ? '' : cabecalho({ titulo: TITULOS[aba], sub: `${SUB[aba] ?? ''}`, resumo: corpo.resumo ?? [] });

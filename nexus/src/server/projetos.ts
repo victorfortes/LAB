@@ -24,7 +24,7 @@ import {
 import { diasUteisAte } from '../domain/processo/prazos.ts';
 import { limparCnpj, validarCnpj } from '../domain/analise/identificadores.ts';
 
-const TIPOS = [
+export const TIPOS = [
   'recuperacao_judicial', 'recuperacao_extrajudicial', 'falencia', 'reestruturacao',
   'negociacao_credores', 'investigacao_patrimonial', 'contencioso_estrategico', 'consultivo', 'protecao_patrimonial',
 ] as const;
@@ -185,7 +185,7 @@ export async function hub(db: PoolClient, projetoId: string) {
     `SELECT p.id, p.organizacao_id, p.grupo_id, p.nome, p.tipo, p.situacao, p.prioridade,
             p.fase, p.fase_desde, p.responsavel_id, p.iniciado_em, p.previsao_fim,
             p.encerrado_em, p.motivo_encerramento, p.criado_em, p.resumo,
-            p.whatsapp_grupo_url AS "whatsappGrupoUrl", p.posicao_cliente AS "posicaoCliente", p.segmento,
+            p.whatsapp_grupo_url AS "whatsappGrupoUrl", p.posicao_cliente AS "posicaoCliente", p.segmento, p.equipes AS "areas",
             u.nome AS responsavel, g.nome AS grupo
        FROM projetos p
        LEFT JOIN usuarios u ON u.id = p.responsavel_id

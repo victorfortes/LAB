@@ -135,44 +135,92 @@ export async function padroes(db: PoolClient) {
   };
 }
 
+/** Linha da agenda do Astrea que já não serve como tarefa: concluída, ou vencida há mais de `diasPodre` sem baixa. */
+export const TIPO_DA_AGENDA: Record<string, 'prazo' | 'evento' | 'audiencia'> = { Prazo: 'prazo', Evento: 'evento', 'Audiência': 'audiencia' };
+export const DIAS_PODRE_PADRAO = 30;
+const MOTIVO_SAIU = 'Saiu da agenda do Astrea (concluído, excluído ou remarcado lá).';
+const motivoPodre = (dias: number) => `Vencido há mais de ${dias} dias no Astrea sem baixa: arquivado na limpeza automática.`;
+
 /**
- * Direciona a agenda do Astrea para o LAB: tarefa por prazo/evento/audiência em aberto, no projeto do processo,
- * para o responsável do Astrea. Idempotente pela chave (processo | título | data | tipo).
+ * Direciona a agenda do Astrea para o LAB, e MANTÉM o que já foi direcionado em dia.
+ *
+ * A cada carga (automação diária ou botão):
+ *  - prazo, evento e audiência em aberto viram item no projeto do processo (ou do caso), com o TIPO certo
+ *    (prazo, evento, audiência), o processo/caso ligado e o responsável do Astrea;
+ *  - o que já existe é atualizado (título, data, hora, responsável, tipo);
+ *  - concluído no Astrea fecha a tarefa; o que sumiu da agenda (remarcado, excluído, baixado) é arquivado;
+ *  - vencido há mais de `diasPodre` dias sem baixa no Astrea não vira tarefa e, se já virou, é arquivado.
+ * Arquivar não apaga: a tarefa sai do quadro e fica no filtro "Arquivadas", com o motivo, e pode ser reaberta.
+ * Idempotente pela chave (processo | título | data | tipo).
  */
-export async function direcionarAgenda(db: PoolClient, organizacaoId: string, usuarioId: string | null) {
+export async function direcionarAgenda(db: PoolClient, organizacaoId: string, usuarioId: string | null, opcoes: { diasPodre?: number; hoje?: string } = {}) {
+  const diasPodre = opcoes.diasPodre ?? DIAS_PODRE_PADRAO;
+  const hoje = opcoes.hoje ?? new Date(Date.now() - 3 * 3600_000).toISOString().slice(0, 10);
+  const corte = new Date(Date.parse(`${hoje}T12:00:00Z`) - diasPodre * 86_400_000).toISOString().slice(0, 10);
   const { rows: agenda } = await db.query<{ tipo: string; data: string; hora: string | null; titulo: string; numero: string; resp: string; status: string; juizo: string | null; caso: string | null }>(
     `SELECT tipo, data, hora, titulo, numero, resp, status, juizo, caso FROM bi_agenda_linhas WHERE organizacao_id = $1`, [organizacaoId]);
-  const { rows: procs } = await db.query<{ num: string; projeto_id: string; responsavel_id: string | null }>(
-    `SELECT regexp_replace(pr.numero,'\\D','','g') num, pr.projeto_id, pj.responsavel_id FROM processos pr JOIN projetos pj ON pj.id = pr.projeto_id WHERE pr.organizacao_id = $1 AND pr.projeto_id IS NOT NULL`, [organizacaoId]);
+  const { rows: procs } = await db.query<{ num: string; id: string; projeto_id: string; responsavel_id: string | null }>(
+    `SELECT regexp_replace(pr.numero,'\\D','','g') num, pr.id, pr.projeto_id, pj.responsavel_id FROM processos pr JOIN projetos pj ON pj.id = pr.projeto_id WHERE pr.organizacao_id = $1 AND pr.projeto_id IS NOT NULL`, [organizacaoId]);
   const projetoDe = new Map(procs.map((p) => [p.num, p]));
+  // Caso sem número (consultivo, administrativo): casa pelo título do caso na carteira importada do Astrea.
+  const { rows: casos } = await db.query<{ titulo: string; projeto_id: string; responsavel_id: string | null }>(
+    `SELECT DISTINCT ON (lower(btrim(a.titulo))) lower(btrim(a.titulo)) titulo, a.projeto_id, pj.responsavel_id FROM astrea_registros a JOIN projetos pj ON pj.id = a.projeto_id
+      WHERE a.organizacao_id = $1 AND a.projeto_id IS NOT NULL AND coalesce(a.titulo,'') <> ''`, [organizacaoId]).catch(() => ({ rows: [] as { titulo: string; projeto_id: string; responsavel_id: string | null }[] }));
+  const casoDe = new Map(casos.map((c) => [c.titulo, c]));
   const pessoa = await mapaDePessoas(db);
-  let criadas = 0, atualizadas = 0, concluidas = 0, semProjeto = 0, semResponsavel = 0;
+  let criadas = 0, atualizadas = 0, concluidas = 0, semProjeto = 0, semResponsavel = 0, ignoradasPodres = 0;
   const pessoasSemCadastro = new Set<string>();
+  const vivas = new Set<string>();
+  const podres = new Set<string>();
   for (const a of agenda) {
     const num = so(a.numero); const proc = num ? projetoDe.get(num) : undefined;
+    const caso = !proc && a.caso ? casoDe.get(a.caso.trim().toLowerCase()) : undefined;
+    const projetoId = proc?.projeto_id ?? caso?.projeto_id;
     const iso = isoDeBr(a.data);
-    if (!proc || !iso) { if (!/conclu/i.test(a.status)) semProjeto++; continue; }
-    const chave = 'astrea:' + createHash('sha256').update(`${num}|${a.titulo}|${a.data}|${a.tipo}`).digest('hex').slice(0, 24);
     const concluido = /conclu/i.test(a.status ?? '');
+    if (!projetoId || !iso) { if (!concluido) semProjeto++; continue; }
+    const chave = 'astrea:' + createHash('sha256').update(`${num}|${a.titulo}|${a.data}|${a.tipo}`).digest('hex').slice(0, 24);
     if (concluido) {
-      const r = await db.query(`UPDATE tarefas SET status = 'concluida', concluida_em = now(), atualizado_em = now() WHERE projeto_id = $1 AND chave_playbook = $2 AND status <> 'concluida'`, [proc.projeto_id, chave]);
+      const r = await db.query(`UPDATE tarefas SET status = 'concluida', concluida_em = now(), atualizado_em = now(), conclusao_nota = coalesce(conclusao_nota, 'Concluído no Astrea.')
+        WHERE projeto_id = $1 AND chave_playbook = $2 AND status <> 'concluida'`, [projetoId, chave]);
       concluidas += r.rowCount ?? 0; continue;
     }
+    if (iso < corte) { podres.add(chave); ignoradasPodres++; continue; }
+    vivas.add(chave);
     const quem = pessoa(a.resp);
     if (!quem) { semResponsavel++; if (a.resp) pessoasSemCadastro.add(a.resp); }
-    const titulo = `${a.tipo === 'Prazo' ? '' : `${a.tipo}: `}${a.titulo}`.slice(0, 300);
-    const descricao = [`Lançado no Astrea (${a.tipo}${a.hora ? `, ${a.hora}` : ''}).`, a.juizo ? `Juízo: ${a.juizo}.` : null, a.resp ? `Responsável no Astrea: ${a.resp}.` : null].filter(Boolean).join(' ');
+    const tipo = TIPO_DA_AGENDA[a.tipo] ?? 'prazo';
+    const titulo = (a.titulo || a.tipo).slice(0, 300);
+    const descricao = [`Lançado no Astrea (${a.tipo}${a.hora ? `, ${a.hora}` : ''}).`, a.caso ? `${num ? 'Processo' : 'Caso'}: ${a.caso}.` : null, a.juizo ? `Juízo: ${a.juizo}.` : null, a.resp ? `Responsável no Astrea: ${a.resp}.` : null].filter(Boolean).join(' ');
     const r = await db.query<{ novo: boolean }>(
-      `INSERT INTO tarefas (organizacao_id, projeto_id, titulo, descricao, prioridade, responsavel_id, prazo, origem, chave_playbook, criado_por)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,'automacao',$8,$9)
+      `INSERT INTO tarefas (organizacao_id, projeto_id, titulo, descricao, prioridade, responsavel_id, prazo, origem, chave_playbook, criado_por, tipo, hora, processo_id, caso)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,'automacao',$8,$9,$10,$11,$12,$13)
        ON CONFLICT (projeto_id, chave_playbook) WHERE chave_playbook IS NOT NULL
-       DO UPDATE SET titulo = EXCLUDED.titulo, prazo = EXCLUDED.prazo, responsavel_id = coalesce(EXCLUDED.responsavel_id, tarefas.responsavel_id), atualizado_em = now()
-         WHERE tarefas.status <> 'concluida' AND (tarefas.prazo IS DISTINCT FROM EXCLUDED.prazo OR tarefas.titulo IS DISTINCT FROM EXCLUDED.titulo OR tarefas.responsavel_id IS DISTINCT FROM coalesce(EXCLUDED.responsavel_id, tarefas.responsavel_id))
+       DO UPDATE SET titulo = EXCLUDED.titulo, prazo = EXCLUDED.prazo, descricao = EXCLUDED.descricao, tipo = EXCLUDED.tipo, hora = EXCLUDED.hora,
+                     processo_id = coalesce(EXCLUDED.processo_id, tarefas.processo_id), caso = EXCLUDED.caso,
+                     responsavel_id = coalesce(EXCLUDED.responsavel_id, tarefas.responsavel_id), atualizado_em = now(),
+                     -- Voltou para a agenda (reaberto no Astrea): sai do arquivo.
+                     status = CASE WHEN tarefas.arquivada_em IS NOT NULL THEN 'a_fazer' ELSE tarefas.status END,
+                     concluida_em = CASE WHEN tarefas.arquivada_em IS NOT NULL THEN NULL ELSE tarefas.concluida_em END,
+                     arquivada_em = NULL, arquivada_motivo = NULL
+         WHERE tarefas.arquivada_em IS NOT NULL OR (tarefas.status <> 'concluida' AND (tarefas.prazo IS DISTINCT FROM EXCLUDED.prazo OR tarefas.titulo IS DISTINCT FROM EXCLUDED.titulo
+               OR tarefas.tipo IS DISTINCT FROM EXCLUDED.tipo OR tarefas.hora IS DISTINCT FROM EXCLUDED.hora OR tarefas.processo_id IS DISTINCT FROM coalesce(EXCLUDED.processo_id, tarefas.processo_id)
+               OR tarefas.descricao IS DISTINCT FROM EXCLUDED.descricao OR tarefas.responsavel_id IS DISTINCT FROM coalesce(EXCLUDED.responsavel_id, tarefas.responsavel_id)))
        RETURNING (xmax = 0) AS novo`,
-      [organizacaoId, proc.projeto_id, titulo, descricao, a.tipo === 'Prazo' ? 'alta' : 'media', quem?.id ?? proc.responsavel_id, iso, chave, usuarioId]);
+      [organizacaoId, projetoId, titulo, descricao, tipo === 'prazo' ? 'alta' : 'media', quem?.id ?? proc?.responsavel_id ?? caso?.responsavel_id ?? null, iso, chave, usuarioId, tipo, a.hora || null, proc?.id ?? null, num ? null : (a.caso ?? '').slice(0, 500) || null]);
     if (r.rows[0]?.novo) criadas++; else if (r.rowCount) atualizadas++;
   }
-  const resultado = { linhas: agenda.length, criadas, atualizadas, concluidas, semProjeto, semResponsavel, pessoasSemCadastro: [...pessoasSemCadastro] };
+  // Tudo o que veio do Astrea, segue aberto e não está mais vivo na agenda: arquiva com o motivo.
+  const { rows: abertas } = await db.query<{ id: string; chave_playbook: string }>(
+    `SELECT id, chave_playbook FROM tarefas WHERE organizacao_id = $1 AND chave_playbook LIKE 'astrea:%' AND status <> 'concluida'`, [organizacaoId]);
+  const arquivar = (ids: string[], motivo: string) => ids.length
+    ? db.query(`UPDATE tarefas SET status = 'concluida', concluida_em = now(), concluida_por = NULL, arquivada_em = now(), arquivada_motivo = $2, atualizado_em = now() WHERE id = ANY($1::uuid[])`, [ids, motivo]).then((r) => r.rowCount ?? 0)
+    : Promise.resolve(0);
+  // Só arquiva o que "sumiu" quando a carga tem corpo: agenda vazia é falha de exportação, não baixa geral.
+  const cargaConfiavel = agenda.length >= 20;
+  const arquivadasPodres = await arquivar(abertas.filter((t) => podres.has(t.chave_playbook)).map((t) => t.id), motivoPodre(diasPodre));
+  const arquivadasSumidas = cargaConfiavel ? await arquivar(abertas.filter((t) => !podres.has(t.chave_playbook) && !vivas.has(t.chave_playbook)).map((t) => t.id), MOTIVO_SAIU) : 0;
+  const resultado = { linhas: agenda.length, criadas, atualizadas, concluidas, arquivadasPodres, arquivadasSumidas, ignoradasPodres, diasPodre, semProjeto, semResponsavel, pessoasSemCadastro: [...pessoasSemCadastro] };
   await auditar(db, { organizacaoId, usuarioId, acao: 'controladoria.agenda_direcionada', entidade: 'organizacao', entidadeId: organizacaoId, depois: resultado });
   return resultado;
 }

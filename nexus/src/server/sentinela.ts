@@ -6,11 +6,11 @@ import type { PoolClient } from 'pg';
 import type { Banco } from '../store/conexao.ts';
 import { avaliar, consultasDoCliente, RANK, VERSAO_MATCHER, trechoDoProcesso, type Classificacao, type ClienteSentinela } from '../domain/sentinela/matcher.ts';
 import { analisarPorRegras, motivoInvisivel, obterConfig, type ComunicacaoAnalise } from './sentinela_regras.ts';
+import type { Identidade } from '../security/sessao.ts';
 
 const URL_DJEN = 'https://comunicaapi.pje.jus.br/api/v1/comunicacao';
-const URL_DATAJUD = (t: string) => `https://api-publica.datajud.cnj.jus.br/api_publica_${t}/_search`;
-/** Chave pública divulgada pelo CNJ em datajud-wiki.cnj.jus.br/api-publica/acesso. */
-export const CHAVE_DATAJUD = 'cDZHYzlZa0JadVREZDJCendQbXY6SkJlTzNjLV9TRENyQk1RdnFKZGRQdw==';
+import { CHAVE_DATAJUD, consultar as consultarDataJud, emPausa as dataJudEmPausa, pausar as pausarDataJud } from './datajud.ts';
+export { CHAVE_DATAJUD };
 const ESTADO_AUTO: Record<Classificacao, string> = { confirmada: 'automatico', provavel: 'pendente', inconclusiva: 'pendente', descartada: 'descartado_auto' };
 const AUTOMATICOS = new Set(Object.values(ESTADO_AUTO));
 const POR_PAGINA = 100; const TETO = 10_000; const CHUNK = 3; const RESCAN = 7; const MAX_TENTATIVAS = 6; const TAM_TRECHO = 6000;
@@ -138,20 +138,26 @@ async function enriquecer(db: PoolClient, r: Rodada, org: string) {
   const { rows } = await db.query<{ id: string; numero_processo: string; tribunal: string }>(`SELECT p.id,p.numero_processo,p.tribunal FROM sentinela_processos p WHERE p.organizacao_id=$1 AND ${ELEGIVEL} AND p.tribunal = (SELECT tribunal FROM sentinela_processos p WHERE organizacao_id=$1 AND ${ELEGIVEL} AND tribunal ~ '^[A-Za-z0-9]+$' ORDER BY ultima_verificacao LIMIT 1) LIMIT 25`, [org]);
   if (!rows.length) return 0;
   const alias = rows[0]!.tribunal.toLowerCase();
-  try {
-    const resp = await r.fetch(URL_DATAJUD(alias), { method: 'POST', headers: { authorization: `APIKey ${CHAVE_DATAJUD}`, 'content-type': 'application/json' }, signal: AbortSignal.timeout(55_000), body: JSON.stringify({ size: Math.min(10_000, rows.length * 3), _source: ['numeroProcesso', 'dataAjuizamento', 'grau', 'classe', 'orgaoJulgador', 'sistema', 'assuntos'], query: { terms: { numeroProcesso: rows.map((x) => x.numero_processo) } } }) });
-    if (!resp.ok) throw new Error(`DataJud HTTP ${resp.status}`);
-    const d = await resp.json() as { hits?: { hits?: { _source: Record<string, any> }[] } }; await saude(db, org, 'datajud', true);
-    const por = new Map<string, Record<string, any>[]>(); for (const h of d.hits?.hits ?? []) { const l = por.get(h._source.numeroProcesso) ?? []; l.push(h._source); por.set(h._source.numeroProcesso, l); }
-    for (const p of rows) {
-      const hs = (por.get(p.numero_processo) ?? []).sort((a, b) => String(a.dataAjuizamento ?? '9').localeCompare(String(b.dataAjuizamento ?? '9')));
-      if (!hs.length) { await db.query(`UPDATE sentinela_processos SET datajud_status='nao_encontrado',ultima_verificacao=now() WHERE id=$1`, [p.id]); continue; }
-      const s = hs[0]!; const b = String(s.dataAjuizamento ?? ''); const data = /^\d{8}/.test(b) ? `${b.slice(0, 4)}-${b.slice(4, 6)}-${b.slice(6, 8)}` : b.slice(0, 10) || null;
-      await db.query(`UPDATE sentinela_processos SET datajud_status='ok',data_ajuizamento=$2,grau=$3,sistema=$4,assuntos=$5,classe=coalesce($6,classe),orgao=coalesce($7,orgao),ultima_verificacao=now() WHERE id=$1`, [p.id, data, s.grau ?? null, s.sistema?.nome ?? null, JSON.stringify((s.assuntos ?? []).map((a: any) => a?.nome).filter(Boolean)), s.classe?.nome ?? null, s.orgaoJulgador?.nome ?? null]);
-      await db.query(`UPDATE sentinela_achados SET categoria_data=CASE WHEN $2::date IS NULL THEN 'indeterminada' WHEN identificada_em::date-$2::date<=$3 THEN 'nova_distribuicao' ELSE 'processo_antigo' END WHERE processo_id=$1`, [p.id, data, DIAS_NOVA]);
+  if (await dataJudEmPausa(alias, db)) return 0;
+  const resp = await consultarDataJud(alias, rows.map((x) => x.numero_processo), { campos: ['numeroProcesso', 'dataAjuizamento', 'grau', 'classe', 'orgaoJulgador', 'sistema', 'assuntos'], buscar: r.fetch, tentativas: 0 }); // sem repetir: o tribunal entra em pausa e volta na próxima rodada
+  if (resp.tipo !== 'ok') {
+    await saude(db, org, 'datajud', false, resp.motivo);
+    if (resp.tipo === 'instavel') await pausarDataJud(alias, 15, resp.motivo, db);
+    await db.query(`UPDATE sentinela_processos SET datajud_status='falha',ultima_verificacao=now() WHERE id=ANY($1::uuid[])`, [rows.map((x) => x.id)]);
+    return 0;
+  }
+  await saude(db, org, 'datajud', true);
+  for (const p of rows) {
+    const hs = (resp.porNumero.get(p.numero_processo.replace(/\D/g, '')) ?? []).map((h) => h._source).sort((a, b) => String(a.dataAjuizamento ?? '9').localeCompare(String(b.dataAjuizamento ?? '9')));
+    if (!hs.length) {
+      // Resposta incompleta (shards recusados): "não veio" não é "não existe". Volta para a fila.
+      await db.query(`UPDATE sentinela_processos SET datajud_status=$2,ultima_verificacao=now() WHERE id=$1`, [p.id, resp.incompleto ? 'falha' : 'nao_encontrado']); continue;
     }
-    return rows.length;
-  } catch (e) { await saude(db, org, 'datajud', false, (e as Error).message); await db.query(`UPDATE sentinela_processos SET datajud_status='falha',ultima_verificacao=now() WHERE id=ANY($1::uuid[])`, [rows.map((x) => x.id)]); return 0; }
+    const s = hs[0]!; const b = String(s.dataAjuizamento ?? ''); const data = /^\d{8}/.test(b) ? `${b.slice(0, 4)}-${b.slice(4, 6)}-${b.slice(6, 8)}` : b.slice(0, 10) || null;
+    await db.query(`UPDATE sentinela_processos SET datajud_status='ok',data_ajuizamento=$2,grau=$3,sistema=$4,assuntos=$5,classe=coalesce($6,classe),orgao=coalesce($7,orgao),ultima_verificacao=now() WHERE id=$1`, [p.id, data, s.grau ?? null, s.sistema?.nome ?? null, JSON.stringify((s.assuntos ?? []).map((a: any) => a?.nome).filter(Boolean)), s.classe?.nome ?? null, s.orgaoJulgador?.nome ?? null]);
+    await db.query(`UPDATE sentinela_achados SET categoria_data=CASE WHEN $2::date IS NULL THEN 'indeterminada' WHEN identificada_em::date-$2::date<=$3 THEN 'nova_distribuicao' ELSE 'processo_antigo' END WHERE processo_id=$1`, [p.id, data, DIAS_NOVA]);
+  }
+  return rows.length;
 }
 
 /** Analisa o que é novo. Processo antigo achado agora não gasta análise nem gera alerta. */
@@ -235,9 +241,17 @@ export async function rotinaSentinela(banco: Banco, opcoes: { fetch?: typeof fet
   const r: Rodada = { fetch: opcoes.fetch ?? fetch, inicio: Date.now(), bytes: 0, limites: opcoes.limites ?? LIMITES_PADRAO }; const agora = opcoes.agora ?? new Date();
   const orgs = await banco.semContexto(async (db) => (await db.query<{ o: string }>('SELECT organizacoes_com_sentinela() AS o')).rows.map((x) => x.o));
   hashServico ??= await Bun.password.hash(crypto.randomUUID() + crypto.randomUUID(), { algorithm: 'argon2id' });
-  const tot = { planejadas: 0, tarefas: 0, novas: 0, enriquecidos: 0, bytes: 0, analises: 0, alertas: 0, controles: 0, reavaliados: 0 };
+  const tot = { planejadas: 0, tarefas: 0, novas: 0, enriquecidos: 0, bytes: 0, analises: 0, alertas: 0, controles: 0, reavaliados: 0, cadastrados: 0 };
+  const { sincronizarComCarteira } = await import('./sentinela_gestao.ts'); // import dinâmico: evita ciclo com sentinela_gestao
   for (const org of orgs) {
     const uid = await banco.semContexto(async (db) => (await db.query<{ u: string }>('SELECT usuario_de_servico_da_organizacao($1,$2,$3) AS u', [org, 'sentinela', hashServico])).rows[0]!.u);
+    // Auto-cadastro: põe na Sentinela todo cliente da carteira que TEM CNPJ e ainda não é monitorado,
+    // sem depender de clique. Idempotente e isolado — se falhar, não derruba a rodada.
+    try {
+      const ident: Identidade = { usuarioId: uid, nome: 'Rotina: sentinela', email: `integracao+sentinela-${org.slice(0, 8)}@nga.local`, papeis: ['integracao'], organizacoes: [{ id: org, nome: '', tipo: 'escritorio', papel: 'integracao' }] };
+      const sinc = await banco.comoUsuario(uid, (db) => sincronizarComCarteira(db, ident));
+      tot.cadastrados += sinc.cadastrados;
+    } catch (e) { console.error('sentinela: auto-cadastro da carteira falhou', (e as Error).message); }
     tot.planejadas += await banco.comoUsuario(uid, (db) => planejar(db, org, agora));
     let parar = false;
     // O DataJud leva 30 a 45 s por consulta: a coleta do DJEN para antes, para sobrar tempo ao enriquecimento.

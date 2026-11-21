@@ -467,7 +467,8 @@ for (const [data, tipo, situacao, valor, categoria] of caixa) {
 await dono.end();
 
 const banco = new Banco({ host: 'localhost', port: PORTA_PG, user: 'nga_app', password: 'nga_app', database: 'nga_nexus' });
-const api = criarApp({ banco, deposito: montarDeposito(armazenamento), analiseAutomatica: true });
+// NGA_EXIGIR_MFA=1 liga o segundo fator obrigatório da administração, como em produção.
+const api = criarApp({ banco, deposito: montarDeposito(armazenamento), analiseAutomatica: true, exigirMfa: process.env.NGA_EXIGIR_MFA === '1' });
 
 const TIPOS: Record<string, string> = {
   '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8',

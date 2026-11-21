@@ -190,8 +190,8 @@ export async function gravar(
     `INSERT INTO analises (organizacao_id, documento_id, projeto_id,
        tipo_sugerido, certeza, pontos, criterio,
        estagio_ia, motivo_ia, modelo_ia, tokens_entrada, tokens_saida,
-       identificadores, suspeitas, citacoes, alternativas, partes, criado_por)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+       identificadores, suspeitas, citacoes, alternativas, partes, resumo, criado_por)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
      RETURNING id`,
     [alvo.organizacaoId, alvo.documentoId, alvo.projetoId,
      resultado.classificacao.tipo, resultado.classificacao.certeza,
@@ -202,7 +202,7 @@ export async function gravar(
      JSON.stringify(resultado.suspeitas),
      JSON.stringify(resultado.citacoesDoDocumento.referencias),
      JSON.stringify(resultado.classificacao.alternativas),
-     resultado.partes, identidade.usuarioId]);
+     resultado.partes, resultado.resumo, identidade.usuarioId]);
   const analiseId = criadas[0]!.id;
 
   let ordem = 0;

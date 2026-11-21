@@ -10,6 +10,8 @@ export const estado = {
 };
 
 export const ehCliente = () => estado.eu?.ehCliente === true;
+/** Parceiro externo (outro escritório na área dele): vê só os projetos em que foi incluído, com menu curto. */
+export const ehParceiro = () => (estado.eu?.papeis ?? []).length > 0 && estado.eu.papeis.every((p) => p === 'parceiro_externo');
 export const pode = (permissao) => estado.eu?.permissoes?.includes(permissao) === true;
 
 export const ROTULO_DO_PAPEL = {

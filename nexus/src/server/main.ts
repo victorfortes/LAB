@@ -16,6 +16,7 @@ import { sincronizarAgendado } from './controladoria.ts';
 import {processarFilaAnalise} from './analise_fila.ts';
 import {provedorDoAmbiente} from '../ai/provedor.ts';
 import { processarGoogleAgendado } from './google.ts';
+import { reprocessarResumosPendentes } from './cumprimento.ts';
 import { ArmazenamentoLocal } from '../store/arquivos.ts';
 import { deposito as montarDeposito } from './arquivos.ts';
 
@@ -48,9 +49,10 @@ const armazenamento = new ArmazenamentoLocal(
 await armazenamento.iniciar();
 
 const deposito=montarDeposito(armazenamento);
-const api = criarApp({ banco, deposito, analiseAutomatica: true, exigirTrocaDeSenha: true });
+// Segundo fator obrigatório só com chave fixa do cofre: com chave sorteada, o segredo não abriria após reiniciar.
+const api = criarApp({ banco, deposito, analiseAutomatica: true, exigirTrocaDeSenha: true, exigirMfa: !!process.env.NGA_COFRE_CHAVE });
 let analiseRodando=false;
-const lerFila=async()=>{if(analiseRodando)return;analiseRodando=true;try{await processarFilaAnalise(banco,deposito,provedorDoAmbiente());}catch{console.error('Análise: fila pendente; verifique o worker local.');}finally{analiseRodando=false;}};
+const lerFila=async()=>{if(analiseRodando)return;analiseRodando=true;try{const prov=provedorDoAmbiente();await processarFilaAnalise(banco,deposito,prov);await reprocessarResumosPendentes(banco,deposito,prov);}catch{console.error('Análise: fila pendente; verifique o worker local.');}finally{analiseRodando=false;}};
 setTimeout(lerFila,15_000);setInterval(lerFila,60_000);
 const porta = Number(process.env.NGA_PORTA ?? 8790);
 

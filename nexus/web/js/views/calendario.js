@@ -29,9 +29,11 @@ export default async function calendario() {
   const [ano, mes0] = ref.split('-').map(Number); const mes = mes0 - 1;
   const ultimo = new Date(ano, mes + 1, 0).getDate();
   const fimJanela = new Date(Math.max(new Date(ano, mes + 1, 0), Date.now() + 8 * 86_400_000)).toLocaleDateString('sv-SE');
-  const [agenda, tar, fer, google, eventos] = await Promise.all([
+  const [agenda, tar, fer, google, eventos, pautas] = await Promise.all([
     api.get(`/api/agenda?ate=${fimJanela}`), api.get('/api/tarefas'), api.get(`/api/calendario/feriados?ano=${ano}`),
     api.get('/api/google/status').catch(() => null), api.get('/api/google/eventos').catch(() => []),
+    // Reuniões de pauta das equipes (só quem gere pauta enxerga; os demais recebem 403 e seguem sem elas).
+    pode('modulo.pautas') ? api.get('/api/pautas/reunioes').catch(() => []) : Promise.resolve([]),
   ]);
   const feriados = new Map(fer.feriados.map((f) => [f.data, f]));
   const ligados = new Set(guardado.ler('calTipos', ['reunioes', 'prazos', 'tarefas']));
@@ -40,7 +42,13 @@ export default async function calendario() {
   const todos = [];
   for (const z of agenda.itens) todos.push({ dia: z.vencimento, tipo: z.vencido ? 'vencido' : 'prazo', titulo: z.titulo, sub: `${z.numero}${z.projeto ? ` · ${z.projeto}` : ''}`, alvo: z.projeto_id ? `projetos/${z.projeto_id}/processos` : 'projetos', ordem: '00:00' });
   for (const e of eventos) { const dia = new Date(e.inicio).toLocaleDateString('sv-SE'); todos.push({ dia, tipo: TIPOS[e.marcador] ? e.marcador : 'reuniao', titulo: e.titulo, sub: `${hora(e.inicio)}–${hora(e.fim)}${e.pauta?.length ? ` · pauta com ${e.pauta.length} item(ns)` : ''}`, hora: hora(e.inicio), evento: e, ordem: hora(e.inicio) }); }
-  for (const t of tar.tarefas) if (t.prazo && t.status !== 'concluida') todos.push({ dia: t.prazo, tipo: 'tarefa', titulo: t.titulo, sub: t.projeto ?? '', alvo: `projetos/${t.projetoId}/tarefas`, ordem: '23:59' });
+  // Tarefas entram com o tipo delas: prazo (âmbar), evento/audiência (agenda, com hora) ou tarefa.
+  const hojeIso = hojeISO();
+  for (const t of tar.tarefas) if (t.prazo && t.status !== 'concluida') {
+    const k = t.tipo === 'prazo' ? (t.prazo < hojeIso ? 'vencido' : 'prazo') : t.tipo === 'audiencia' ? 'audiencia' : t.tipo === 'evento' ? 'reuniao' : 'tarefa';
+    todos.push({ dia: t.prazo, tipo: k, titulo: t.titulo, hora: t.hora ?? null, sub: [t.tipo === 'evento' ? 'Evento' : null, t.processo ?? t.caso, t.projeto, t.responsavel].filter(Boolean).join(' · '), alvo: `projetos/${t.projetoId}/tarefas`, ordem: t.hora ?? '23:59' });
+  }
+  for (const r of pautas) todos.push({ dia: r.data, tipo: 'interno', titulo: r.titulo, hora: r.hora ?? null, sub: `Reunião de pauta${r.equipe ? ` · equipe ${r.equipe}` : ''}${r.itens ? ` · ${r.itens} item(ns)` : ''}`, alvo: r.equipe ? `pautas/equipe/${encodeURIComponent(r.equipe)}` : `pautas/${r.projetoId}`, ordem: r.hora ?? '08:00' });
   const visiveis = todos.filter((x) => ligados.has(TIPOS[x.tipo]?.[1] ?? 'reunioes')).sort((a, b) => a.ordem.localeCompare(b.ordem));
   const porDia = new Map(); for (const x of visiveis) porDia.set(x.dia, [...(porDia.get(x.dia) ?? []), x]);
   const doMes = visiveis.filter((x) => x.dia.startsWith(ref));

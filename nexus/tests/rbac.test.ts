@@ -43,8 +43,11 @@ describe('RBAC', () => {
     expect(podeComPapeis(['cliente_usuario'], 'agc.ler')).toBe(false);
   });
 
-  test('parceiro externo só lê documento', () => {
-    expect(PERMISSOES.parceiro_externo).toEqual(['documento.ler']);
+  test('parceiro externo trabalha no projeto, mas não vê crédito, finanças, portal nem controladoria', () => {
+    expect(PERMISSOES.parceiro_externo).toEqual(['projeto.ler', 'documento.ler', 'documento.escrever', 'processo.ler', 'prazo.ler', 'tarefa.ler', 'tarefa.escrever']);
+    for (const p of ['credito.ler', 'financeiro.ler', 'financeiro_cliente.ler', 'portal.acessos', 'controladoria.ler', 'projeto.escrever', 'prazo.escrever', 'modulo.pautas'] as const) {
+      expect(podeComPapeis(['parceiro_externo'], p)).toBe(false);
+    }
   });
 
   test('papéis acumulam permissões', () => {

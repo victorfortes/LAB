@@ -89,6 +89,21 @@ export async function qgcPre(ctx) {
 
 const VOTOS = [['sim', 'Sim'], ['nao', 'Não'], ['abstencao', 'Abst.'], ['ausente', 'Ausente']];
 
+/** Quórum e poder de voto: quem decide cada classe, a partir da relação de credores (QGC validado). */
+function poderHtml(classes) {
+  if (!classes.length) return '';
+  return html`<section class="card glass qpoder"><header class="card__head"><div><h2 class="card__title">Quórum e poder de voto</h2><p class="card__sub">A partir da relação final de credores. Em destaque, o menor grupo de credores que decide cada classe pelo valor.</p></div></header>
+    <div class="qpoder__classes">${classes.map((c) => html`<article class="qpoder__classe">
+      <header><b>Classe ${c.classe}</b><small>${c.nome}</small><span class="grow"></span><span class="mono-sm">R$ ${c.total} · ${pctBr(c.percentualDoTotal)} do total</span></header>
+      <div class="qpoder__kpis"><div><small>Credores</small><b>${c.credores}</b></div>
+        <div><small>Maioria por cabeça</small><b>${c.minimoParaCabecas}</b><i>credores</i></div>
+        ${c.criterio === 'cumulativo' ? html`<div><small>Decidem pelo valor</small><b>${c.minimoParaValor}</b><i>maior(es) credor(es)</i></div>` : html`<div><small>Critério</small><b>Cabeça</b><i>art. 45, § 2º</i></div>`}
+        <div><small>Maior credor</small><b>${pctBr(c.concentracao)}</b><i>da classe</i></div></div>
+      <ol class="qpoder__lista">${c.lista.slice(0, 12).map((x) => html`<li class="${x.decisivo && c.criterio === 'cumulativo' ? 'is-decisivo' : ''}"><span class="qpoder__nome">${x.credor}</span>
+        <span class="qpoder__barra"><i style="width:${Math.max(2, x.percentualClasse)}%"></i></span><span class="mono-sm">${pctBr(x.percentualClasse)}</span><small class="mono-sm">R$ ${x.valor}</small></li>`)}
+        ${c.lista.length > 12 ? html`<li class="qpoder__mais">+ ${c.lista.length - 12} credor(es) menores</li>` : ''}</ol></article>`)}</div></section>`;
+}
+
 export async function qgcAgc(ctx) {
   const nomeSalvo = sessionStorage.getItem(`agcCenario.${ctx.id}`);
   const d = await api.get(`/api/projetos/${ctx.id}/agc/simulador${nomeSalvo ? `?cenario=${encodeURIComponent(nomeSalvo)}` : ''}`);
@@ -139,6 +154,7 @@ export async function qgcAgc(ctx) {
       ${d.pendentesDeValidacao ? html`<p class="dica up" style="margin:0 0 12px">${d.pendentesDeValidacao} crédito(s) ainda usam a classe sugerida. ${d.naoSujeitos ? `${d.naoSujeitos} não sujeito(s) ficam fora da votação.` : ''}</p>` : ''}
       <div class="qagc">
         <div class="qagc__resultado" data-agc-resultado>${resultadoHtml(d.apuracao)}</div>
+        ${poderHtml(d.poderDeVoto ?? [])}
         <section class="card glass qagc__votos"><header class="card__head"><div><h2 class="card__title">Votos do cenário</h2><p class="card__sub">Toque para mudar. O resultado recalcula na hora.</p></div></header>
           ${porClasse.map(([k, lista]) => html`<div class="qvotos-classe"><div class="qvotos-classe__head"><b>Classe ${k}</b><span>${lista.length} credor(es)</span>
             <span class="grow"></span>${VOTOS.map(([v, t]) => html`<button type="button" class="ibtn-txt" data-todos="${k}:${v}" title="Marcar toda a classe ${k} como ${t}">${t === 'Abst.' ? 'Abst.' : t}</button>`)}</div>

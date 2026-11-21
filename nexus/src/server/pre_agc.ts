@@ -33,8 +33,11 @@ async function projeto(db: PoolClient, projetoId: string) {
 
 async function creditosDoProjeto(db: PoolClient, projetoId: string) {
   return (await db.query<LinhaCredito>(
-    `SELECT c.id, c.credor_id, cr.nome AS credor, cr.documento, cr.me_epp, c.valor::text, c.natureza, c.valor_bem_gravado::text,
-            coalesce(c.classe_validada, c.classe_sugerida) AS classe, coalesce(c.sujeito_validado, c.sujeito_sugerido) AS sujeito,
+    // Valor sujeito informado (garantia parcial): vota/adere só o saldo sujeito. Crédito fiduciário com saldo
+    // descoberto entra como quirografário (classe III) por esse saldo.
+    `SELECT c.id, c.credor_id, cr.nome AS credor, cr.documento, cr.me_epp, coalesce(c.valor_sujeito, c.valor)::text AS valor, c.natureza, c.valor_bem_gravado::text,
+            CASE WHEN c.valor_sujeito > 0 AND coalesce(c.sujeito_validado, c.sujeito_sugerido) = false THEN 'III' ELSE coalesce(c.classe_validada, c.classe_sugerida) END AS classe,
+            CASE WHEN c.valor_sujeito IS NOT NULL THEN c.valor_sujeito > 0 ELSE coalesce(c.sujeito_validado, c.sujeito_sugerido) END AS sujeito,
             c.classe_validada IS NOT NULL AS validado
        FROM creditos c JOIN credores cr ON cr.id = c.credor_id
       WHERE c.projeto_id = $1 ORDER BY c.valor DESC, cr.nome`, [projetoId])).rows;
@@ -301,7 +304,39 @@ export async function painelAgc(db: PoolClient, projetoId: string, nome: string 
     cenarios: cenarios.map((c) => ({ nome: c.nome, atualizadoEm: c.atualizado_em })),
     cenario: { nome: atual.nome, convocacao: atual.convocacao, votos: atual.votos },
     apuracao: simular(cabecas, atual.votos, atual.convocacao),
+    poderDeVoto: poderDeVoto(cabecas),
   };
+}
+
+/**
+ * Poder de voto a partir da relação de credores: por classe, a fatia de cada credor no valor e na contagem
+ * por cabeça, e o MENOR grupo de credores que, sozinho, decide a classe pelo valor (maioria do art. 45).
+ * É a pergunta da negociação: "com quem eu preciso fechar para aprovar esta classe?".
+ */
+export function poderDeVoto(cabecas: CabecaNaClasse[]) {
+  const ordem: ClasseCredor[] = ['I', 'II', 'III', 'IV'];
+  const totalGeral = cabecas.reduce((s, c) => s + c.valor, 0n);
+  return ordem.filter((k) => cabecas.some((c) => c.classe === k)).map((k) => {
+    const lista = cabecas.filter((c) => c.classe === k).sort((a, b) => (b.valor > a.valor ? 1 : b.valor < a.valor ? -1 : a.credor.localeCompare(b.credor)));
+    const total = lista.reduce((s, c) => s + c.valor, 0n);
+    let acumulado = 0n; let decisivos = 0;
+    const credores = lista.map((c) => {
+      const antes = acumulado; acumulado += c.valor;
+      const decisivo = antes * 2n <= total; // ainda não havia maioria antes deste credor
+      if (decisivo) decisivos++;
+      return { chave: c.chave, credor: c.credor, valor: fmt(c.valor), percentualClasse: pct(c.valor, total), percentualAcumulado: pct(acumulado, total), percentualGeral: pct(c.valor, totalGeral), decisivo };
+    });
+    const porCabeca = k === 'I' || k === 'IV';
+    return {
+      classe: k, nome: NOME_DA_CLASSE[k], total: fmt(total), percentualDoTotal: pct(total, totalGeral), credores: lista.length,
+      criterio: porCabeca ? 'cabeca' : 'cumulativo',
+      // Classe por valor (II e III): quantos dos maiores decidem o valor; a cabeça exige ainda mais da metade dos presentes.
+      minimoParaValor: porCabeca ? null : decisivos,
+      minimoParaCabecas: Math.floor(lista.length / 2) + 1,
+      concentracao: lista[0] ? pct(lista[0].valor, total) : 0,
+      lista: credores,
+    };
+  });
 }
 
 export async function salvarCenario(db: PoolClient, projetoId: string, d: z.infer<typeof EsquemaCenario>, i: Identidade) {

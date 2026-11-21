@@ -15,7 +15,7 @@ import { navegar } from '../shell.js';
 import { ajustesPlaybook } from './ajustes_playbook.js';
 
 const ESCOPOS = { 'processos': ['processos'], 'prazos': ['prazos'], 'documentos': ['documentos'], 'processos+documentos': ['processos', 'documentos'], 'todos': ['processos', 'prazos', 'documentos'], 'automação do Astrea (BI de Prazos + publicações)': ['agenda', 'publicacoes'] };
-const ABAS = [['geral', 'Geral'], ['acessos', 'Acessos'], ['playbook', 'Playbook'], ['fluxos', 'Fluxos'], ['tempo', 'Linhas do tempo'], ['automacoes', 'Automações'], ['slack', 'Slack'], ['credenciais', 'Credenciais']];
+const ABAS = [['geral', 'Geral'], ['acessos', 'Acessos'], ['playbook', 'Playbook'], ['fluxos', 'Fluxos'], ['tempo', 'Linhas do tempo'], ['automacoes', 'Automações'], ['slack', 'Slack'], ['portal', 'Portal do cliente'], ['credenciais', 'Credenciais']];
 const GATILHO = { projeto_criado: 'Quando um projeto for criado', fase_iniciada: 'Quando uma fase começar', documento_cliente_enviado: 'Quando o cliente enviar um documento', fatura_criada: 'Quando uma fatura for emitida', fatura_paga: 'Quando uma fatura for paga' };
 let abertoFluxo = null; let abertoTempo = null;
 
@@ -73,6 +73,29 @@ async function ajustesSlack() {
 }
 
 /** Cofre: a senha do Astrea é cifrada no servidor (AES-256-GCM) e nunca volta para a tela. */
+/** Contatos oficiais e vídeo das boas-vindas do portal do cliente. */
+async function ajustesPortal() {
+  const st = await api.get('/api/portal/boas-vindas').catch(() => ({ contatos: [], videoUrl: '' }));
+  const admin = pode('admin.gerir');
+  const TIPOS_C = [['telefone', 'Telefone'], ['whatsapp', 'WhatsApp'], ['email', 'E-mail'], ['site', 'Site'], ['endereco', 'Endereço'], ['horario', 'Horário']];
+  const linha = (c = {}) => html`<div class="row2 cto-linha" style="grid-template-columns:140px 1fr 1.4fr 36px"><select class="select" data-c="tipo">${TIPOS_C.map(([v, t]) => html`<option value="${v}" ${v === c.tipo ? raw('selected') : ''}>${t}</option>`)}</select>
+    <input class="input" data-c="rotulo" placeholder="Ex.: Recepção" value="${c.rotulo ?? ''}"><input class="input" data-c="valor" placeholder="Ex.: (41) 3000-0000" value="${c.valor ?? ''}"><button type="button" class="ibtn ibtn--sm" data-tirar aria-label="Remover">${icone('x')}</button></div>`;
+  return {
+    html: html`<section class="card glass up"><header class="card__head"><div><h2 class="card__title">Boas-vindas do portal do cliente</h2><p class="card__sub">No primeiro acesso, o cliente lê os manuais até o fim, assiste ao vídeo de 1 minuto e recebe estes contatos oficiais. Tudo fica na aba "Manuais" do portal.</p></div></header>
+      <h3 class="mini-h">Contatos oficiais</h3><div data-linhas style="display:grid;gap:8px">${(st.contatos ?? []).map(linha)}</div>
+      ${admin ? html`<div class="nx-acts mt"><button class="btn btn--ghost btn--sm" data-mais>${icone('plus')}Adicionar contato</button><span class="grow"></span><button class="btn btn--accent" data-salvar-cto>Salvar</button></div>` : html`<p class="dica">Só a administração altera.</p>`}
+      <h3 class="mini-h mt">Vídeo</h3><video src="${st.videoUrl}" controls preload="metadata" style="width:100%;max-width:560px;border-radius:14px"></video></section>`,
+    depois(el) {
+      el.querySelector('[data-mais]')?.addEventListener('click', () => el.querySelector('[data-linhas]').insertAdjacentHTML('beforeend', String(linha())));
+      el.addEventListener('click', (e) => { if (e.target.closest('[data-tirar]')) e.target.closest('.cto-linha').remove(); });
+      el.querySelector('[data-salvar-cto]')?.addEventListener('click', async (e) => {
+        const contatos = [...el.querySelectorAll('.cto-linha')].map((l) => Object.fromEntries([...l.querySelectorAll('[data-c]')].map((x) => [x.dataset.c, x.value.trim()]))).filter((c) => c.rotulo && c.valor);
+        e.target.disabled = true; try { await api.put('/api/portal/contatos-oficiais', { contatos, videoUrl: st.videoUrl || null }); toast('Contatos salvos'); } catch (er) { erroDe(er); } finally { e.target.disabled = false; }
+      });
+    },
+  };
+}
+
 async function credenciais() {
   if (!pode('admin.gerir')) return { html: html`<section class="card glass up">${vazio('lock', 'Só a administração', 'As credenciais de sistemas externos ficam com a sócia administradora.')}</section>` };
   const lista = await api.get('/api/cofre').catch(() => []);
@@ -98,7 +121,7 @@ async function credenciais() {
 export default async function ajustes({ aba = 'geral' } = {}) {
   await concluirGoogle();
   if (!ABAS.some(([id]) => id === aba)) aba = 'geral';
-  const corpo = await ({ geral, acessos, fluxos, tempo, automacoes, credenciais, slack: ajustesSlack, playbook: () => ajustesPlaybook(() => navegar()) }[aba])();
+  const corpo = await ({ geral, acessos, fluxos, tempo, automacoes, credenciais, slack: ajustesSlack, portal: ajustesPortal, playbook: () => ajustesPlaybook(() => navegar()) }[aba])();
   return {
     titulo: 'Ajustes',
     html: html`${cabecalho({ titulo: 'Ajustes', sub: 'Conta, acessos, fluxos, linhas do tempo e automações do escritório' })}

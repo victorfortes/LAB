@@ -7,6 +7,8 @@
  */
 import type { PoolClient } from 'pg';
 import type { Papel } from './rbac.ts';
+import { conferirCodigo, segredoNovo, enderecoOtpauth, chaveLegivel } from './totp.ts';
+import { cifrar, decifrar } from '../server/cofre.ts';
 
 const DURACAO_PADRAO_HORAS = 8;
 
@@ -43,7 +45,7 @@ export function hashDoToken(token: string): string {
  */
 export async function autenticar(
   db: PoolClient, email: string, senha: string,
-  contexto: { ip?: string; agente?: string } = {},
+  contexto: { ip?: string; agente?: string; codigo?: string; chaveMfa?: string } = {},
 ): Promise<{ token: string; expiraEm: Date }> {
   // Via função SECURITY DEFINER: `usuarios` tem RLS que exige contexto de
   // usuário, e no login ainda não há usuário. Ver migração 006.
@@ -58,6 +60,13 @@ export async function autenticar(
 
   if (!usuario || !confere || !usuario.ativo) {
     throw new ErroDeAutenticacao('e-mail ou senha inválidos');
+  }
+
+  // Segundo fator: com ele ativo, a senha certa sozinha não abre sessão.
+  const { rows: mfa } = await db.query<{ segredo: string | null; ativo: boolean }>('SELECT * FROM auth_mfa($1)', [usuario.id]);
+  if (mfa[0]?.ativo) {
+    if (!contexto.codigo) throw new CodigoMfaNecessario();
+    await conferirSegundoFator(db, usuario.id, mfa[0].segredo!, contexto.codigo, contexto.chaveMfa);
   }
 
   const token = tokenNovo();
@@ -128,4 +137,47 @@ export async function trocarSenha(
 
 export class ErroDeAutenticacao extends Error {
   override readonly name = 'ErroDeAutenticacao';
+}
+
+/** Senha certa, falta o código do autenticador. Não conta como tentativa errada. */
+export class CodigoMfaNecessario extends Error {
+  override readonly name = 'CodigoMfaNecessario';
+  constructor() { super('informe o código de 6 dígitos do aplicativo autenticador'); }
+}
+
+// ------------------------------------------------------------ segundo fator ---
+
+async function conferirSegundoFator(db: PoolClient, usuarioId: string, guardado: string, codigo: string, chave?: string): Promise<void> {
+  if (!chave) throw new ErroDeAutenticacao('o segundo fator está indisponível neste servidor');
+  let segredo: string;
+  try { segredo = decifrar(guardado, chave); } catch { throw new ErroDeAutenticacao('o segundo fator está indisponível neste servidor'); }
+  const passo = conferirCodigo(segredo, codigo);
+  const usado = passo !== null
+    && (await db.query<{ ok: boolean }>('SELECT auth_mfa_usar_passo($1,$2) AS ok', [usuarioId, passo])).rows[0]!.ok;
+  if (!usado) throw new ErroDeAutenticacao('código do autenticador inválido ou já usado');
+}
+
+export interface EstadoDeAcesso { deveTrocarSenha: boolean; mfaAtivo: boolean; mfaExigido: boolean }
+
+export async function estadoDeAcesso(db: PoolClient, usuarioId: string): Promise<EstadoDeAcesso> {
+  const r = (await db.query<{ deve_trocar_senha: boolean; mfa_ativo: boolean; mfa_exigido: boolean }>(
+    'SELECT * FROM auth_estado_acesso($1)', [usuarioId])).rows[0];
+  return { deveTrocarSenha: r?.deve_trocar_senha ?? false, mfaAtivo: r?.mfa_ativo ?? false, mfaExigido: r?.mfa_exigido ?? false };
+}
+
+/** Sorteia a chave e a deixa pendente até a pessoa confirmar com um código. */
+export async function prepararMfa(db: PoolClient, identidade: Identidade, chave: string) {
+  const segredo = segredoNovo();
+  const ok = (await db.query<{ ok: boolean }>('SELECT auth_mfa_preparar($1,$2) AS ok', [identidade.usuarioId, cifrar(segredo, chave)])).rows[0]!.ok;
+  if (!ok) throw new ErroDeAutenticacao('o segundo fator já está ativo; para trocar de celular, peça à administração um novo link de senha');
+  return { chave: chaveLegivel(segredo), endereco: enderecoOtpauth(identidade.email, segredo) };
+}
+
+/** Confirma a chave pendente com um código do aplicativo. As outras sessões caem. */
+export async function ativarMfa(db: PoolClient, identidade: Identidade, token: string, codigo: string, chave: string): Promise<void> {
+  const { rows } = await db.query<{ pendente: string | null; ativo: boolean }>('SELECT * FROM auth_mfa($1)', [identidade.usuarioId]);
+  if (rows[0]?.ativo) return;
+  if (!rows[0]?.pendente) throw new ErroDeAutenticacao('gere a chave do autenticador antes de confirmar');
+  await conferirSegundoFator(db, identidade.usuarioId, rows[0].pendente, codigo, chave);
+  await db.query('SELECT auth_mfa_ativar($1,$2)', [identidade.usuarioId, hashDoToken(token)]);
 }

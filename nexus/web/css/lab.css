@@ -187,7 +187,9 @@ body { font-family: var(--font); letter-spacing: .005em; }
 
 /* --------------------------------------------------------------- menus ---- */
 
-.menu { position: fixed; z-index: 70; min-width: 200px; padding: 6px; border-radius: 18px; background: var(--glass-thick); border: 1px solid var(--sep); box-shadow: 0 30px 60px -24px #000; animation: modal .22s var(--spring); }
+.menu { position: fixed; z-index: 70; min-width: 200px; max-height: min(70vh, 520px); overflow-y: auto; overscroll-behavior: contain; padding: 6px; border-radius: 18px; background: var(--glass-thick); border: 1px solid var(--sep); box-shadow: 0 30px 60px -24px #000; animation: modal .22s var(--spring); scrollbar-width: thin; }
+.menu::-webkit-scrollbar { width: 8px; }
+.menu::-webkit-scrollbar-thumb { background: var(--fill-2); border-radius: 99px; }
 .menu button { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 12px; border: 0; border-radius: 12px; background: none; color: var(--text); font: 500 14px var(--font); cursor: pointer; text-align: left; }
 .menu button:hover { background: var(--fill-2); }
 .menu button svg { width: 17px; height: 17px; stroke: currentColor; fill: none; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; color: var(--text-3); }
@@ -207,14 +209,20 @@ body { font-family: var(--font); letter-spacing: .005em; }
 
 /* --------------------------------------------------------------- abas ---- */
 
-.tabs { display: flex; gap: 4px; padding: 5px; border-radius: 999px; overflow-x: auto; scrollbar-width: none; width: max-content; max-width: 100%; position: relative; }
+/* A barra de abas quebra em linhas (flex-wrap) para que TODAS as abas fiquem
+   sempre visíveis e cobertas pela tela de vidro — sem rolagem horizontal.
+   Como a pílula deslizante única não acompanha linhas quebradas, cada aba
+   selecionada ganha a sua própria pílula (fundo + brilho). */
+.tabs { display: flex; flex-wrap: wrap; gap: 4px; padding: 5px; border-radius: 20px; width: auto; max-width: 100%; position: relative; }
 .tabs::-webkit-scrollbar { display: none; }
-.tabs button { position: relative; z-index: 1; border: 0; background: none; color: var(--text-2); font: 600 14px var(--font); padding: 9px 16px; border-radius: 999px; cursor: pointer; white-space: nowrap; display: inline-flex; align-items: center; gap: 8px; transition: color .2s; }
+.tabs button { position: relative; z-index: 1; border: 0; background: none; color: var(--text-2); font: 600 14px var(--font); padding: 9px 16px; border-radius: 999px; cursor: pointer; white-space: nowrap; display: inline-flex; align-items: center; gap: 8px; transition: color .2s, background .25s var(--spring); }
 .tabs button:hover { color: var(--text); }
-.tabs button[aria-selected=true] { color: var(--text); }
+.tabs button[aria-selected=true] { color: var(--text); background: var(--lens); box-shadow: var(--lens-glow); }
 .tabs button b { font: 600 11px var(--font-mono); background: var(--fill-2); padding: 2px 7px; border-radius: 99px; }
 .tabs button.alerta b { background: #FF6B6B33; color: var(--lab-red); }
-.tabs__pill { position: absolute; top: 5px; left: 0; height: calc(100% - 10px); border-radius: 999px; background: var(--lens); box-shadow: var(--lens-glow); transition: transform .45s var(--spring), width .45s var(--spring); pointer-events: none; }
+/* Pílula deslizante desativada para as abas (substituída pela pílula por aba);
+   permanece em uso nos seletores .seg. */
+.tabs .tabs__pill { display: none; }
 
 /* ---------------------------------------------------- trilha de fases ---- */
 
@@ -731,3 +739,12 @@ a, button, [role=tab], .tk-card, .pcard, .lista li, .check-row, label.btn, .tab 
 .saude td.neg { color: #F87171; }
 @media (max-width: 1100px) { .saude-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 600px) { .saude-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* Barra lateral: a lista de navegação rola sozinha dentro da barra; a marca (topo) e o rodapé do
+   usuário (nome + função) ficam fixos. Antes, com muitos itens, a lista empurrava o rodapé para fora
+   da barra (nome/função cortados no canto inferior) e não havia scroll. Agora a .nav absorve o excesso. */
+.side > .brand, .side > .side__group, .side__me, .side__cta { flex: none; }
+.side > .nav { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--fill-2) transparent; }
+.side > .nav::-webkit-scrollbar { width: 6px; }
+.side > .nav::-webkit-scrollbar-thumb { background: var(--fill-2); border-radius: 99px; }
+.side > .nav::-webkit-scrollbar-track { background: transparent; }

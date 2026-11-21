@@ -68,9 +68,10 @@ test('agenda do Astrea vira tarefa para quem lançou; concluído no Astrea fecha
   const r = await j(req(tc, '/api/controladoria/direcionar', {}));
   expect(r).toMatchObject({ criadas: 3, semProjeto: 1, semResponsavel: 1 });
   expect(r.pessoasSemCadastro).toEqual(['Anne Marie']);
-  const { rows } = await pg.dono.query(`SELECT titulo, prazo::text, responsavel_id, status FROM tarefas WHERE chave_playbook LIKE 'astrea:%' ORDER BY prazo`);
-  expect(rows[0]).toMatchObject({ titulo: 'MANIFESTAR - DEFERIDO O PEDIDO', prazo: '2026-11-20', responsavel_id: mau });
-  expect(rows[2].titulo).toBe('Audiência: AUDIÊNCIA DE CONCILIAÇÃO');
+  const { rows } = await pg.dono.query(`SELECT titulo, tipo, prazo::text, responsavel_id, status FROM tarefas WHERE chave_playbook LIKE 'astrea:%' ORDER BY prazo`);
+  expect(rows[0]).toMatchObject({ titulo: 'MANIFESTAR - DEFERIDO O PEDIDO', tipo: 'prazo', prazo: '2026-11-20', responsavel_id: mau });
+  // O tipo (prazo, evento, audiência) é campo próprio: o título fica como no Astrea.
+  expect(rows[2]).toMatchObject({ titulo: 'AUDIÊNCIA DE CONCILIAÇÃO', tipo: 'audiencia' });
   expect((await j(req(tc, '/api/controladoria/direcionar', {}))).criadas).toBe(0);
   await pg.dono.query(`UPDATE bi_agenda_linhas SET status = 'Concluído' WHERE ordem = 1`);
   expect((await j(req(tc, '/api/controladoria/direcionar', {}))).concluidas).toBe(1);

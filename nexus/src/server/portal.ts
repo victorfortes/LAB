@@ -66,10 +66,11 @@ export async function checklist(db: PoolClient, projetoId: string) {
     id: string; categoria: string; titulo: string; fundamento: string | null;
     obrigatorio: boolean; situacao: SituacaoRequisito; observacao: string | null;
     documento_id: string | null; analisado_em: Date | null; atribuicao: string | null;
+    origem: string; prazo: string | null; detalhe: string | null; pedido_em: Date | null;
   }>(
     `SELECT id, categoria, titulo, fundamento, obrigatorio, situacao, observacao,
-            documento_id, analisado_em, atribuicao
-       FROM requisitos WHERE projeto_id = $1 ORDER BY ordem, titulo`,
+            documento_id, analisado_em, atribuicao, origem, prazo::text, detalhe, pedido_em
+       FROM requisitos WHERE projeto_id = $1 ORDER BY (origem = 'pedido' AND situacao IN ('pendente','rejeitado','complementacao')) DESC, ordem, titulo`,
     [projetoId]);
 
   const itens: ItemDeChecklist[] = rows.map((r) => ({

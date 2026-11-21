@@ -335,7 +335,8 @@ const atribuicao = (a) => (a ? html`<span class="atrib">${String(a).split('/').m
 const SIT = { pendente: ['', 'Pendente'], enviado: ['info', 'Enviado'], em_analise: ['info', 'Em análise'], aprovado: ['ok', 'Aprovado'], rejeitado: ['erro', 'Rejeitado'], complementacao: ['aviso', 'Complementar'], nao_aplicavel: ['', 'Não se aplica'] };
 
 export async function abaPortal(ctx) {
-  const [portal, check] = await Promise.all([api.get(`/api/projetos/${ctx.id}/portal`), api.get(`/api/projetos/${ctx.id}/checklist`)]);
+  const [portal, check, contatos] = await Promise.all([api.get(`/api/projetos/${ctx.id}/portal`), api.get(`/api/projetos/${ctx.id}/checklist`), api.get(`/api/projetos/${ctx.id}/portal/contatos`).catch(() => [])]);
+  const contatoDe = (id) => contatos.find((c) => c.id === id);
   const publica = pode('portal.acessos'); const escreve = pode('projeto.escrever'); const analisa = pode('documento.escrever') && escreve;
   const porCat = new Map(); for (const i of check.itens) { if (!porCat.has(i.categoria)) porCat.set(i.categoria, []); porCat.get(i.categoria).push(i); }
   const pr = check.progresso; const whats = ctx.h.whatsappGrupoUrl ?? '';
@@ -346,10 +347,10 @@ export async function abaPortal(ctx) {
       <div style="display:grid;gap:var(--gap)">
         <section class="card glass up"><header class="card__head"><div><h2 class="card__title">Checklist de documentos</h2>
           <p class="card__sub">${pr.total ? `${pr.aprovados} de ${pr.obrigatorios} obrigatórios aprovados · ${pr.aguardandoOCliente} aguardando o cliente · ${pr.aguardandoANGA} aguardando você` : 'O que o cliente precisa enviar, com o fundamento de cada item.'}</p></div>
-          ${!pr.total && escreve ? html`<button type="button" class="btn btn--accent" data-modelo>Gerar do modelo</button>` : ''}</header>
+          <div class="nx-acts">${escreve ? html`<button type="button" class="btn btn--accent" data-pedir>${icone('plus')}Pedir documento</button>` : ''}${!pr.total && escreve ? html`<button type="button" class="btn btn--ghost" data-modelo>Gerar do modelo</button>` : ''}</div></header>
           ${pr.total ? html`<details class="mt"><summary class="check-resumo"><span class="pct">${pr.percentualEnviado}%</span><span class="barra-m" aria-hidden="true"><i style="width:${pr.percentualEnviado}%"></i></span><small>entregue · ${pr.percentualAprovado}% aprovado</small></summary>` : ''}
           ${pr.total ? [...porCat].map(([cat, itens]) => html`<h3 class="mini-h">${cat}</h3>${itens.map((i) => html`<div class="check-row${i.situacao === 'nao_aplicavel' ? ' na' : ''}"><span class="sit-dot ${i.situacao}"></span>
-            <div><b>${i.titulo}${i.obrigatorio ? '' : html` <span class="muted">(opcional)</span>`}</b><small>${i.fundamento ?? ''}</small>${atribuicao(i.atribuicao)}${i.observacao ? html`<small class="obs">${i.observacao}</small>` : ''}
+            <div><b>${i.titulo}${i.obrigatorio ? '' : html` <span class="muted">(opcional)</span>`}</b>${i.origem === 'pedido' ? html` <span class="selo info">Pedido avulso${i.prazo ? ` · até ${dataBR(i.prazo)}` : ''}</span>` : ''}<small>${i.fundamento ?? ''}</small>${i.detalhe ? html`<small>${i.detalhe}</small>` : ''}${atribuicao(i.atribuicao)}${i.observacao ? html`<small class="obs">${i.observacao}</small>` : ''}
               ${i.documentos?.length > 1 ? html`<ul class="req-arquivos">${i.documentos.map((d) => html`<li>${icone('doc')}<span>${d.titulo}</span><small>${dataBR(d.enviado_em)}</small><button type="button" class="ibtn ibtn--sm" data-baixar="${d.id}" aria-label="Baixar ${d.titulo}" title="Baixar">${icone('download')}</button></li>`)}</ul>` : ''}</div>
             <span class="selo ${SIT[i.situacao]?.[0] ?? ''}">${i.rotuloDaSituacao ?? SIT[i.situacao]?.[1]}${i.documentos?.length > 1 ? ` · ${i.documentos.length} arquivos` : ''}</span>
             ${i.documento_id && !(i.documentos?.length > 1) ? html`<button type="button" class="ibtn ibtn--sm" data-baixar="${i.documento_id}" aria-label="Baixar" title="Baixar">${icone('download')}</button>` : ''}
@@ -369,13 +370,37 @@ export async function abaPortal(ctx) {
           ${portal.existe ? html`<div style="display:grid;gap:8px;margin-bottom:14px"><p class="dica" style="margin:0">O que o cliente enxerga:</p>
             ${toggle('documentos', 'Documentos publicados')}${toggle('faturas', 'Faturas e comprovantes')}${toggle('obrigacoes', 'Plano de pagamento')}${toggle('financeiro', 'Fluxo de caixa')}${toggle('processos', 'Andamento processual (só o publicado)')}
             ${publica ? html`<label class="toggle"><input type="checkbox" data-ativo ${portal.ativo ? raw('checked') : ''}><span></span>Portal ativo</label>` : ''}</div>
-            <p class="mini-h" style="margin-top:0">Pessoas de ${portal.organizacao} · todas veem o mesmo conteúdo</p><ul class="lista">${portal.usuarios.map((u) => html`<li>${avatar(u.nome, 'md')}<div><b>${u.nome}</b><small>${u.email} · ${u.ultimoAcesso ? `último acesso ${relativo(u.ultimoAcesso)}` : 'nunca entrou'}</small></div></li>`)}</ul>` : ''}
+            <p class="mini-h" style="margin-top:0">Pessoas de ${portal.organizacao} · todas veem o mesmo conteúdo</p><ul class="lista">${portal.usuarios.map((u) => { const c = contatoDe(u.id); return html`<li>${avatar(u.nome, 'md')}<div><b>${u.nome}</b><small>Login: ${u.email} · ${u.ultimoAcesso ? `último acesso ${relativo(u.ultimoAcesso)}` : 'nunca entrou'}</small>
+              <small>${c?.emailPessoal ? html`E-mail pessoal: <b>${c.emailPessoal}</b>` : html`<span style="color:var(--lab-amber)">Sem e-mail pessoal: os avisos vão para o e-mail de login</span>`}${c?.telefone ? ` · ${c.telefone}` : ''}${c && !c.avisarPorEmail ? ' · não recebe avisos por e-mail' : ''}</small></div>
+              ${publica ? html`<div class="fim"><button type="button" class="ibtn ibtn--sm" data-contato="${u.id}" data-nome="${u.nome}" aria-label="Contatos de ${u.nome}" title="E-mail pessoal e telefone">${icone('edit')}</button></div>` : ''}</li>`; })}</ul>` : ''}
           ${publica ? html`<button type="button" class="btn ${portal.existe ? 'btn--ghost' : 'btn--accent'} mt" data-convite>${icone('plus')}${portal.existe ? 'Adicionar pessoa da mesma empresa' : 'Criar portal e convidar o cliente'}</button>` : ''}
         </section>
       </div></div>`,
 
     depois(el) {
       ouvir(el, 'click', '[data-baixar]', (b) => baixar(b.dataset.baixar));
+      ouvir(el, 'click', '[data-pedir]', async () => {
+        let r;
+        const ok = await formulario({ titulo: 'Pedir documento ao cliente', subtitulo: 'Vira pendência no checklist do portal, aviso no topo do portal e e-mail para o cliente.', rotulo: 'Pedir', campos: [
+          { nome: 'titulo', rotulo: 'O que você precisa', obrigatorio: true, placeholder: 'Ex.: Comprovante de residência do sócio João' },
+          { nome: 'detalhe', rotulo: 'Explique para o cliente (opcional)', tipo: 'textarea', placeholder: 'Ex.: conta de luz ou água dos últimos 3 meses, em nome dele.' },
+          { nome: 'prazo', rotulo: 'Prazo', tipo: 'date', metade: true },
+          { nome: 'obrigatorio', rotulo: 'Obrigatório?', tipo: 'select', valor: 'sim', metade: true, opcoes: [{ v: 'sim', t: 'Sim' }, { v: 'nao', t: 'Não, opcional' }] },
+          { nome: 'email', rotulo: 'Avisar por e-mail?', tipo: 'select', valor: 'sim', opcoes: [{ v: 'sim', t: `Sim, para ${contatos.map((x) => x.emailAviso).filter(Boolean).join(', ') || 'as pessoas do portal'}` }, { v: 'nao', t: 'Não, só no portal' }] }],
+          async enviar(v) { r = await api.post(`/api/projetos/${ctx.id}/checklist/pedido`, { titulo: v.titulo, detalhe: v.detalhe || null, prazo: v.prazo || null, obrigatorio: v.obrigatorio === 'sim', avisarPorEmail: v.email === 'sim' }); } });
+        if (!ok) return;
+        toast(!r.emails.length ? 'Pedido criado no portal' : r.envioConfigurado ? `Pedido criado e e-mail enviado para ${r.emails.join(', ')}` : `Pedido criado no portal. E-mail na fila para ${r.emails.join(', ')} (envio pela conta do escritório ainda não configurado)`, r.emails.length && !r.envioConfigurado ? 'aviso' : 'ok', 7000);
+        ctx.recarregar();
+      });
+      ouvir(el, 'click', '[data-contato]', async (b) => {
+        const c = contatoDe(b.dataset.contato) ?? {};
+        const ok = await formulario({ titulo: `Contatos · ${b.dataset.nome}`, subtitulo: 'O e-mail pessoal recebe os avisos do portal (pedidos de documento, novidades). O login continua o mesmo.', rotulo: 'Salvar', campos: [
+          { nome: 'emailPessoal', rotulo: 'E-mail pessoal', tipo: 'email', valor: c.emailPessoal ?? '', placeholder: 'nome@gmail.com' },
+          { nome: 'telefone', rotulo: 'Telefone / WhatsApp', valor: c.telefone ?? '', metade: true },
+          { nome: 'avisar', rotulo: 'Receber avisos por e-mail?', tipo: 'select', valor: c.avisarPorEmail === false ? 'nao' : 'sim', metade: true, opcoes: [{ v: 'sim', t: 'Sim' }, { v: 'nao', t: 'Não' }] }],
+          async enviar(v) { await api.put(`/api/projetos/${ctx.id}/portal/contatos/${b.dataset.contato}`, { emailPessoal: v.emailPessoal || null, telefone: v.telefone || null, avisarPorEmail: v.avisar === 'sim' }); } });
+        if (ok) { toast('Contatos salvos'); ctx.recarregar(); }
+      });
       ouvir(el, 'click', '[data-modelo]', async (b) => { b.disabled = true; try { await api.post(`/api/projetos/${ctx.id}/checklist`, {}); toast('Checklist gerado'); ctx.recarregar(); } catch (e) { b.disabled = false; erroDe(e); } });
       ouvir(el, 'click', '[data-analisar-req]', async (b) => {
         const ok = await formulario({

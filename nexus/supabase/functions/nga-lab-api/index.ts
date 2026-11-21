@@ -12,6 +12,7 @@ import {provedorDoAmbiente} from '../../../src/ai/provedor.ts';
 import {rotinaSentinela} from '../../../src/server/sentinela.ts';
 import {rotinaRadar} from '../../../src/server/radar.ts';
 import {rotinaDataJud} from '../../../src/server/andamentos.ts';
+import {rotinaEmails} from '../../../src/server/email.ts';
 import {rotinaSlack} from '../../../src/server/slack.ts';
 import {rotinaRelatorios} from '../../../src/server/gerador_lab.ts';
 import {createHash} from 'node:crypto';
@@ -36,7 +37,7 @@ async function prepararGoogle(){
 // Acima disto o PDF não cabe no limite de CPU da função: sai com motivo na tela, em vez de travar.
 const LIMITE_PDF=3*1024*1024;
 const SEGREDO_COFRE=e.NGA_COFRE_CHAVE??createHash('sha256').update('cofre:'+segredo).digest('hex');
-const app=criarApp({banco,deposito:dep,analiseAutomatica:false,analiseEmWorker:true,exigirTrocaDeSenha:true,limitePdfBytes:LIMITE_PDF,segredoCofre:SEGREDO_COFRE});
+const app=criarApp({banco,deposito:dep,analiseAutomatica:false,analiseEmWorker:true,exigirTrocaDeSenha:true,exigirMfa:true,segredoProxy:e.NGA_PROXY_SEGREDO,limitePdfBytes:LIMITE_PDF,segredoCofre:SEGREDO_COFRE});
 const prefix='/nga-lab-api';
 const acervo=new AcervoNaNuvem();
 const ROTINAS:Record<string,()=>Promise<unknown>>={
@@ -45,9 +46,10 @@ const ROTINAS:Record<string,()=>Promise<unknown>>={
  google:async()=>{await prepararGoogle();return JSON.stringify(await processarGoogleAgendado(banco,acervo))},
  sentinela:async()=>JSON.stringify(await rotinaSentinela(banco)),
  radar:()=>rotinaRadar(banco,e.DJEN_INGEST_SECRET),
- datajud:async()=>JSON.stringify(await rotinaDataJud(banco,{limite:25})),
+ datajud:async()=>JSON.stringify(await rotinaDataJud(banco,{limite:50})),
  slack:async()=>JSON.stringify(await rotinaSlack(banco,SEGREDO_COFRE)),
  relatorios:async()=>JSON.stringify(await rotinaRelatorios(banco,dep,{limite:4})),
+ emails:async()=>JSON.stringify(await rotinaEmails(banco)),
 };
 async function executarRotina(req:Request,nome:string):Promise<Response>{
  const negado=new Response('não encontrado',{status:404});

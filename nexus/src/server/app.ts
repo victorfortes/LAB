@@ -6,8 +6,9 @@
  */
 import type { PoolClient } from 'pg';
 import { z } from 'zod';
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { Banco, auditar } from '../store/conexao.ts';
-import { ErroDeAutenticacao, LoginBloqueado, autenticar, deveTrocarSenha, hashDaSenha, identidadeDoToken, limparFalhas, loginBloqueado, registrarFalha, revogar, trocarSenha, type Identidade } from '../security/sessao.ts';
+import { CodigoMfaNecessario, ErroDeAutenticacao, LoginBloqueado, ativarMfa, autenticar, estadoDeAcesso, prepararMfa, hashDaSenha, identidadeDoToken, limparFalhas, loginBloqueado, registrarFalha, revogar, trocarSenha, type Identidade } from '../security/sessao.ts';
 import { SemPermissao, exigir, PERMISSOES, podeComPapeis, matrizDeAcessos, type Permissao } from '../security/rbac.ts';
 import { type Credito, consolidarPorClasse, desdobrarParaVotacao, enquadrar } from '../domain/insolvencia/creditos.ts';
 import { apurarAssembleia, type VotoLancado } from '../domain/insolvencia/quorum.ts';
@@ -31,6 +32,7 @@ import * as processos from './processos.ts';
 import * as relatorios from './relatorios.ts';
 import * as projetos from './projetos.ts';
 import * as tarefas from './tarefas.ts';
+import * as cumprimento from './cumprimento.ts';
 import * as gestao from './gestao.ts';
 import * as faturas from './faturas.ts';
 import * as configuracao from './configuracao.ts';
@@ -50,6 +52,8 @@ import { DOMINIO_NGA, emailDoEscritorio } from './slack.ts';
 import * as relMensal from './relatorio_mensal.ts';
 import { rotasFrenteB } from './rotas_frente_b.ts';
 import { rotasGeradorLab } from './rotas_gerador_lab.ts';
+import { rotasRodada21 } from './rotas_rodada_21.ts';
+import * as qgcLastros from './qgc_lastros.ts';
 import * as sentinelaGestao from './sentinela_gestao.ts';
 import { interpretar } from '../domain/financeiro/linguagem.ts';
 import { interpretarArquivo } from '../domain/financeiro/importacao.ts';
@@ -69,12 +73,14 @@ import { calendarioNacional, noRecesso } from '../domain/processo/feriados.ts';
 import { ErroDePrazo } from '../domain/processo/prazos.ts';
 import { NaoEncontrado, PedidoInvalido } from './erros.ts';
 import * as arquivos from './arquivos.ts';
-import { ArmazenamentoLocal, ArquivoAusente, ArquivoCorrompido } from '../store/arquivos.ts';
+import { ArmazenamentoLocal, ArquivoAusente, ArquivoCorrompido, chaveDoHash } from '../store/arquivos.ts';
 import { TipoRecusado, reconhecerTipo } from '../store/tipos-de-arquivo.ts';
 import { AssinaturaExpirada, AssinaturaInvalida, verificar } from '../security/assinatura.ts';
 import { ProvedorIndisponivel, provedorDoAmbiente, type Provedor } from '../ai/provedor.ts';
 
 const COOKIE = 'nga_sessao';
+/** Outros endereços do site, além do próprio e do que o proxy informa (ex.: domínio próprio). */
+const origensExtras = () => (process.env['NGA_ORIGENS'] ?? '').split(',').map((o) => o.trim()).filter(Boolean);
 /** CSV, OFX e XML são texto; o resto passa pela mesma barreira de conteúdo do acervo. */
 function reconhecerTipoFinanceiro(nome: string, dados: Uint8Array): void {
   if (!/\.(csv|txt|ofx|xml)$/i.test(nome)) reconhecerTipo(dados, nome);
@@ -130,6 +136,51 @@ export interface Contexto {
   readonly limitePdfBytes?: number;
   /** Chave do cofre de credenciais (AES-256-GCM). Sem ela, o cofre fica indisponível. */
   readonly segredoCofre?: string;
+  /** Em produção, quem administra (sócio, administração, coordenação) só trabalha com o segundo fator ativo. */
+  readonly exigirMfa?: boolean;
+  /**
+   * Segredo que o proxy do Launchpad manda em `x-nga-proxy`. Só com ele o IP em
+   * `x-nga-ip-cliente` vale para o limite de tentativas por IP.
+   */
+  readonly segredoProxy?: string;
+}
+
+/**
+ * IP do cliente para o limite de tentativas. `x-forwarded-for` não serve: quem chama
+ * a função direto escolhe o valor, e atrás do proxy todos aparecem com o IP do
+ * Cloudflare (40 erros de qualquer pessoa trancavam o login de todos). Sem o
+ * segredo do proxy, não há IP confiável e o limite fica só por e-mail.
+ */
+export function ipConfiavel(req: Request, segredo: string | undefined): string | undefined {
+  const declarado = req.headers.get('x-nga-ip-cliente')?.trim();
+  const prova = req.headers.get('x-nga-proxy') ?? '';
+  if (!segredo || segredo.length < 32 || !declarado) return undefined;
+  const a = Buffer.from(createHash('sha256').update(prova).digest('hex'));
+  const b = Buffer.from(createHash('sha256').update(segredo).digest('hex'));
+  return timingSafeEqual(a, b) ? declarado.slice(0, 64) : undefined;
+}
+
+const METODOS_QUE_ESCREVEM = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+/**
+ * Barreira contra requisição forjada por outro site (CSRF), além do cookie SameSite=Strict:
+ * escrita vinda de outra origem é recusada, e escrita com o cookie de sessão só aceita
+ * corpo JSON ou upload (multipart). Formulário `text/plain` montando JSON não passa.
+ */
+export function escritaDeOutroSite(req: Request, url: URL, origensExtras: readonly string[] = []): string | null {
+  if (!METODOS_QUE_ESCREVEM.has(req.method)) return null;
+  const site = req.headers.get('sec-fetch-site');
+  if (site === 'cross-site') return 'requisição de outro site recusada';
+  const origem = req.headers.get('origin');
+  if (origem) {
+    let host: string | null = null;
+    try { host = origem === 'null' ? null : new URL(origem).host; } catch { host = null; }
+    const permitidos = new Set([url.host, req.headers.get('x-forwarded-host') ?? '', ...origensExtras].filter(Boolean));
+    if (!host || !permitidos.has(host)) return 'requisição de outra origem recusada';
+  }
+  const comSessao = new RegExp(`(?:^|;\\s*)${COOKIE}=`).test(req.headers.get('cookie') ?? '');
+  const tipo = (req.headers.get('content-type') ?? '').split(';')[0]!.trim().toLowerCase();
+  if (comSessao && tipo && tipo !== 'application/json' && tipo !== 'multipart/form-data') return 'formato de envio não aceito';
+  return null;
 }
 
 /** JSON com BigInt: centavos viram string, nunca Number (perderia precisão). */
@@ -160,6 +211,7 @@ export function criarApp(ctx: Contexto) {
   if (deposito.segredo.aviso) console.warn(`  aviso: ${deposito.segredo.aviso}`);
   // Sem chave própria, o cofre usa o segredo do depósito: serve para guardar, mas troca a cada reinício local.
   const chaveDoCofre = ctx.segredoCofre ?? process.env['NGA_COFRE_CHAVE'] ?? deposito.segredo.valor;
+  const segredoProxy = ctx.segredoProxy ?? process.env['NGA_PROXY_SEGREDO'];
 
   // Leitura automática dos documentos recebidos. Roda depois da resposta, fora
   // da requisição; o estado de cada documento fica gravado e a tela o mostra.
@@ -184,6 +236,9 @@ export function criarApp(ctx: Contexto) {
     const metodo = req.method;
 
     try {
+      const barrada = escritaDeOutroSite(req, url, origensExtras());
+      if (barrada) return erro(barrada, 403);
+
       // ---------------------------------------------------------- download ---
       // A concessão curta é válida apenas para a conta que emitiu o link,
       // com sessão ativa. A leitura continua sujeita às permissões atuais.
@@ -297,6 +352,27 @@ export function criarApp(ctx: Contexto) {
         return r ? json(r) : erro('credencial de TV inválida, expirada ou revogada', 401);
       }
 
+      // Administrador judicial: QGC com lastros por link próprio (credencial com hash, validade e revogação), sem sessão.
+      if (rota === '/api/aj/qgc' && metodo === 'GET') {
+        const t = req.headers.get('x-nga-aj');
+        if (!qgcLastros.pareceTokenAj(t)) return erro('link de acesso ausente', 401);
+        const r = await banco.semContexto((db) => qgcLastros.lerPeloAcesso(db, t));
+        return r ? json(r) : erro('link inválido, expirado ou revogado', 401);
+      }
+      const mAj = /^\/api\/aj\/lastros\/([0-9a-f-]{36})$/.exec(rota);
+      if (mAj && metodo === 'POST') {
+        // POST com o token no corpo: o token não fica em URL, histórico nem log de proxy.
+        const corpoAj = await req.json().catch(() => null) as { t?: string } | null;
+        if (!qgcLastros.pareceTokenAj(corpoAj?.t)) return erro('link de acesso ausente', 401);
+        const doc = await banco.semContexto((db) => qgcLastros.lastroPeloAcesso(db, corpoAj!.t!, mAj[1]!));
+        if (!doc) return erro('documento não disponível para este acesso', 404);
+        const dados = doc.conteudo ? new Uint8Array(doc.conteudo) : await deposito.armazenamento.ler(doc.hash_sha256 ? chaveDoHash(doc.hash_sha256) : doc.caminho, doc.hash_sha256 ?? undefined);
+        await banco.semContexto((db) => db.query(`INSERT INTO auditoria (organizacao_id, usuario_id, acao, entidade, entidade_id, depois) VALUES ($1, NULL, 'qgc.lastro_aberto_externo', 'documento', $2, $3)`,
+          [doc.organizacao_id, doc.documento_id, JSON.stringify({ acesso: doc.acesso_id })]).catch(() => undefined));
+        const nomeAscii = doc.nome.replace(/[^\x20-\x7e]/g, '_');
+        return new Response(dados as unknown as BodyInit, { headers: { 'content-type': doc.tipo_mime ?? 'application/octet-stream', 'content-disposition': `inline; filename="${nomeAscii}"`, 'cache-control': 'private, no-store', 'x-content-type-options': 'nosniff' } });
+      }
+
       if (rota === '/definir-senha' && metodo === 'GET') return equipeAdmin.paginaSenha();
       if (rota === '/api/equipe/definir-senha' && metodo === 'POST') {
         const d=equipeAdmin.EsquemaSenha.safeParse(await req.json().catch(()=>null));
@@ -309,14 +385,16 @@ export function criarApp(ctx: Contexto) {
       if (rota === '/api/sessao' && metodo === 'POST') {
         const corpo = EsquemaLogin.safeParse(await req.json().catch(() => null));
         if (!corpo.success) return erro('dados inválidos', 400, corpo.error.issues);
-        const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim().slice(0, 64) || undefined;
+        const ip = ipConfiavel(req, segredoProxy);
         if (await banco.semContexto((db) => loginBloqueado(db, corpo.data.email, ip))) throw new LoginBloqueado();
         let sessao: { token: string; expiraEm: Date };
         try {
           sessao = await banco.semContexto((db) => autenticar(db, corpo.data.email, corpo.data.senha, {
             ip, agente: req.headers.get('user-agent')?.slice(0, 300) ?? undefined,
+            codigo: corpo.data.codigo, chaveMfa: chaveDoCofre,
           }));
         } catch (falha) {
+          if (falha instanceof CodigoMfaNecessario) return erro(falha.message, 401, { mfa: true });
           // Em transação própria: o erro acima desfaz a dele, e a falha precisa ficar gravada.
           if (falha instanceof ErroDeAutenticacao) await banco.semContexto((db) => registrarFalha(db, corpo.data.email, ip));
           throw falha;
@@ -388,12 +466,15 @@ export function criarApp(ctx: Contexto) {
       const ehCliente = !identidade.organizacoes.some((o) => o.tipo === 'escritorio');
       // Equipe do escritório só entra com e-mail institucional real (@nga.adv.br). Cliente usa o próprio e-mail no portal.
       // Exceções: contas de integração (robôs, @nga.local) e a administração (o acesso master nunca pode ficar trancado).
-      const isentoDoDominio = identidade.papeis.some((p) => p === 'integracao' || p === 'socio_administrador');
+      // Parceiro externo usa o e-mail do escritório dele: também fica isento.
+      const isentoDoDominio = identidade.papeis.some((p) => p === 'integracao' || p === 'socio_administrador' || p === 'parceiro_externo');
       if (!ehCliente && !isentoDoDominio && !emailDoEscritorio(identidade.email) && rota !== '/api/sessao') {
         return erro(`o acesso da equipe exige o e-mail institucional @${DOMINIO_NGA}; peça à administração para corrigir o seu cadastro`, 403);
       }
 
-      const trocaPendente = await banco.semContexto((db) => deveTrocarSenha(db, identidade.usuarioId));
+      const acesso = await banco.semContexto((db) => estadoDeAcesso(db, identidade.usuarioId));
+      const trocaPendente = acesso.deveTrocarSenha;
+      const mfaPendente = !!ctx.exigirMfa && acesso.mfaExigido && !acesso.mfaAtivo;
       if (rota === '/api/senha' && metodo === 'POST') {
         const d = EsquemaTrocaDeSenha.safeParse(await req.json().catch(() => null));
         if (!d.success) return erro('A nova senha precisa ter ao menos 12 caracteres.', 400);
@@ -402,12 +483,29 @@ export function criarApp(ctx: Contexto) {
       }
       if (ctx.exigirTrocaDeSenha && trocaPendente && rota !== '/api/eu') return erro('troque a senha temporária para continuar', 403);
 
+      // ------------------------------------------------- segundo fator ---
+      if (rota === '/api/mfa' && metodo === 'GET') return json({ ativo: acesso.mfaAtivo, exigido: acesso.mfaExigido, pendente: mfaPendente });
+      if (rota === '/api/mfa/preparar' && metodo === 'POST') {
+        return json(await banco.semContexto((db) => prepararMfa(db, identidade, chaveDoCofre)));
+      }
+      if (rota === '/api/mfa/ativar' && metodo === 'POST') {
+        const d = z.object({ codigo: z.string().trim().regex(/^\d{6}$/) }).safeParse(await req.json().catch(() => null));
+        if (!d.success) return erro('Digite os 6 dígitos que aparecem no aplicativo.', 400);
+        await banco.semContexto((db) => ativarMfa(db, identidade, tokenDaRequisicao(req)!, d.data.codigo, chaveDoCofre));
+        return json({ ok: true });
+      }
+      if (mfaPendente && rota !== '/api/eu') {
+        return erro('ative o segundo fator (aplicativo autenticador) para continuar: recarregue a página', 403, { mfa: 'ativar' });
+      }
+
       // Fronteira do portal: o cliente não chama rota de trabalho interno, ainda que o RLS devolvesse vazio.
       if (ehCliente && ROTAS_SO_DO_ESCRITORIO.some((r) => r.test(rota))) return erro('acesso negado', 403);
 
       if (rota === '/api/eu' && metodo === 'GET') {
         return json({
           deveTrocarSenha: trocaPendente,
+          deveAtivarMfa: mfaPendente,
+          mfaAtivo: acesso.mfaAtivo,
           podeVerEntregas: !ehCliente && (permissoes.includes('modulo.entregas') || gestao.podeVerEntregas(identidade.email)),
           usuario: { id: identidade.usuarioId, nome: identidade.nome, email: identidade.email },
           papeis: identidade.papeis,
@@ -542,6 +640,8 @@ export function criarApp(ctx: Contexto) {
           ...(url.searchParams.get('projeto') ? { projetoId: url.searchParams.get('projeto')! } : {}),
           ...(url.searchParams.get('minhas') === '1' ? { responsavelId: identidade.usuarioId } : {}),
           incluirConcluidas: url.searchParams.get('concluidas') === '1',
+          arquivadas: url.searchParams.get('arquivadas') === '1',
+          ...(identidade.papeis.every((p) => p === 'parceiro_externo') ? { parceiroId: identidade.usuarioId } : {}),
         };
         return json(await banco.comoUsuario(identidade.usuarioId, (db) => tarefas.listar(db, filtros)));
       }
@@ -722,6 +822,15 @@ export function criarApp(ctx: Contexto) {
         if (!corpo.success) return erro('dados inválidos', 400, corpo.error.issues);
         return json(await banco.comoUsuario(identidade.usuarioId, (db) =>
           tarefas.atualizar(db, mTarefa[1]!, corpo.data, identidade)));
+      }
+
+      const mCumprir = /^\/api\/tarefas\/([0-9a-f-]{36})\/cumprir$/.exec(rota);
+      if (mCumprir && metodo === 'POST') {
+        if (ehCliente) return erro('acesso negado', 403);
+        exigir(identidade.papeis, 'tarefa.escrever');
+        const corpo = cumprimento.EsquemaCumprimento.safeParse(await req.json().catch(() => null));
+        if (!corpo.success) return erro('dados inválidos', 400, corpo.error.issues);
+        return json(await cumprimento.cumprir(banco, deposito, provedor, mCumprir[1]!, corpo.data.documentoId, identidade), 201);
       }
 
       if (rota === '/api/escritorio/equipe' && metodo === 'GET') {
@@ -1047,6 +1156,7 @@ export function criarApp(ctx: Contexto) {
       const como = <T>(f: (db: PoolClient) => Promise<T>) => banco.comoUsuario(identidade.usuarioId, f);
       { const r = await rotasFrenteB({ rota, metodo, req, identidade, ehCliente, como, deposito, json, erro }); if (r) return r; }
       { const r = await rotasGeradorLab({ rota, metodo, req, identidade, ehCliente, como, deposito, json, erro, banco }); if (r) return r; }
+      { const r = await rotasRodada21({ rota, metodo, req, identidade, ehCliente, como, deposito, json, erro }); if (r) return r; }
       const mGestao = /^\/api\/projetos\/([0-9a-f-]{36})\/(gestao|titulos|lancamento-texto|importacoes\/previa|importacoes|prj\/base|prj\/simular|prj\/otimizar|prj\/cenarios|pmts|atas|mensagens\/lidas)$/.exec(rota);
       if (mGestao) {
         const pid = mGestao[1]!; const acao = mGestao[2]!;
@@ -1519,7 +1629,7 @@ export function criarApp(ctx: Contexto) {
           exigir(identidade.papeis, 'tarefa.escrever'); const d = await corpoDe(gestao.EsquemaTarefasDaAta);
           return json(await como(async (db) => {
             const a = (await db.query<{ projeto_id: string; titulo: string }>('SELECT projeto_id,titulo FROM atas WHERE id=$1', [mAta[1]!])).rows[0]; if (!a) throw new NaoEncontrado('ata não encontrada');
-            const ids = []; for (const t of d.tarefas) ids.push(await tarefas.criar(db, a.projeto_id, { titulo: t.titulo, descricao: `Encaminhamento da ata: ${a.titulo}`, status: 'a_fazer', prioridade: 'media', origem: 'manual', responsavelId: t.responsavelId ?? null, prazo: t.prazo ?? null }, identidade));
+            const ids = []; for (const t of d.tarefas) ids.push(await tarefas.criar(db, a.projeto_id, { titulo: t.titulo, descricao: `Encaminhamento da ata: ${a.titulo}`, status: 'a_fazer', prioridade: 'media', origem: 'manual', tipo: 'tarefa', responsavelId: t.responsavelId ?? null, prazo: t.prazo ?? null }, identidade));
             return { criadas: ids.length };
           }), 201);
         }
@@ -1905,6 +2015,8 @@ export function criarApp(ctx: Contexto) {
 const EsquemaLogin = z.object({
   email: z.string().email(),
   senha: z.string().min(1),
+  /** Código do aplicativo autenticador, quando o segundo fator está ativo. */
+  codigo: z.string().trim().regex(/^\d{6}$/).optional(),
 });
 
 const EsquemaCredor = z.object({

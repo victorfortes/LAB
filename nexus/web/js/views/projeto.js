@@ -14,10 +14,10 @@ import { RECURSOS } from '../recursos.js';
 import { abaReunioesEAtas } from './projeto_reunioes.js';
 import { abaAndamentos } from './projeto_andamentos.js';
 import { api } from '../api.js';
-import { pode } from '../estado.js';
+import { ehParceiro, pode } from '../estado.js';
 import { anel, animarAneis, animarBarras, contar } from '../fx.js';
 import { $, $$, avatar, dataBR, dataCurta, relativo, html, icone, matiz, ouvir, pilha, raw, reais } from '../util.js';
-import { cabecalho, confirmar, erroDe, formulario, menu, toast, vazio } from '../ui.js';
+import { cabecalho, confirmar, erroDe, formulario, menu, modal, toast, vazio } from '../ui.js';
 import { aoSair, atualizarLateral, ir, navegar, posicionarSeg } from '../shell.js';
 import { htmlQuadro, ligarQuadro, novaTarefa } from './tarefas.js';
 import { equipe as equipeDoEscritorio } from './tarefas.js';
@@ -35,6 +35,7 @@ export { novoProcessoSolto } from './projeto_extra.js';
 const ABAS = [
   { id: 'visao', rotulo: 'Visão geral', icone: 'home' },
   { id: 'onboarding', rotulo: 'Onboarding', icone: 'flag', perm: 'projeto.ler', recurso: 'onboarding' },
+  { id: 'prediagnostico', rotulo: 'Pré-diagnóstico', icone: 'search', perm: 'projeto.ler' },
   { id: 'diagnostico', rotulo: 'Diagnóstico', icone: 'sparkle', perm: 'analise.executar' },
   { id: 'tarefas', rotulo: 'Tarefas', icone: 'check', perm: 'tarefa.ler', n: (c) => c.tarefas_abertas },
   { id: 'negociacoes', rotulo: 'Negociações', icone: 'target', perm: 'negociacao.ler' },
@@ -50,7 +51,7 @@ const ABAS = [
 ];
 
 const MODULOS = {
-  visao: abaVisao, diagnostico: abaDiagnostico, negociacoes: abaNegociacoes, tarefas: abaTarefas, creditos: abaCreditos, processos: extra.abaProcessos, andamentos: abaAndamentos,
+  visao: abaVisao, prediagnostico: (ctx) => import('./prediagnostico.js').then((m) => m.abaPrediagnostico(ctx)), diagnostico: abaDiagnostico, negociacoes: abaNegociacoes, tarefas: abaTarefas, creditos: abaCreditos, processos: extra.abaProcessos, andamentos: abaAndamentos,
   documentos: extra.abaDocumentos, portal: async (ctx) => { const [av, pt] = await Promise.all([secaoAvisosEquipe(ctx), extra.abaPortal(ctx)]); return { ...pt, html: html`${av.html}<div class="mt"></div>${pt.html}`, depois(el) { av.depois(el); pt.depois?.(el); } }; }, plano: extra.abaPlano,
   relatorios: async (ctx) => { const rm = secaoRelatorioMensal(ctx); const r = await extra.abaRelatorios(ctx); return { ...r, html: html`${rm.html}<div class="mt"></div>${r.html}`, depois(el) { rm.depois(el); r.depois?.(el); } }; }, equipe: abaEquipe, atas: abaReunioesEAtas, onboarding: abaOnboarding,
 };
@@ -62,8 +63,10 @@ export default async function projeto({ id, aba }) {
   ]);
   h.contagens.tarefas_abertas = tarefasAbertas.resumo?.abertas ?? 0;
   const ctx = { id, h, catalogo, aba: null, ficha: 0 };
-  const abasVisiveis = () => ABAS.filter((a) => (!a.recurso || RECURSOS[a.recurso]) && (!a.perm || pode(a.perm)));
-  const inicial = abasVisiveis().some((a) => a.id === aba) ? aba : 'visao';
+  // Parceiro externo trabalha só no que é dele: tarefas, processos, andamentos e documentos do projeto.
+  const ABAS_PARCEIRO = ['tarefas', 'andamentos', 'processos', 'documentos', 'atas'];
+  const abasVisiveis = () => ABAS.filter((a) => (!a.recurso || RECURSOS[a.recurso]) && (!a.perm || pode(a.perm)) && (!ehParceiro() || ABAS_PARCEIRO.includes(a.id)));
+  const inicial = abasVisiveis().some((a) => a.id === aba) ? aba : ehParceiro() ? 'tarefas' : 'visao';
 
   const cliente = h.empresas.find((e) => e.papel === 'recuperanda') ?? h.empresas[0];
   const encerrado = h.situacao === 'encerrado';
@@ -190,6 +193,8 @@ async function abrirAba(ctx, aba, primeira = false) {
   if (!primeira) history.replaceState(null, '', `#/projetos/${ctx.id}/${aba}`);
   $$('[data-aba]', ctx.abas).forEach((b) => b.setAttribute('aria-selected', b.dataset.aba === aba));
   posicionarSeg(ctx.abas);
+  // No celular a barra de abas desliza: traz a aba escolhida para o meio.
+  if (window.innerWidth <= 640) $(`[data-aba="${aba}"]`, ctx.abas)?.scrollIntoView({ behavior: primeira ? 'auto' : 'smooth', inline: 'center', block: 'nearest' });
   await desenhar(ctx);
 }
 
@@ -326,15 +331,48 @@ async function abaTarefas(ctx) {
 
 // ---------------------------------------------------------------- equipe ---
 
+const AREAS_PARCEIRO = { trabalhista: 'Trabalhista', tributario: 'Tributário', criminal: 'Criminal', civel: 'Cível', empresarial: 'Empresarial', outra: 'Outra' };
 async function abaEquipe(ctx) {
   const { h } = ctx; const editar = pode('projeto.escrever') && h.situacao !== 'encerrado';
+  const parceiros = await api.get(`/api/projetos/${ctx.id}/parceiros`).catch(() => []);
+  const ativos = parceiros.filter((p) => !p.ate);
+  const secaoParceiros = html`<section class="card glass up mt"><header class="card__head"><div><h2 class="card__title">Parceiros externos</h2><p class="card__sub">Escritórios que cuidam de outra área deste cliente (trabalhista, tributário, criminal). O parceiro vê só este projeto: tarefas, processos, andamentos e documentos. Não vê QGC, finanças nem o portal.</p></div>
+      ${editar ? html`<button type="button" class="btn btn--accent" data-parceiro>${icone('plus')}Convidar parceiro</button>` : ''}</header>
+    ${ativos.length ? html`<ul class="lista">${ativos.map((p) => html`<li>${avatar(p.nome, 'md')}<div><b>${p.nome}</b><small>${p.escritorio ? `${p.escritorio} · ` : ''}${p.email} · ${p.ultimoAcesso ? `último acesso ${dataBR(p.ultimoAcesso)}` : 'nunca entrou'} · ${p.tarefasAbertas} tarefa(s) aberta(s)</small></div>
+      <div class="fim flex"><span class="selo info">${AREAS_PARCEIRO[p.area] ?? p.area}</span>${editar ? html`<button type="button" class="ibtn ibtn--sm" data-parceiro-fim="${p.id}" aria-label="Encerrar acesso de ${p.nome}" title="Encerrar acesso">${icone('x')}</button>` : ''}</div></li>`)}</ul>`
+      : html`<p class="dica">Nenhum parceiro neste projeto. Convide o parceiro e atribua a ele as tarefas da área dele (no campo Responsável).</p>`}</section>`;
   return {
-    html: html`<section class="card glass up"><header class="card__head"><div><h2 class="card__title">Quem trabalha neste projeto</h2><p class="card__sub">O líder responde pelo caso; o acesso a dados segue o vínculo do escritório.</p></div>
+    html: html`<section class="card glass up"><header class="card__head"><div><h2 class="card__title">Equipe do escritório (área)</h2><p class="card__sub">Define em qual reunião semanal de pauta este cliente é tratado. Pode ter mais de uma.</p></div>
+        ${editar ? html`<button type="button" class="btn btn--ghost btn--sm" data-areas>${icone('edit')}Alterar</button>` : ''}</header>
+      <div class="flex" style="flex-wrap:wrap;gap:8px">${(h.areas ?? []).length ? h.areas.map((a) => html`<a class="chip" href="#/pautas/equipe/${encodeURIComponent(a)}">${icone('users')}${a}</a>`) : html`<span class="dica">Sem equipe: este cliente não aparece em nenhuma reunião de pauta.</span>`}</div></section>
+      <section class="card glass up mt"><header class="card__head"><div><h2 class="card__title">Quem trabalha neste projeto</h2><p class="card__sub">O líder responde pelo caso; o acesso a dados segue o vínculo do escritório.</p></div>
       ${editar ? html`<button type="button" class="btn btn--accent" data-add>${icone('plus')}Incluir pessoa</button>` : ''}</header>
       <ul class="lista">${h.equipe.map((m) => html`<li>${avatar(m.nome, 'md')}<div><b>${m.nome}</b><small>${m.email} · desde ${dataBR(m.desde)}</small></div>
         <div class="fim flex"><span class="selo ${m.papel === 'lider' ? 'ok' : 'info'}">${ROTULO_EQUIPE[m.papel] ?? m.papel}</span>
-        ${editar ? html`<button type="button" class="ibtn ibtn--sm" data-sair="${m.id}" aria-label="Retirar ${m.nome}" title="Retirar da equipe">${icone('x')}</button>` : ''}</div></li>`)}</ul></section>`,
+        ${editar ? html`<button type="button" class="ibtn ibtn--sm" data-sair="${m.id}" aria-label="Retirar ${m.nome}" title="Retirar da equipe">${icone('x')}</button>` : ''}</div></li>`)}</ul></section>${secaoParceiros}`,
     depois(el) {
+      ouvir(el, 'click', '[data-parceiro]', async () => {
+        let r;
+        const ok = await formulario({ titulo: 'Convidar parceiro externo', subtitulo: 'O parceiro entra com o e-mail do escritório dele e enxerga só este projeto.', rotulo: 'Convidar', campos: [
+          { nome: 'nome', rotulo: 'Nome do advogado(a)', obrigatorio: true }, { nome: 'email', rotulo: 'E-mail', tipo: 'email', obrigatorio: true, metade: true },
+          { nome: 'area', rotulo: 'Área', tipo: 'select', valor: 'trabalhista', metade: true, opcoes: Object.entries(AREAS_PARCEIRO).map(([v, t]) => ({ v, t })) },
+          { nome: 'escritorio', rotulo: 'Escritório parceiro', placeholder: 'Ex.: Silva & Souza Advogados' }],
+          async enviar(v) { r = await api.post(`/api/projetos/${ctx.id}/parceiros`, { nome: v.nome, email: v.email, area: v.area, escritorio: v.escritorio || null }); } });
+        if (!ok) return;
+        await modal({ titulo: 'Parceiro convidado', corpo: String(html`<p>${r.aviso}</p>${r.senhaTemporaria ? html`<div class="aj-link"><p>E-mail: <b>${r.email}</b></p><p>Senha temporária: <b class="mono-sm">${r.senhaTemporaria}</b></p><p class="dica">Endereço: ${location.origin}</p></div>` : ''}`), acoes: [{ id: 'ok', rotulo: 'Entendi', tipo: 'primario' }], aoAbrir(m) { m.addEventListener('acao', () => m.fechar(true)); } });
+        ctx.recarregar();
+      });
+      ouvir(el, 'click', '[data-parceiro-fim]', async (b) => {
+        if (!(await confirmar('Encerrar o acesso do parceiro?', 'Ele deixa de ver este projeto na hora. O que ele fez fica registrado.', { rotulo: 'Encerrar', perigo: true }))) return;
+        try { await api.del(`/api/parceiros/${b.dataset.parceiroFim}`); toast('Acesso encerrado'); ctx.recarregar(); } catch (e) { erroDe(e); }
+      });
+      ouvir(el, 'click', '[data-areas]', async () => {
+        const conhecidas = ['Cível', 'Empresarial', 'Trabalhista', 'Tributário', 'Criminal', 'Recuperação Judicial'];
+        const ok = await formulario({ titulo: 'Equipe do escritório', subtitulo: 'Separe por vírgula. Ex.: Cível, Empresarial', rotulo: 'Salvar', campos: [
+          { nome: 'areas', rotulo: 'Equipes', valor: (h.areas ?? []).join(', '), placeholder: conhecidas.slice(0, 3).join(', '), dica: `Comuns: ${conhecidas.join(', ')}` }],
+          async enviar(v) { const lista = String(v.areas ?? '').split(',').map((x) => x.trim()).filter((x) => x.length >= 2); await api.put(`/api/projetos/${ctx.id}/equipes`, { equipes: lista }); } });
+        if (ok) { toast('Equipe atualizada'); await ctx.recarregar(); }
+      });
       ouvir(el, 'click', '[data-add]', async () => {
         const todos = await equipeDoEscritorio();
         const livres = todos.filter((u) => !h.equipe.some((m) => m.email === u.email));

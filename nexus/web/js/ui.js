@@ -7,12 +7,14 @@ import { $, $$, esc, html, icone, raw } from './util.js';
 
 // --------------------------------------------------------------- toasts ---
 
-export function toast(msg, tipo = 'ok', ms = 4200) {
+/** `acao` opcional: { rotulo: 'Desfazer', fn } — vira um botão no próprio aviso (e dá mais tempo para clicar). */
+export function toast(msg, tipo = 'ok', ms = 4200, acao = null) {
   let cx = $('#toasts'); if (!cx) { cx = document.createElement('div'); cx.id = 'toasts'; cx.className = 'toasts'; document.body.append(cx); }
   const t = document.createElement('div'); t.className = `toast ${tipo}`; t.setAttribute('role', tipo === 'erro' ? 'alert' : 'status');
-  t.innerHTML = `<i></i><span>${esc(msg)}</span>`; cx.append(t);
+  t.innerHTML = `<i></i><span>${esc(msg)}</span>${acao ? `<button type="button" class="toast__acao">${esc(acao.rotulo)}</button>` : ''}`; cx.append(t);
   const sai = () => { t.classList.add('sai'); setTimeout(() => t.remove(), 300); };
-  t.addEventListener('click', sai); setTimeout(sai, tipo === 'erro' ? ms + 2500 : ms);
+  if (acao) t.querySelector('.toast__acao').addEventListener('click', (e) => { e.stopPropagation(); sai(); acao.fn(); });
+  t.addEventListener('click', sai); setTimeout(sai, (tipo === 'erro' ? ms + 2500 : ms) + (acao ? 3000 : 0));
 }
 export const erroDe = (e) => toast(e?.message ?? String(e), 'erro');
 

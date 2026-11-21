@@ -151,7 +151,12 @@ export const PERMISSOES: Readonly<Record<Papel, readonly Permissao[]>> = Object.
     'projeto.ler', 'documento.ler', 'documento.escrever', 'plano.ler', 'processo.ler',
     'financeiro_cliente.ler', 'fatura.ler', 'fatura.comprovar',
   ],
-  parceiro_externo: ['documento.ler'],
+  /**
+   * Escritório parceiro (trabalhista, tributário, criminal...) dentro do projeto do cliente. Lê o projeto,
+   * os processos e os documentos, cuida das próprias tarefas e junta documento. Não vê QGC, finanças, portal,
+   * controladoria nem nada fora dos projetos em que foi incluído (RLS 048/077).
+   */
+  parceiro_externo: ['projeto.ler', 'documento.ler', 'documento.escrever', 'processo.ler', 'prazo.ler', 'tarefa.ler', 'tarefa.escrever'],
 
   /**
    * O que uma aplicação do NGA LAB pode fazer ao entregar o que produziu.

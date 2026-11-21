@@ -15,6 +15,7 @@ import { z } from 'zod';
 import { auditar } from '../store/conexao.ts';
 import type { Identidade } from '../security/sessao.ts';
 import { NaoEncontrado, PedidoInvalido } from './erros.ts';
+import { agendarReuniaoEquipe, proximoDia } from './pautas_equipe.ts';
 
 const DATA = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 export const CATEGORIAS = ['geral', 'processual', 'negociacao', 'financeiro', 'cliente', 'documentos', 'estrategia'] as const;
@@ -27,6 +28,8 @@ export const EsquemaItem = z.object({
   categoria: z.enum(CATEGORIAS).default('geral'),
   prioridade: z.enum(PRIORIDADES).default('media'),
   responsavelId: z.string().uuid().nullable().optional(),
+  /** Em qual reunião semanal o item é tratado (vazio = na de todas as equipes do cliente). */
+  equipe: z.string().trim().min(2).max(60).nullable().optional(),
 });
 export const EsquemaEdicaoItem = z.object({
   titulo: z.string().trim().min(1).max(300).optional(),
@@ -43,6 +46,9 @@ export const EsquemaTarefaDoItem = z.object({
   responsavelId: z.string().uuid().nullable().optional(),
   prazo: DATA.nullable().optional(),
   prioridade: z.enum(PRIORIDADES).optional(),
+  /** Encaminhamento pode ser tarefa, prazo, evento ou audiência (com hora): vai para Tarefas e para o Calendário. */
+  tipo: z.enum(['tarefa', 'prazo', 'evento', 'audiencia']).default('tarefa'),
+  hora: z.string().regex(/^\d{2}:\d{2}$/).nullable().optional(),
 });
 export const EsquemaReuniao = z.object({
   titulo: z.string().trim().min(1).max(200).default('Reunião de pauta'),
@@ -71,7 +77,8 @@ export async function painel(db: PoolClient) {
       SELECT projeto_id, max(d) AS ultima FROM (
         SELECT projeto_id, data AS d FROM pauta_reunioes WHERE situacao = 'realizada'
         UNION ALL SELECT projeto_id, realizada_em FROM atas) x GROUP BY projeto_id),
-    prox AS (SELECT projeto_id, min(data) AS proxima FROM pauta_reunioes WHERE situacao = 'agendada' AND data >= $1::date GROUP BY projeto_id),
+    prox AS (SELECT p.id AS projeto_id, min(r.data) AS proxima FROM projetos p JOIN pauta_reunioes r ON r.situacao = 'agendada' AND r.data >= $1::date
+               AND (r.projeto_id = p.id OR r.equipe = ANY(p.equipes)) GROUP BY p.id),
     itens AS (SELECT projeto_id, count(*) FILTER (WHERE situacao IN ('aberto','discutido'))::int abertos,
                      count(*) FILTER (WHERE situacao IN ('aberto','discutido') AND prioridade IN ('alta','urgente'))::int criticos,
                      count(*) FILTER (WHERE situacao IN ('aberto','discutido') AND vezes_em_pauta >= 3)::int recorrentes,
@@ -82,7 +89,7 @@ export async function painel(db: PoolClient) {
               FROM tarefas GROUP BY projeto_id),
     pz AS (SELECT pr.projeto_id, count(*)::int semana FROM prazos z JOIN processos pr ON pr.id = z.processo_id
             WHERE z.situacao = 'aberto' AND z.vencimento BETWEEN $1::date AND $1::date + 7 GROUP BY pr.projeto_id)
-    SELECT p.id, p.nome, p.tipo, p.fase,
+    SELECT p.id, p.nome, p.tipo, p.fase, p.equipes,
            coalesce(u.nome, (SELECT u2.nome FROM projeto_equipe e JOIN usuarios u2 ON u2.id = e.usuario_id WHERE e.projeto_id = p.id AND e.ate IS NULL ORDER BY (e.papel = 'lider') DESC, e.desde LIMIT 1)) AS responsavel,
            ult.ultima, prox.proxima,
            coalesce(itens.abertos,0) abertos, coalesce(itens.criticos,0) criticos, coalesce(itens.recorrentes,0) recorrentes, coalesce(itens.encaminhados,0) encaminhados,
@@ -140,9 +147,12 @@ export async function doCliente(db: PoolClient, projetoId: string) {
 export async function criarItem(db: PoolClient, projetoId: string, d: z.infer<typeof EsquemaItem>, i: Identidade) {
   const p = await projeto(db, projetoId);
   const { rows: [r] } = await db.query<{ id: string }>(
-    `INSERT INTO pauta_itens (organizacao_id, projeto_id, titulo, detalhe, categoria, prioridade, responsavel_id, criado_por, ordem)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8, coalesce((SELECT max(ordem)+1 FROM pauta_itens WHERE projeto_id = $2), 0)) RETURNING id`,
-    [p.organizacao_id, projetoId, d.titulo, d.detalhe ?? null, d.categoria, d.prioridade, d.responsavelId ?? null, i.usuarioId]);
+    `INSERT INTO pauta_itens (organizacao_id, projeto_id, titulo, detalhe, categoria, prioridade, responsavel_id, criado_por, ordem, equipe, reuniao_id)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8, coalesce((SELECT max(ordem)+1 FROM pauta_itens WHERE projeto_id = $2), 0), $9,
+       -- Se a equipe do cliente já tem reunião agendada, o item novo entra nela.
+       (SELECT r.id FROM pauta_reunioes r JOIN projetos pj ON pj.id = $2 WHERE r.situacao = 'agendada'
+         AND ((r.equipe IS NOT NULL AND r.equipe = ANY(pj.equipes) AND ($9::text IS NULL OR r.equipe = $9)) OR r.projeto_id = $2) ORDER BY r.data LIMIT 1)) RETURNING id`,
+    [p.organizacao_id, projetoId, d.titulo, d.detalhe ?? null, d.categoria, d.prioridade, d.responsavelId ?? null, i.usuarioId, d.equipe ?? null]);
   await auditar(db, { organizacaoId: p.organizacao_id, usuarioId: i.usuarioId, acao: 'pauta.item_criado', entidade: 'projeto', entidadeId: projetoId, depois: { titulo: d.titulo } });
   return { id: r!.id };
 }
@@ -177,9 +187,9 @@ export async function gerarTarefa(db: PoolClient, itemId: string, d: z.infer<typ
   const responsavel = d.responsavelId !== undefined && d.responsavelId !== null ? d.responsavelId : (it.responsavel_id ?? lider);
   const descricao = [it.detalhe, it.decisao ? `Decisão da reunião de pauta: ${it.decisao}` : null].filter(Boolean).join('\n\n') || null;
   const { rows: [t] } = await db.query<{ id: string }>(
-    `INSERT INTO tarefas (organizacao_id, projeto_id, titulo, descricao, prioridade, responsavel_id, prazo, origem, origem_id, criado_por)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,'pauta',$8,$9) RETURNING id`,
-    [it.organizacao_id, it.projeto_id, d.titulo ?? it.titulo, descricao, d.prioridade ?? it.prioridade, responsavel, d.prazo ?? null, itemId, i.usuarioId]);
+    `INSERT INTO tarefas (organizacao_id, projeto_id, titulo, descricao, prioridade, responsavel_id, prazo, origem, origem_id, criado_por, tipo, hora)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,'pauta',$8,$9,$10,$11) RETURNING id`,
+    [it.organizacao_id, it.projeto_id, d.titulo ?? it.titulo, descricao, d.prioridade ?? it.prioridade, responsavel, d.prazo ?? null, itemId, i.usuarioId, d.tipo, d.hora ?? null]);
   await db.query(`UPDATE pauta_itens SET tarefa_id = $2, situacao = 'encaminhado', responsavel_id = coalesce($3, responsavel_id), resolvido_em = now(), atualizado_em = now() WHERE id = $1`, [itemId, t!.id, responsavel]);
   await auditar(db, { organizacaoId: it.organizacao_id, usuarioId: i.usuarioId, acao: 'pauta.tarefa_gerada', entidade: 'tarefa', entidadeId: t!.id, depois: { item: itemId } });
   return { tarefaId: t!.id };
@@ -203,36 +213,55 @@ const ROT_SITUACAO: Record<string, string> = { aberto: 'Em aberto', discutido: '
  * para o que segue aberto e solta esses itens para a próxima reunião.
  */
 export async function encerrarReuniao(db: PoolClient, reuniaoId: string, d: z.infer<typeof EsquemaEncerramento>, i: Identidade) {
-  const { rows: [r] } = await db.query<{ id: string; organizacao_id: string; projeto_id: string; titulo: string; data: Date; situacao: string; participantes: string | null }>(
-    'SELECT id, organizacao_id, projeto_id, titulo, data, situacao, participantes FROM pauta_reunioes WHERE id = $1', [reuniaoId]);
+  const { rows: [r] } = await db.query<{ id: string; organizacao_id: string; projeto_id: string | null; equipe: string | null; titulo: string; data: Date; hora: string | null; situacao: string; participantes: string | null }>(
+    'SELECT id, organizacao_id, projeto_id, equipe, titulo, data, hora, situacao, participantes FROM pauta_reunioes WHERE id = $1', [reuniaoId]);
   if (!r) throw new NaoEncontrado('reunião não encontrada');
   if (r.situacao !== 'agendada') throw new PedidoInvalido('esta reunião já foi encerrada');
-  const { rows: itens } = await db.query<{ titulo: string; situacao: string; decisao: string | null; responsavel: string | null; tarefa_prazo: Date | null }>(
-    `SELECT i.titulo, i.situacao, i.decisao, u.nome AS responsavel, t.prazo AS tarefa_prazo FROM pauta_itens i
-       LEFT JOIN usuarios u ON u.id = i.responsavel_id LEFT JOIN tarefas t ON t.id = i.tarefa_id
-      WHERE i.reuniao_id = $1 ORDER BY i.ordem, i.criado_em`, [reuniaoId]);
+  const { rows: itens } = await db.query<{ projeto_id: string; projeto: string; titulo: string; situacao: string; decisao: string | null; responsavel: string | null; tarefa_prazo: Date | null }>(
+    `SELECT i.projeto_id, pj.nome projeto, i.titulo, i.situacao, i.decisao, u.nome AS responsavel, t.prazo AS tarefa_prazo FROM pauta_itens i
+       JOIN projetos pj ON pj.id = i.projeto_id LEFT JOIN usuarios u ON u.id = i.responsavel_id LEFT JOIN tarefas t ON t.id = i.tarefa_id
+      WHERE i.reuniao_id = $1 ORDER BY pj.nome, i.ordem, i.criado_em`, [reuniaoId]);
   const dataIso = new Date(r.data).toISOString().slice(0, 10);
-  const pauta = itens.map((x, n) => `${n + 1}. ${x.titulo}`).join('\n');
-  const decisoes = itens.map((x, n) => `${n + 1}. ${x.titulo}: ${ROT_SITUACAO[x.situacao]}${x.decisao ? `. ${x.decisao}` : ''}`).join('\n');
-  const encaminhamentos = itens.filter((x) => x.situacao === 'encaminhado')
-    .map((x) => `• ${x.titulo}${x.responsavel ? ` (${x.responsavel})` : ''}${x.tarefa_prazo ? `, até ${new Date(x.tarefa_prazo).toISOString().slice(0, 10).split('-').reverse().join('/')}` : ''}`).join('\n');
   const participantes = d.participantes ?? r.participantes ?? '';
-  const { rows: [ata] } = await db.query<{ id: string }>(
-    `INSERT INTO atas (organizacao_id, projeto_id, titulo, realizada_em, participantes, pauta, decisoes, encaminhamentos, publicada, criado_por)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id`,
-    [r.organizacao_id, r.projeto_id, r.titulo, dataIso, participantes, pauta.slice(0, 10000), [d.resumo, decisoes].filter(Boolean).join('\n\n').slice(0, 30000), encaminhamentos.slice(0, 10000), d.publicarAta, i.usuarioId]);
-  await db.query(`UPDATE pauta_reunioes SET situacao = 'realizada', resumo = $2, participantes = $3, ata_id = $4, realizada_em = now() WHERE id = $1`, [reuniaoId, d.resumo ?? null, participantes || null, ata!.id]);
+  // Uma ata por cliente tratado (reunião de equipe) — ou a ata do cliente (reunião antiga, por cliente).
+  const porProjeto = new Map<string, typeof itens>();
+  for (const x of itens) porProjeto.set(x.projeto_id, [...(porProjeto.get(x.projeto_id) ?? []), x]);
+  if (r.projeto_id && !porProjeto.has(r.projeto_id)) porProjeto.set(r.projeto_id, []);
+  const atas: string[] = [];
+  for (const [projetoId, lista] of porProjeto) {
+    const pauta = lista.map((x, n) => `${n + 1}. ${x.titulo}`).join('\n');
+    const decisoes = lista.map((x, n) => `${n + 1}. ${x.titulo}: ${ROT_SITUACAO[x.situacao]}${x.decisao ? `. ${x.decisao}` : ''}`).join('\n');
+    const encaminhamentos = lista.filter((x) => x.situacao === 'encaminhado')
+      .map((x) => `• ${x.titulo}${x.responsavel ? ` (${x.responsavel})` : ''}${x.tarefa_prazo ? `, até ${new Date(x.tarefa_prazo).toISOString().slice(0, 10).split('-').reverse().join('/')}` : ''}`).join('\n');
+    const titulo = r.equipe ? `Pauta semanal · equipe ${r.equipe}` : r.titulo;
+    const { rows: [ata] } = await db.query<{ id: string }>(
+      `INSERT INTO atas (organizacao_id, projeto_id, titulo, realizada_em, participantes, pauta, decisoes, encaminhamentos, publicada, criado_por, pauta_reuniao_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,
+      [r.organizacao_id, projetoId, titulo, dataIso, participantes, pauta.slice(0, 10000) || 'Sem itens nesta reunião.', [d.resumo, decisoes].filter(Boolean).join('\n\n').slice(0, 30000) || '—', encaminhamentos.slice(0, 10000), d.publicarAta, i.usuarioId, reuniaoId]);
+    atas.push(ata!.id);
+  }
+  await db.query(`UPDATE pauta_reunioes SET situacao = 'realizada', resumo = $2, participantes = $3, ata_id = $4, realizada_em = now() WHERE id = $1`, [reuniaoId, d.resumo ?? null, participantes || null, atas[0] ?? null]);
   await db.query(`UPDATE pauta_itens SET vezes_em_pauta = vezes_em_pauta + 1, atualizado_em = now() WHERE reuniao_id = $1`, [reuniaoId]);
   // O que não se resolveu volta a "aberto" na pauta do cliente, solto para a próxima reunião.
   await db.query(`UPDATE pauta_itens SET reuniao_id = NULL WHERE reuniao_id = $1 AND situacao IN ('aberto','discutido')`, [reuniaoId]);
-  await auditar(db, { organizacaoId: r.organizacao_id, usuarioId: i.usuarioId, acao: 'pauta.reuniao_encerrada', entidade: 'projeto', entidadeId: r.projeto_id, depois: { ata: ata!.id, itens: itens.length } });
-  return { ataId: ata!.id, itens: itens.length, encaminhados: itens.filter((x) => x.situacao === 'encaminhado').length };
+  // Reunião de equipe com cadência: a da semana seguinte já fica marcada (e puxa o que ficou aberto).
+  let proxima: string | null = null;
+  if (r.equipe) {
+    const { rows: [cad] } = await db.query<{ dia_semana: number; hora: string; participantes: string | null; ativo: boolean }>('SELECT dia_semana, hora, participantes, ativo FROM pauta_equipes WHERE equipe = $1', [r.equipe]);
+    if (cad?.ativo) {
+      const base = new Date(Date.now() - 3 * 3600_000).toISOString().slice(0, 10) > dataIso ? new Date(Date.now() - 3 * 3600_000).toISOString().slice(0, 10) : dataIso;
+      const data = proximoDia(new Date(Date.parse(`${base}T12:00:00Z`) + 86_400_000).toISOString().slice(0, 10), cad.dia_semana);
+      proxima = (await agendarReuniaoEquipe(db, r.equipe, { data, hora: cad.hora, participantes: cad.participantes }, i)).id;
+    }
+  }
+  await auditar(db, { organizacaoId: r.organizacao_id, usuarioId: i.usuarioId, acao: 'pauta.reuniao_encerrada', entidade: 'organizacao', entidadeId: r.organizacao_id, depois: { atas: atas.length, itens: itens.length, equipe: r.equipe } });
+  return { ataId: atas[0] ?? null, atas: atas.length, itens: itens.length, encaminhados: itens.filter((x) => x.situacao === 'encaminhado').length, proxima };
 }
 
 export async function cancelarReuniao(db: PoolClient, reuniaoId: string, i: Identidade) {
-  const { rows: [r] } = await db.query<{ organizacao_id: string; projeto_id: string }>(`UPDATE pauta_reunioes SET situacao = 'cancelada' WHERE id = $1 AND situacao = 'agendada' RETURNING organizacao_id, projeto_id`, [reuniaoId]);
+  const { rows: [r] } = await db.query<{ organizacao_id: string; projeto_id: string | null }>(`UPDATE pauta_reunioes SET situacao = 'cancelada' WHERE id = $1 AND situacao = 'agendada' RETURNING organizacao_id, projeto_id`, [reuniaoId]);
   if (!r) throw new NaoEncontrado('reunião agendada não encontrada');
   await db.query('UPDATE pauta_itens SET reuniao_id = NULL WHERE reuniao_id = $1', [reuniaoId]);
-  await auditar(db, { organizacaoId: r.organizacao_id, usuarioId: i.usuarioId, acao: 'pauta.reuniao_cancelada', entidade: 'projeto', entidadeId: r.projeto_id });
+  await auditar(db, { organizacaoId: r.organizacao_id, usuarioId: i.usuarioId, acao: 'pauta.reuniao_cancelada', entidade: r.projeto_id ? 'projeto' : 'organizacao', entidadeId: r.projeto_id ?? r.organizacao_id });
   return { ok: true };
 }
