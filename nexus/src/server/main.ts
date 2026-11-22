@@ -50,7 +50,7 @@ await armazenamento.iniciar();
 
 const deposito=montarDeposito(armazenamento);
 // Segundo fator obrigatório só com chave fixa do cofre: com chave sorteada, o segredo não abriria após reiniciar.
-const api = criarApp({ banco, deposito, analiseAutomatica: true, exigirTrocaDeSenha: true, exigirMfa: !!process.env.NGA_COFRE_CHAVE });
+const api = criarApp({ banco, deposito, analiseAutomatica: true, exigirTrocaDeSenha: true, exigirMfa: false });
 let analiseRodando=false;
 const lerFila=async()=>{if(analiseRodando)return;analiseRodando=true;try{const prov=provedorDoAmbiente();await processarFilaAnalise(banco,deposito,prov);await reprocessarResumosPendentes(banco,deposito,prov);}catch{console.error('Análise: fila pendente; verifique o worker local.');}finally{analiseRodando=false;}};
 setTimeout(lerFila,15_000);setInterval(lerFila,60_000);

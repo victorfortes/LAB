@@ -37,7 +37,7 @@ async function prepararGoogle(){
 // Acima disto o PDF não cabe no limite de CPU da função: sai com motivo na tela, em vez de travar.
 const LIMITE_PDF=3*1024*1024;
 const SEGREDO_COFRE=e.NGA_COFRE_CHAVE??createHash('sha256').update('cofre:'+segredo).digest('hex');
-const app=criarApp({banco,deposito:dep,analiseAutomatica:false,analiseEmWorker:true,exigirTrocaDeSenha:true,exigirMfa:true,segredoProxy:e.NGA_PROXY_SEGREDO,limitePdfBytes:LIMITE_PDF,segredoCofre:SEGREDO_COFRE});
+const app=criarApp({banco,deposito:dep,analiseAutomatica:false,analiseEmWorker:true,exigirTrocaDeSenha:true,exigirMfa:false,segredoProxy:e.NGA_PROXY_SEGREDO,limitePdfBytes:LIMITE_PDF,segredoCofre:SEGREDO_COFRE});
 const prefix='/nga-lab-api';
 const acervo=new AcervoNaNuvem();
 const ROTINAS:Record<string,()=>Promise<unknown>>={
