@@ -80,7 +80,8 @@ import { ProvedorIndisponivel, provedorDoAmbiente, type Provedor } from '../ai/p
 
 const COOKIE = 'nga_sessao';
 /** Outros endereços do site, além do próprio e do que o proxy informa (ex.: domínio próprio). */
-const origensExtras = () => (process.env['NGA_ORIGENS'] ?? '').split(',').map((o) => o.trim()).filter(Boolean);
+const ORIGENS_DO_ESCRITORIO = ['nga-lab.lovable.app', 'nga-lab-launchpad.lovable.app'];
+const origensExtras = () => [...ORIGENS_DO_ESCRITORIO, ...(process.env['NGA_ORIGENS'] ?? '').split(',').map((o) => o.trim()).filter(Boolean)];
 /** CSV, OFX e XML são texto; o resto passa pela mesma barreira de conteúdo do acervo. */
 function reconhecerTipoFinanceiro(nome: string, dados: Uint8Array): void {
   if (!/\.(csv|txt|ofx|xml)$/i.test(nome)) reconhecerTipo(dados, nome);
