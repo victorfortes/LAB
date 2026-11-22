@@ -927,6 +927,12 @@ export function criarApp(ctx: Contexto) {
           atividade(db, desde && !Number.isNaN(Date.parse(desde)) ? desde : null)));
       }
 
+      if (rota === '/api/painel/agenda' && metodo === 'GET') {
+        if (ehCliente) return erro('acesso negado', 403);
+        exigir(identidade.papeis, 'modulo.painel');
+        if (!podeComPapeis(identidade.papeis, 'modulo.bi_prazos')) return json(null);
+        return json(await banco.comoUsuario(identidade.usuarioId, (db) => biAgenda.painelAgenda(db, identidade.nome)));
+      }
       if (rota === '/api/painel' && metodo === 'GET') {
         // O painel do cliente é o portal; este é o de quem trabalha no caso.
         if (ehCliente) return erro('use /api/portal/projetos', 403);

@@ -99,3 +99,49 @@ export async function lerPelaTv(db: PoolClient, token: string) {
   if (!rows[0]) return null;
   return { updatedAt: rows[0].atualizado_em, rows: rows[0].linhas };
 }
+
+/**
+ * Resumo da agenda do Astrea para o Painel geral: a mesma base do BI de Prazos (prazos, eventos e audiências),
+ * contada por urgência em dias úteis, com os próximos vencimentos e o que foi cumprido em cada dia da semana.
+ * `nome` filtra o que é da pessoa (responsável no Astrea com o mesmo nome).
+ */
+export async function painelAgenda(db: PoolClient, nome: string, hojeISO?: string) {
+  const { diasUteisAte } = await import('../domain/processo/prazos.ts');
+  const hoje = hojeISO ?? new Date(Date.now() - 3 * 3600_000).toISOString().slice(0, 10);
+  const iso = (br: string) => `${br.slice(6, 10)}-${br.slice(3, 5)}-${br.slice(0, 2)}`;
+  const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+  const eu = norm(nome);
+  const { rows } = await db.query<{ tipo: string; data: string; hora: string | null; titulo: string; caso: string; numero: string; resp: string; status: string; conclusao: string; juizo: string }>(
+    `SELECT tipo, data, hora, titulo, caso, numero, resp, status, conclusao, juizo FROM bi_agenda_linhas`);
+  const { rows: [c] } = await db.query<{ recebido_em: Date | null }>('SELECT recebido_em FROM bi_agenda_cargas ORDER BY recebido_em DESC LIMIT 1');
+  const FAIXAS = ['atrasada', 'hoje', 'esta_semana', 'adiante'] as const;
+  const vazio = () => Object.fromEntries(FAIXAS.map((f) => [f, { total: 0, prazos: 0, eventos: 0 }])) as Record<typeof FAIXAS[number], { total: number; prazos: number; eventos: number }>;
+  const todos = vazio(); const meus = vazio();
+  const abertos: (typeof rows[number] & { venc: string; dias: number; meu: boolean })[] = [];
+  for (const r of rows) {
+    if (/conclu|cancel/i.test(r.status)) continue;
+    const venc = iso(r.data); const dias = diasUteisAte(hoje, venc);
+    const faixa = venc < hoje ? 'atrasada' : venc === hoje ? 'hoje' : dias <= 5 ? 'esta_semana' : 'adiante';
+    const meu = !!eu && norm(r.resp) === eu; const campo = r.tipo === 'Prazo' ? 'prazos' : 'eventos';
+    todos[faixa].total++; todos[faixa][campo]++;
+    if (meu) { meus[faixa].total++; meus[faixa][campo]++; }
+    abertos.push({ ...r, venc, dias, meu });
+  }
+  const futuros = abertos.filter((a) => a.venc >= hoje).sort((a, b) => a.venc.localeCompare(b.venc) || (a.hora ?? '').localeCompare(b.hora ?? ''));
+  const item = (a: typeof abertos[number]) => ({ tipo: a.tipo, vencimento: a.venc, hora: a.hora || null, titulo: a.titulo, caso: a.caso, numero: a.numero, responsavel: a.resp, juizo: a.juizo, diasUteis: a.dias, meu: a.meu });
+  // Cumpridos por dia (últimos 7 dias), pela data de conclusão no Astrea.
+  const dias7 = Array.from({ length: 7 }, (_, i) => new Date(Date.parse(`${hoje}T12:00:00Z`) - (6 - i) * 86_400_000).toISOString().slice(0, 10));
+  const porDia = new Map(dias7.map((d) => [d, { total: 0, meus: 0 }]));
+  for (const r of rows) {
+    if (!/conclu/i.test(r.status) || !/^\d{2}\/\d{2}\/\d{4}$/.test(r.conclusao)) continue;
+    const d = porDia.get(iso(r.conclusao)); if (!d) continue;
+    d.total++; if (eu && norm(r.resp) === eu) d.meus++;
+  }
+  return {
+    atualizadoEm: c?.recebido_em ?? null, hoje, abertos: abertos.length, meusAbertos: abertos.filter((a) => a.meu).length,
+    faixas: todos, faixasMeus: meus,
+    proximos: futuros.slice(0, 8).map(item), meusProximos: futuros.filter((a) => a.meu).slice(0, 8).map(item),
+    vencidos: abertos.filter((a) => a.venc < hoje).sort((a, b) => a.venc.localeCompare(b.venc)).slice(0, 8).map(item),
+    cumpridosPorDia: dias7.map((d) => ({ dia: d, ...porDia.get(d)! })),
+  };
+}

@@ -3,6 +3,7 @@
  * tem política de portal, então o cliente não alcança nenhuma.
  */
 import type { PoolClient } from 'pg';
+import { textoPublicacao } from './publicacao_analise.ts';
 import { z } from 'zod';
 import { auditar } from '../store/conexao.ts';
 import type { Identidade } from '../security/sessao.ts';
@@ -65,7 +66,7 @@ function enriquecer(l: Linha, hoje: string) {
     descricao: l.descricao, status: l.status, prioridade: l.prioridade, prazo,
     responsavelId: l.responsavel_id, responsavel: l.responsavel,
     fase: l.fase ?? null, paiId: l.tarefa_pai_id ?? null,
-    origem: l.origem, origemId:l.origem_id, publicacaoId:l.publicacao_id, publicacaoTrecho:l.publicacao_trecho, publicacaoData:dia(l.publicacao_data), processo:l.processo_numero, vencimentoProcessual:dia(l.vencimento_processual), tipoAtividade:(l.tipo==='analise'||l.chave_playbook?.startsWith('djen-analise:')||l.chave_playbook?.startsWith('astrea-analise:'))?'analise_intimacao':(l.origem==='prazo'||l.tipo==='prazo')?'prazo_processual':l.tipo==='evento'||l.tipo==='audiencia'?l.tipo:'tarefa',
+    origem: l.origem, origemId:l.origem_id, publicacaoId:l.publicacao_id, publicacaoTrecho:l.publicacao_trecho ? textoPublicacao(l.publicacao_trecho).slice(0, 6000) : null, publicacaoData:dia(l.publicacao_data), processo:l.processo_numero, vencimentoProcessual:dia(l.vencimento_processual), tipoAtividade:(l.tipo==='analise'||l.chave_playbook?.startsWith('djen-analise:')||l.chave_playbook?.startsWith('astrea-analise:'))?'analise_intimacao':(l.origem==='prazo'||l.tipo==='prazo')?'prazo_processual':l.tipo==='evento'||l.tipo==='audiencia'?l.tipo:'tarefa',
     tipo: l.tipo, hora: l.hora, caso: l.caso, processoId: l.processo_ref, vinculo: l.processo_numero ? 'processo' : l.caso ? 'caso' : null,
     doAstrea: !!l.chave_playbook?.startsWith('astrea'), arquivadaEm: l.arquivada_em, arquivadaMotivo: l.arquivada_motivo, conclusaoNota: l.conclusao_nota, concluidaPor: l.concluida_por_nome, chavePlaybook: l.chave_playbook, playbookNoId:l.playbook_no_id,tarefaPaiId:l.tarefa_pai_id, concluidaEm: l.concluida_em, criadoEm: l.criado_em,
     situacaoDoPrazo: situacaoDoPrazo({ status: l.status, prazo, prioridade: l.prioridade }, hoje),
@@ -104,7 +105,7 @@ export async function listar(db: PoolClient, filtros: Filtros = {}) {
     `SELECT t.id, t.projeto_id, t.titulo, t.descricao, t.status, t.prioridade, t.prazo,
             t.responsavel_id, u.nome AS responsavel, p.nome AS projeto,
             t.origem, t.origem_id, t.tipo, t.hora, t.caso, t.processo_id AS processo_ref, t.arquivada_em, t.arquivada_motivo, t.conclusao_nota, uc.nome AS concluida_por_nome,
-            coalesce(pub.id, pubA.id) AS publicacao_id, left(coalesce(pub.texto, bl.publicacao_texto, pubA.texto), 6000) AS publicacao_trecho, coalesce(pub.data_disponibilizacao, bl.publicacao_data, pubA.data_disponibilizacao) AS publicacao_data, coalesce(pr.numero, prt.numero) AS processo_numero, prazo.vencimento AS vencimento_processual, t.chave_playbook,t.playbook_no_id,t.tarefa_pai_id, t.fase, t.concluida_em, t.criado_em
+            coalesce(pub.id, pubA.id) AS publicacao_id, left(coalesce(pub.texto, bl.publicacao_texto, pubA.texto), 60000) AS publicacao_trecho, coalesce(pub.data_disponibilizacao, bl.publicacao_data, pubA.data_disponibilizacao) AS publicacao_data, coalesce(pr.numero, prt.numero) AS processo_numero, prazo.vencimento AS vencimento_processual, t.chave_playbook,t.playbook_no_id,t.tarefa_pai_id, t.fase, t.concluida_em, t.criado_em
        FROM tarefas t
        JOIN projetos p ON p.id = t.projeto_id
        LEFT JOIN usuarios u ON u.id = t.responsavel_id

@@ -977,3 +977,20 @@ body.bv-aberto { overflow: hidden; }
 .tk-pub header b { display: inline-flex; gap: 6px; align-items: center; font-size: 13px; }
 .tk-pub header small { color: var(--text-3); font-size: 11.5px; }
 .tk-pub p { margin: 0; font-size: 13px; line-height: 1.55; color: var(--text-2); white-space: pre-wrap; max-height: 260px; overflow-y: auto; }
+
+/* Painel · Andamento em círculo (rosca por urgência, agenda do Astrea) */
+.andam-c { display: flex; gap: 18px; align-items: center; }
+.andam-c__anel { position: relative; width: 150px; height: 150px; flex: none; background: none; border: 0; padding: 0; cursor: pointer; }
+.andam-c__anel svg { width: 100%; height: 100%; display: block; }
+.andam-c__anel circle { transition: stroke-dasharray .6s var(--ease); }
+.andam-c__centro { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; }
+.andam-c__centro b { font: 700 30px/1 var(--font-display, var(--font)); color: var(--text); }
+.andam-c__centro small { font-size: 11px; color: var(--text-3); margin-top: 2px; }
+.andam-c__leg { margin: 0; display: grid; gap: 8px; flex: 1; min-width: 0; }
+.andam-c__leg div { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; padding-left: 12px; position: relative; }
+.andam-c__leg div::before { content: ''; position: absolute; left: 0; top: 50%; width: 7px; height: 7px; margin-top: -3.5px; border-radius: 50%; background: var(--c); box-shadow: 0 0 8px var(--c); }
+.andam-c__leg dt { font-size: 12.5px; color: var(--text-2); }
+.andam-c__leg dd { margin: 0; text-align: right; line-height: 1.1; }
+.andam-c__leg dd b { font: 700 15px var(--font-mono); }
+.andam-c__leg dd small { display: block; font-size: 10.5px; color: var(--text-3); }
+@media (max-width: 1280px) and (min-width: 701px) { .andam-c { flex-direction: column; align-items: stretch; } .andam-c__anel { align-self: center; } }

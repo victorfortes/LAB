@@ -39,3 +39,23 @@ test('carteira do Astrea pela API: grava processos com o CNPJ da ficha e põe as
   // Repetir não duplica.
   expect((await banco.comoUsuario(adm, (db) => sincronizarComCarteira(db, ident))).cadastrados).toBe(0);
 });
+
+test('painel: agenda do Astrea contada por urgência, próximos prazos e cumpridos por dia', async () => {
+  const { painelAgenda } = await import('../src/server/bi_agenda.ts');
+  await pg.dono.query(`INSERT INTO bi_agenda_linhas(organizacao_id,ordem,tipo,data,hora,caso,conclusao,juizo,numero,resp,status,titulo) VALUES
+    ($1,1,'Prazo','20/11/2026','','A x B','','1ª Vara','1','Adm','Em andamento','MANIFESTAR'),
+    ($1,2,'Prazo','23/11/2026','','A x B','','1ª Vara','1','Outra','Em andamento','RECURSO'),
+    ($1,3,'Audiência','24/11/2026','14:00','C x D','','2ª Vara','2','Adm','Em andamento','AUDIÊNCIA'),
+    ($1,4,'Prazo','15/12/2026','','E x F','','3ª Vara','3','Adm','Em andamento','CONTESTAR'),
+    ($1,5,'Prazo','19/11/2026','','A x B','21/11/2026','1ª Vara','1','Adm','Concluído','EMBARGOS'),
+    ($1,6,'Prazo','19/11/2026','','A x B','','1ª Vara','1','Adm','Cancelado','CANCELADO')`, [org]);
+  const a = await banco.comoUsuario(adm, (db) => painelAgenda(db, 'Adm', '2026-11-22'));
+  expect(a.abertos).toBe(4);
+  expect(a.faixas.atrasada.total).toBe(1);
+  expect(a.faixas.esta_semana).toMatchObject({ total: 2, prazos: 1, eventos: 1 });
+  expect(a.faixas.adiante.total).toBe(1);
+  expect(a.meusAbertos).toBe(3);
+  expect(a.proximos[0]).toMatchObject({ titulo: 'RECURSO', vencimento: '2026-11-23' });
+  expect(a.meusProximos[0].titulo).toBe('AUDIÊNCIA');
+  expect(a.cumpridosPorDia.find((d) => d.dia === '2026-11-21')).toMatchObject({ total: 1, meus: 1 });
+});

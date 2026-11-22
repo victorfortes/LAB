@@ -45,43 +45,45 @@ const itemDoFeed = (a, novo = false) => {
 const DIAS = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
 
 export default async function painel() {
-  const [p, tk, projetos, atividade] = await Promise.all([
+  const [p, tk, projetos, atividade, ag] = await Promise.all([
     api.get('/api/painel'),
     api.get('/api/tarefas?concluidas=1'),
     api.get('/api/projetos'),
     api.get('/api/atividade').catch(() => []),
+    api.get('/api/painel/agenda').catch(() => null),
   ]);
   estado.painel = p; estado.projetos = projetos; estado.tarefas = tk.tarefas;
 
   const primeiro = estado.eu.usuario.nome.split(' ')[0];
   const ativos = projetos.filter((x) => x.situacao === 'ativo');
   const minhas = tk.tarefas.filter((t) => t.responsavelId === estado.eu.usuario.id && t.status !== 'concluida').slice(0, 6);
-  const proximo = p.prazos.find((z) => !z.vencido) ?? p.prazos[0];
   const idsMeus = new Set(p.meusProjetos.map((x) => x.id));
   const meus = projetos.filter((x) => idsMeus.has(x.id));
 
-  // --- carteira aberta, contada de verdade (tarefas + prazos processuais) ---
-  const abertas = tk.tarefas.filter((t) => t.status !== 'concluida');
-  const ehPrazo = (t) => t.tipoAtividade === 'prazo_processual';
-  const FAIXAS = [['atrasada', 'Atrasadas', 'var(--lab-red)'], ['hoje', 'Vencem hoje', 'var(--lab-amber)'], ['esta_semana', 'Próximos 5 dias úteis', 'var(--lab-cy)'], ['adiante', 'Mais adiante', 'var(--ring-meet)'], ['sem_prazo', 'Sem data', 'var(--text-3)']];
-  const faixas = FAIXAS.map(([chave, rotulo, cor]) => {
-    const grupo = abertas.filter((t) => t.situacaoDoPrazo === chave);
-    return { chave, rotulo, cor, n: grupo.length, prazos: grupo.filter(ehPrazo).length };
-  });
-  const maxFaixa = Math.max(1, ...faixas.map((f) => f.n));
-  // Prazo com tarefa espelho (origem 'prazo') já está em p.prazos: só soma os prazos lançados como tarefa (Astrea, à mão).
-  const prazosAbertos = abertas.filter((t) => ehPrazo(t) && t.origem !== 'prazo');
-  const prazosAtrasados = prazosAbertos.filter((t) => t.situacaoDoPrazo === 'atrasada').length + p.prazosVencidos;
-  const pTotal = p.prazos.length + prazosAbertos.length; const pEmDia = pTotal - prazosAtrasados;
+  const pct = (a, b) => (b ? Math.round((a / b) * 100) : 0);
   const comProgresso = ativos.filter((x) => x.progresso);
   const avanco = comProgresso.length ? Math.round(comProgresso.reduce((t, x) => t + x.progresso.percentual, 0) / comProgresso.length) : null;
-  const pct = (a, b) => (b ? Math.round((a / b) * 100) : 0);
+  const abertas = tk.tarefas.filter((t) => t.status !== 'concluida');
+  const internasAtrasadas = abertas.filter((t) => t.situacaoDoPrazo === 'atrasada').length;
+  const analises = abertas.filter((t) => t.tipoAtividade === 'analise_intimacao').length;
 
-  // --- concluídas por dia, últimos 7 dias (dado real: tarefas.concluida_em) ---
+  // --- Agenda do Astrea (mesma base do BI de Prazos): é ela que diz o que vence e o que foi cumprido ---
+  const escopo = ag && ag.meusAbertos && localStorage.getItem('nx-painel-escopo') === 'meus' ? 'meus' : 'todos';
+  const fx = ag ? (escopo === 'meus' ? ag.faixasMeus : ag.faixas) : null;
+  const FAIXAS = [['atrasada', 'Vencidos', '#FF6B6B'], ['hoje', 'Vencem hoje', '#F0A32E'], ['esta_semana', 'Próximos 5 dias úteis', '#4CC9F0'], ['adiante', 'Mais adiante', '#8B7CF6']];
+  const faixas = fx ? FAIXAS.map(([chave, rotulo, cor]) => ({ chave, rotulo, cor, ...fx[chave] })) : [];
+  const totalAg = faixas.reduce((t, f) => t + f.total, 0);
+  const vencidosAg = fx ? fx.atrasada.total : 0;
+  const proximos = ag ? (escopo === 'meus' ? ag.meusProximos : ag.proximos) : [];
+  const proximoAg = proximos[0];
+
+  // --- Esta semana: cumpridos no Astrea + tarefas concluídas no LAB, por dia ---
   const dias = Array.from({ length: 7 }, (_, i) => { const d = new Date(); d.setDate(d.getDate() - (6 - i)); return d; });
   const porDia = dias.map((d) => {
     const iso = d.toLocaleDateString('sv-SE');
-    return { iso, rotulo: DIAS[d.getDay()], n: tk.tarefas.filter((t) => t.concluidaEm && new Date(t.concluidaEm).toLocaleDateString('sv-SE') === iso).length };
+    const lab = tk.tarefas.filter((t) => t.concluidaEm && !t.doAstrea && (escopo === 'todos' || t.responsavelId === estado.eu.usuario.id) && new Date(t.concluidaEm).toLocaleDateString('sv-SE') === iso).length;
+    const astrea = ag?.cumpridosPorDia.find((x) => x.dia === iso)?.[escopo === 'meus' ? 'meus' : 'total'] ?? 0;
+    return { iso, rotulo: DIAS[d.getDay()], n: lab + astrea, lab, astrea };
   });
   const maxDia = Math.max(1, ...porDia.map((x) => x.n));
   const totalSemana = porDia.reduce((t, x) => t + x.n, 0);
@@ -89,7 +91,7 @@ export default async function painel() {
   const pendTotal = p.pendencias;
   const resumo = [
     { rotulo: 'Pendências', valor: pendTotal, tom: pendTotal ? 'warn' : 'ok' },
-    { rotulo: 'Prazos vencidos', valor: prazosAtrasados, tom: prazosAtrasados ? 'alert' : 'ok' },
+    { rotulo: ag ? 'Prazos vencidos (Astrea)' : 'Prazos vencidos', valor: ag ? (ag.faixas.atrasada.total) : p.prazosVencidos, tom: (ag ? ag.faixas.atrasada.total : p.prazosVencidos) ? 'alert' : 'ok' },
     { rotulo: 'Projetos ativos', valor: ativos.length },
     { rotulo: 'Tarefas abertas', valor: abertas.length },
   ];
@@ -104,38 +106,39 @@ export default async function painel() {
 
       <div class="grid3 mt">
         <section class="card glass up">
-          <header class="card__head"><div><h2 class="card__title">Andamento</h2><p class="card__sub">${abertas.length} em aberto · ${prazosAbertos.length + p.prazos.length} prazo(s) processual(is)</p></div>
-            <button class="link" data-ir="tarefas">Abrir →</button></header>
-          ${abertas.length ? html`<div class="andam">${faixas.map((f) => html`<button type="button" class="andam__linha" data-ir="tarefas" title="${f.n} item(ns), ${f.prazos} prazo(s)">
-              <span class="andam__rot">${f.rotulo}${f.prazos ? html`<small>${f.prazos} prazo(s)</small>` : ''}</span>
-              <span class="andam__trilho"><i style="--w:${f.n ? Math.max(4, pct(f.n, maxFaixa)) : 0}%;--c:${raw(f.cor)}"></i></span>
-              <b>${f.n}</b></button>`)}</div>
-            <div class="andam__rodape">
-              <span><b class="${prazosAtrasados ? 'erro-txt' : ''}">${pTotal ? `${pct(pEmDia, pTotal)}%` : '—'}</b> prazos em dia</span>
-              <span><b>${pct(tk.resumo.concluidas, tk.resumo.total)}%</b> tarefas concluídas</span>
-              <span><b>${avanco === null ? '—' : `${avanco}%`}</b> avanço dos projetos</span></div>`
-          : vazio('check', 'Nada em aberto', 'Quando houver tarefas ou prazos, eles aparecem aqui por urgência.')}
-        </section>
-
-        <section class="card glass up">
-          <header class="card__head"><div><h2 class="card__title">Próximo prazo</h2><p class="card__sub">Contado em dias úteis forenses</p></div>
-            <button class="link" data-ir="calendario">Calendário →</button></header>
-          ${proximo ? html`
-            <div class="pcard__next" style="padding:16px;border-radius:18px;background:${proximo.vencido ? 'var(--fill)' : 'var(--accent-soft)'};border:1px solid ${proximo.vencido ? '#FF6B6B55' : '#F0A32E44'}">
-              <small class="muted">${proximo.vencido ? 'VENCIDO' : proximo.diasUteisRestantes === 0 ? 'VENCE HOJE' : `EM ${proximo.diasUteisRestantes} DIA(S) ÚTIL(EIS)`}</small>
-              <h3 style="margin:6px 0 4px;font:700 23px var(--font-display)">${proximo.titulo}</h3>
-              <span class="mono-sm">${dataBR(proximo.vencimento)} · ${proximo.numero}</span>
-              <div class="mt flex">${proximo.projeto ? html`<span class="pchip hue--${matiz(proximo.projeto)}"><i></i><span class="tk-ellip">${proximo.projeto}</span></span>` : ''}</div>
+          <header class="card__head"><div><h2 class="card__title">Andamento</h2><p class="card__sub">${ag ? `Prazos, audiências e eventos em aberto no Astrea${ag.atualizadoEm ? ` · lido ${relativo(ag.atualizadoEm)}` : ''}` : 'Tarefas em aberto no LAB'}</p></div>
+            ${ag && ag.meusAbertos ? html`<div class="cli-seg" role="group" aria-label="De quem"><button type="button" class="${escopo === 'todos' ? 'is-on' : ''}" data-escopo="todos">Escritório</button><button type="button" class="${escopo === 'meus' ? 'is-on' : ''}" data-escopo="meus">Meus</button></div>` : ''}</header>
+          ${ag ? html`<div class="andam-c">
+              <button type="button" class="andam-c__anel" data-ir="bi-prazos" aria-label="Abrir o BI de Prazos">${raw(rosca(faixas, totalAg))}
+                <span class="andam-c__centro"><b>${totalAg}</b><small>em aberto</small></span></button>
+              <dl class="andam-c__leg">${faixas.map((f) => html`<div style="--c:${raw(f.cor)}"><dt>${f.rotulo}</dt><dd><b>${f.total}</b><small>${pct(f.total, totalAg)}%${f.prazos && f.eventos ? ` · ${f.prazos} prazo(s)` : ''}</small></dd></div>`)}</dl>
             </div>
-            <ul class="lista mt">${p.prazos.filter((z) => z !== proximo).slice(0, 3).map((z) => html`<li><div><b>${z.titulo}</b><small>${z.numero}</small></div>
-              <div class="fim"><span class="selo ${z.vencido ? 'erro' : 'aviso'}">${z.vencido ? `há ${-z.diasUteisRestantes} d` : `${z.diasUteisRestantes} d`}</span></div></li>`)}</ul>`
-          : vazio('calendar', 'Nenhum prazo aberto', 'Quando um prazo for calculado num processo, ele aparece aqui com a contagem em dias úteis.')}
+            <div class="andam__rodape">
+              <span><b class="${vencidosAg ? 'erro-txt' : ''}">${totalAg ? `${pct(totalAg - vencidosAg, totalAg)}%` : '—'}</b> em dia</span>
+              <span><b>${abertas.length}</b> tarefas internas${internasAtrasadas ? ` · ${internasAtrasadas} atrasada(s)` : ''}${analises ? ` · ${analises} análise(s) de intimação` : ''}</span>
+              <span><b>${avanco === null ? '—' : `${avanco}%`}</b> avanço dos projetos</span></div>`
+          : vazio('check', 'Sem acesso à agenda', 'O andamento dos prazos vem da agenda do Astrea (BI de Prazos).')}
         </section>
 
         <section class="card glass up">
-          <header class="card__head"><div><h2 class="card__title">Esta semana</h2><p class="card__sub">Tarefas concluídas por dia</p></div>
-            <span class="selo ${totalSemana ? 'ok' : ''}">${totalSemana} concluída(s)</span></header>
-          <div class="barras">${porDia.map((d, i) => html`<div class="barra ${d.iso === hojeISO() ? 'hoje' : ''}"><b>${d.n || ''}</b>
+          <header class="card__head"><div><h2 class="card__title">Próximo prazo</h2><p class="card__sub">${escopo === 'meus' ? 'Seus, pela agenda do Astrea' : 'Do escritório, pela agenda do Astrea'} · dias úteis</p></div>
+            <button class="link" data-ir="calendario">Calendário →</button></header>
+          ${proximoAg ? html`
+            <div class="pcard__next" style="padding:16px;border-radius:18px;background:var(--accent-soft);border:1px solid #F0A32E44">
+              <small class="muted">${proximoAg.diasUteis === 0 ? 'VENCE HOJE' : `EM ${proximoAg.diasUteis} DIA(S) ÚTIL(EIS)`} · ${proximoAg.tipo.toUpperCase()}${proximoAg.hora ? ` ÀS ${proximoAg.hora}` : ''}</small>
+              <h3 style="margin:6px 0 4px;font:700 21px var(--font-display)">${proximoAg.titulo}</h3>
+              <span class="mono-sm">${dataBR(proximoAg.vencimento)}${proximoAg.numero ? ` · ${proximoAg.numero}` : ''}</span>
+              <p class="dica" style="margin:6px 0 0">${proximoAg.caso}${proximoAg.responsavel ? ` · ${proximoAg.responsavel}` : ''}</p>
+            </div>
+            <ul class="lista mt">${proximos.slice(1, 4).map((z) => html`<li><div><b>${z.titulo}</b><small>${z.caso || z.numero}${z.responsavel ? ` · ${z.responsavel}` : ''}</small></div>
+              <div class="fim"><span class="selo ${z.diasUteis <= 1 ? 'erro' : 'aviso'}">${z.diasUteis === 0 ? 'hoje' : `${z.diasUteis} d`}</span></div></li>`)}</ul>`
+          : vazio('calendar', 'Nenhum prazo à frente', ag ? 'A agenda do Astrea não tem prazo, audiência ou evento em aberto daqui para a frente.' : 'Sem acesso à agenda do Astrea.')}
+        </section>
+
+        <section class="card glass up">
+          <header class="card__head"><div><h2 class="card__title">Esta semana</h2><p class="card__sub">Cumpridos por dia: Astrea + tarefas do LAB</p></div>
+            <span class="selo ${totalSemana ? 'ok' : ''}">${totalSemana} cumprido(s)</span></header>
+          <div class="barras">${porDia.map((d) => html`<div class="barra ${d.iso === hojeISO() ? 'hoje' : ''}" title="${d.astrea} no Astrea · ${d.lab} no LAB"><b>${d.n || ''}</b>
             <div class="barra__col"><i data-h="${d.n ? Math.max(8, (d.n / maxDia) * 100) : 0}"></i></div><small>${d.rotulo}</small></div>`)}</div>
         </section>
       </div>
@@ -187,6 +190,7 @@ export default async function painel() {
         } catch { /* próximo ciclo */ }
       }, 8000);
       aoSair(() => clearInterval(t));
+      ouvir(raiz, 'click', '[data-escopo]', (b) => { localStorage.setItem('nx-painel-escopo', b.dataset.escopo); navegar(); });
       ouvir(raiz, 'click', '[data-ir]', (b) => ir(b.dataset.ir));
       ouvir(raiz, 'click', '[data-go]', (b) => ir(b.dataset.go));
       ouvir(raiz, 'click', '[data-proj]', (b) => ir(`projetos/${b.dataset.proj}`));
@@ -201,5 +205,14 @@ export default async function painel() {
   };
 }
 
+/** Rosca (círculo) por faixa de urgência: cada arco é proporcional ao número real de itens. */
+const rosca = (faixas, total) => {
+  const r = 62, c = 2 * Math.PI * r; let ini = 0;
+  const arcos = total ? faixas.filter((f) => f.total).map((f) => {
+    const tam = (f.total / total) * c; const seg = `<circle cx="80" cy="80" r="${r}" fill="none" stroke="${f.cor}" stroke-width="16" stroke-dasharray="${Math.max(0, tam - 2).toFixed(2)} ${(c - Math.max(0, tam - 2)).toFixed(2)}" stroke-dashoffset="${(-ini).toFixed(2)}" transform="rotate(-90 80 80)"/>`;
+    ini += tam; return seg;
+  }).join('') : '';
+  return `<svg viewBox="0 0 160 160" aria-hidden="true"><circle cx="80" cy="80" r="${r}" fill="none" stroke="rgba(255,255,255,.06)" stroke-width="16"/>${arcos}</svg>`;
+};
 const bloco = (ico, titulo, sub, tom, destino) => html`<li style="cursor:pointer" data-go="${destino}"><span class="empty__ico" style="width:38px;height:38px;border-radius:12px">${icone(ico)}</span>
   <div><b>${titulo}</b><small>${sub}</small></div><div class="fim"><span class="selo ${tom}">${tom === 'erro' ? 'urgente' : tom === 'aviso' ? 'atenção' : 'rotina'}</span></div></li>`;

@@ -329,7 +329,7 @@ export async function abrirTarefa(t, { aoMudar: aoMudarFora, aoExcluir, aoFechar
         </div>
         <label class="field"><span>Detalhes</span><textarea class="textarea" data-campo="descricao" rows="5" placeholder="Contexto, links, o que falta…" ${escreve ? '' : raw('disabled')}>${t.descricao ?? ''}</textarea></label>
         ${t.publicacaoTrecho ? html`<section class="tk-pub"><header><b>${icone('file')}Intimação de origem</b>${t.publicacaoData ? html`<small>disponibilizada em ${dataBR(t.publicacaoData)}</small>` : ''}</header>
-          <p>${t.publicacaoTrecho}${t.publicacaoTrecho.length >= 1800 ? '…' : ''}</p></section>` : t.doAstrea && !t.arquivadaEm ? html`<p class="dica">Nenhuma intimação do DJEN deste processo nos 45 dias antes do vencimento.</p>` : ''}
+          <p>${t.publicacaoTrecho}${t.publicacaoTrecho.length >= 6000 ? '…' : ''}</p></section>` : t.doAstrea && !t.arquivadaEm ? html`<p class="dica">Nenhuma intimação do DJEN deste processo nos 45 dias antes do vencimento.</p>` : ''}
         ${t.publicacaoId ? html`<button class="btn btn--ghost btn--sm" data-pub-drawer>${icone('search')}Abrir a intimação completa</button>` : ''}
         <p class="tk-drawer__rodape">Criada ${relativo(t.criadoEm)}${t.doAstrea ? ' pela agenda do Astrea' : ''} · <span data-salvo>alterações salvam sozinhas</span></p>
       </div>
