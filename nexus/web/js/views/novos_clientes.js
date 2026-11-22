@@ -34,7 +34,7 @@ async function novo() {
     { nome: 'cnpj', rotulo: 'CNPJ da empresa', placeholder: '00.000.000/0000-00', obrigatorio: false },
     { nome: 'nome', rotulo: 'Ou o nome (pessoa física ou sem CNPJ)', placeholder: 'Ex.: João da Silva' },
     { nome: 'origem', rotulo: 'Como chegou até nós (opcional)', placeholder: 'Indicação, site, parceiro…' }],
-    async enviar(v) { const cnpj = (v.cnpj ?? '').replace(/\D/g, ''); if (!cnpj && !v.nome) throw new Error('Informe o CNPJ ou o nome.'); r = await api.post('/api/novos-clientes', { ...(cnpj ? { cnpj } : {}), ...(v.nome ? { nome: v.nome } : {}), origem: v.origem || undefined }); } });
+    async enviar(v) { const cnpj = (v.cnpj ?? '').replace(/\D/g, ''); if (!cnpj && !v.nome) throw new Error('Informe o CNPJ ou o nome.'); r = await api.post('/api/novos-clientes', { ...(cnpj ? { cnpj } : {}), ...(v.nome ? { nome: v.nome } : {}), origem: v.origem || undefined }); verificarCelebracoes(); } });
   if (ok && r) ir(`novos-clientes/${r.id}`);
 }
 
@@ -129,7 +129,8 @@ export function celebrar(c, local = false) {
   localStorage.setItem('nx-celebracoes', JSON.stringify([...vistos, c.id].slice(-50)));
   const el = document.createElement('div'); el.className = 'festa'; el.setAttribute('role', 'status');
   el.innerHTML = String(html`<div class="festa__confete" aria-hidden="true">${Array.from({ length: 18 }, (_, i) => html`<i style="--i:${i}"></i>`)}</div>
-    <span class="festa__ico">🎉</span><div><p class="festa__eyebrow">Novo cliente!</p><b>${c.titulo}</b><small>Chegou para a equipe <strong>${c.area ?? '—'}</strong>${c.responsavel ? ` · com ${c.responsavel}` : ''}${c.fechadoPor ? ` · contrato fechado por ${c.fechadoPor}` : ''}</small></div>
+    ${c.projetoId || local ? html`<span class="festa__ico">🎉</span><div><p class="festa__eyebrow">Novo cliente!</p><b>${c.titulo}</b><small>Chegou para a equipe <strong>${c.area ?? '—'}</strong>${c.responsavel ? ` · com ${c.responsavel}` : ''}${c.fechadoPor ? ` · contrato fechado por ${c.fechadoPor}` : ''}</small></div>`
+      : html`<span class="festa__ico">🤝</span><div><p class="festa__eyebrow">Possível cliente novo</p><b>${c.titulo}</b><small>${c.fechadoPor ? `${c.fechadoPor} abriu o pré-diagnóstico` : 'Pré-diagnóstico aberto'} · veja em Novos clientes</small></div>`}
     <button type="button" class="ibtn ibtn--sm" aria-label="Fechar">${icone('x')}</button>`);
   document.body.append(el);
   const sai = () => { el.classList.add('sai'); setTimeout(() => el.remove(), 400); };

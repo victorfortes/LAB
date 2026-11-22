@@ -157,8 +157,11 @@ export async function direcionarAgenda(db: PoolClient, organizacaoId: string, us
   const diasPodre = opcoes.diasPodre ?? DIAS_PODRE_PADRAO;
   const hoje = opcoes.hoje ?? new Date(Date.now() - 3 * 3600_000).toISOString().slice(0, 10);
   const corte = new Date(Date.parse(`${hoje}T12:00:00Z`) - diasPodre * 86_400_000).toISOString().slice(0, 10);
-  const { rows: agenda } = await db.query<{ tipo: string; data: string; hora: string | null; titulo: string; numero: string; resp: string; status: string; juizo: string | null; caso: string | null }>(
-    `SELECT tipo, data, hora, titulo, numero, resp, status, juizo, caso FROM bi_agenda_linhas WHERE organizacao_id = $1`, [organizacaoId]);
+  const { rows: todas } = await db.query<{ tipo: string; data: string; hora: string | null; titulo: string; numero: string; resp: string; status: string; juizo: string | null; caso: string | null;
+      astrea_id: string | null; detalhe: string | null; local: string | null; publicacao_ref: string | null; publicacao_data: string | null }>(
+    `SELECT tipo, data, hora, titulo, numero, resp, status, juizo, caso, astrea_id, detalhe, local, publicacao_ref, publicacao_data::text FROM bi_agenda_linhas WHERE organizacao_id = $1`, [organizacaoId]);
+  // Cancelado no Astrea: não vira tarefa (e, se já virou, sai por "sumiu da agenda").
+  const agenda = todas.filter((a) => !/cancel/i.test(a.status ?? ''));
   const { rows: procs } = await db.query<{ num: string; id: string; projeto_id: string; responsavel_id: string | null }>(
     `SELECT regexp_replace(pr.numero,'\\D','','g') num, pr.id, pr.projeto_id, pj.responsavel_id FROM processos pr JOIN projetos pj ON pj.id = pr.projeto_id WHERE pr.organizacao_id = $1 AND pr.projeto_id IS NOT NULL`, [organizacaoId]);
   const projetoDe = new Map(procs.map((p) => [p.num, p]));
@@ -179,7 +182,8 @@ export async function direcionarAgenda(db: PoolClient, organizacaoId: string, us
     const iso = isoDeBr(a.data);
     const concluido = /conclu/i.test(a.status ?? '');
     if (!projetoId || !iso) { if (!concluido) semProjeto++; continue; }
-    const chave = 'astrea:' + createHash('sha256').update(`${num}|${a.titulo}|${a.data}|${a.tipo}`).digest('hex').slice(0, 24);
+    // Com o id do Astrea (leitura pela API) a chave é estável mesmo se o título ou a data mudarem lá.
+    const chave = a.astrea_id ? `astrea:id:${a.astrea_id}` : 'astrea:' + createHash('sha256').update(`${num}|${a.titulo}|${a.data}|${a.tipo}`).digest('hex').slice(0, 24);
     if (concluido) {
       const r = await db.query(`UPDATE tarefas SET status = 'concluida', concluida_em = now(), atualizado_em = now(), conclusao_nota = coalesce(conclusao_nota, 'Concluído no Astrea.')
         WHERE projeto_id = $1 AND chave_playbook = $2 AND status <> 'concluida'`, [projetoId, chave]);
@@ -191,7 +195,16 @@ export async function direcionarAgenda(db: PoolClient, organizacaoId: string, us
     if (!quem) { semResponsavel++; if (a.resp) pessoasSemCadastro.add(a.resp); }
     const tipo = TIPO_DA_AGENDA[a.tipo] ?? 'prazo';
     const titulo = (a.titulo || a.tipo).slice(0, 300);
-    const descricao = [`Lançado no Astrea (${a.tipo}${a.hora ? `, ${a.hora}` : ''}).`, a.caso ? `${num ? 'Processo' : 'Caso'}: ${a.caso}.` : null, a.juizo ? `Juízo: ${a.juizo}.` : null, a.resp ? `Responsável no Astrea: ${a.resp}.` : null].filter(Boolean).join(' ');
+    const descricao = [
+      `${a.tipo} lançado no Astrea${a.hora ? ` às ${a.hora}` : ''}${a.data ? ` · vence ${a.data}` : ''}.`,
+      a.numero ? `Processo nº ${a.numero.trim()}.` : null,
+      a.caso ? `Caso: ${a.caso}.` : null,
+      a.juizo ? `Juízo: ${a.juizo}.` : null,
+      a.local ? `Local: ${a.local}.` : null,
+      a.resp ? `Responsável no Astrea: ${a.resp}.` : null,
+      a.detalhe ? `\nProvidência (Astrea): ${a.detalhe.replace(/\s*\[NGA:[0-9a-f]+\]\s*$/, '')}` : null,
+      a.publicacao_ref ? `Publicação de origem: Astrea nº ${a.publicacao_ref}${a.publicacao_data ? `, de ${a.publicacao_data.split('-').reverse().join('/')}` : ''} (texto abaixo, em "Intimação de origem").` : null,
+    ].filter(Boolean).join('\n');
     const r = await db.query<{ novo: boolean }>(
       `INSERT INTO tarefas (organizacao_id, projeto_id, titulo, descricao, prioridade, responsavel_id, prazo, origem, chave_playbook, criado_por, tipo, hora, processo_id, caso)
        VALUES ($1,$2,$3,$4,$5,$6,$7,'automacao',$8,$9,$10,$11,$12,$13)

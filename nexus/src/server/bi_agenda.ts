@@ -19,6 +19,9 @@ export const EsquemaLinha = z.object({
   tipo: z.preprocess(normTipo, z.enum(['Prazo', 'Evento', 'Audiência'])),
   data, hora: texto(5).refine((h) => !h || /^\d{2}:\d{2}$/.test(h), 'hora HH:MM').optional(),
   caso: texto(500), conclusao: texto(40), juizo: texto(500), numero: texto(60), resp: texto(200), status: texto(60), titulo: texto(500),
+  // Vindo da API do Astrea (extrator): id, providência, local e a publicação de origem.
+  astreaId: z.string().trim().max(40).optional(), detalhe: texto(4000).optional(), local: texto(500).optional(),
+  publicacao: z.object({ id: z.string().trim().max(40), data: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(), texto: z.string().max(12000) }).nullable().optional(),
 });
 export const EsquemaCarga = z.object({
   updatedAt: z.string().datetime({ offset: true }),
@@ -36,10 +39,13 @@ export async function receberCarga(db: PoolClient, organizacaoId: string, d: z.i
   }
   await db.query('DELETE FROM bi_agenda_linhas WHERE organizacao_id = $1', [organizacaoId]);
   for (let i = 0; i < d.rows.length; i += 1000) {
-    const lote = d.rows.slice(i, i + 1000).map((r, j) => ({ ...r, hora: r.tipo === 'Prazo' ? null : r.hora || null, ordem: i + j }));
-    await db.query(`INSERT INTO bi_agenda_linhas (organizacao_id, ordem, tipo, data, hora, caso, conclusao, juizo, numero, resp, status, titulo)
-      SELECT $1, x.ordem, x.tipo, x.data, x.hora, x.caso, x.conclusao, x.juizo, x.numero, x.resp, x.status, x.titulo
-        FROM jsonb_to_recordset($2::jsonb) AS x(ordem int, tipo text, data text, hora text, caso text, conclusao text, juizo text, numero text, resp text, status text, titulo text)`,
+    const lote = d.rows.slice(i, i + 1000).map((r, j) => ({ ...r, hora: r.tipo === 'Prazo' ? null : r.hora || null, ordem: i + j,
+      astrea_id: r.astreaId ?? null, detalhe: r.detalhe || null, local: r.local || null,
+      publicacao_ref: r.publicacao?.id ?? null, publicacao_data: r.publicacao?.data ?? null, publicacao_texto: r.publicacao?.texto || null, publicacao: undefined }));
+    await db.query(`INSERT INTO bi_agenda_linhas (organizacao_id, ordem, tipo, data, hora, caso, conclusao, juizo, numero, resp, status, titulo, astrea_id, detalhe, local, publicacao_ref, publicacao_data, publicacao_texto)
+      SELECT $1, x.ordem, x.tipo, x.data, x.hora, x.caso, x.conclusao, x.juizo, x.numero, x.resp, x.status, x.titulo, x.astrea_id, x.detalhe, x.local, x.publicacao_ref, x.publicacao_data, x.publicacao_texto
+        FROM jsonb_to_recordset($2::jsonb) AS x(ordem int, tipo text, data text, hora text, caso text, conclusao text, juizo text, numero text, resp text, status text, titulo text,
+             astrea_id text, detalhe text, local text, publicacao_ref text, publicacao_data date, publicacao_texto text)`,
       [organizacaoId, JSON.stringify(lote)]);
   }
   const prazos = d.rows.filter((r) => r.tipo === 'Prazo').length;

@@ -39,6 +39,8 @@ export type Permissao =
   | 'prazo.ler' | 'prazo.escrever'
   /** Tarefa é trabalho interno: o cliente não alcança nenhuma. */
   | 'tarefa.ler' | 'tarefa.escrever'
+  /** Mudar a data de vencimento de tarefa/prazo já lançado: gestão e controladoria, não o advogado. */
+  | 'tarefa.vencimento'
   | 'negociacao.ler' | 'negociacao.escrever'
   /** Controladoria (publicações do DJEN): só sócio administrador e controladoria. */
   | 'controladoria.ler' | 'controladoria.gerir'
@@ -105,7 +107,7 @@ const ADVOGADO: Permissao[] = [
 /** Tudo o que a sócia, o sócio e a coordenação veem do escritório, de ponta a ponta. */
 const GESTAO: Permissao[] = [
   ...ADVOGADO, 'relatorio.gerar', 'modulo.clientes', 'modulo.equipe', 'modulo.relatorios',
-  'portal.acessos', 'fatura.gerir', 'config.gerir', 'modulo.pautas',
+  'portal.acessos', 'fatura.gerir', 'config.gerir', 'modulo.pautas', 'tarefa.vencimento',
 ];
 
 /**
@@ -131,7 +133,7 @@ export const PERMISSOES: Readonly<Record<Papel, readonly Permissao[]>> = Object.
   advogado: ADVOGADO,
   controladoria: [...INTERNO_LEITURA, 'projeto.escrever', 'documento.escrever',
     'analise.executar', 'processo.escrever', 'prazo.escrever', 'relatorio.gerar',
-    'tarefa.escrever', 'auditoria.ler', 'controladoria.ler', 'controladoria.gerir',
+    'tarefa.escrever', 'tarefa.vencimento', 'auditoria.ler', 'controladoria.ler', 'controladoria.gerir',
     'cliente.escrever', 'modulo.painel', 'modulo.clientes', 'modulo.equipe', 'modulo.relatorios', 'modulo.bi_prazos'],
   financeiro: ['projeto.ler', 'documento.ler', 'documento.escrever', 'financeiro_cliente.ler',
     'financeiro.ler', 'financeiro.escrever', 'fatura.ler', 'fatura.gerir'],

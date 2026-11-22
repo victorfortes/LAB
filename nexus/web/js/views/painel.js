@@ -60,9 +60,19 @@ export default async function painel() {
   const idsMeus = new Set(p.meusProjetos.map((x) => x.id));
   const meus = projetos.filter((x) => idsMeus.has(x.id));
 
-  // --- denominadores reais dos três anéis ---
-  const tTotal = tk.resumo.total; const tFeitas = tk.resumo.concluidas;
-  const pTotal = p.prazos.length; const pEmDia = p.prazos.filter((z) => !z.vencido).length;
+  // --- carteira aberta, contada de verdade (tarefas + prazos processuais) ---
+  const abertas = tk.tarefas.filter((t) => t.status !== 'concluida');
+  const ehPrazo = (t) => t.tipoAtividade === 'prazo_processual';
+  const FAIXAS = [['atrasada', 'Atrasadas', 'var(--lab-red)'], ['hoje', 'Vencem hoje', 'var(--lab-amber)'], ['esta_semana', 'Próximos 5 dias úteis', 'var(--lab-cy)'], ['adiante', 'Mais adiante', 'var(--ring-meet)'], ['sem_prazo', 'Sem data', 'var(--text-3)']];
+  const faixas = FAIXAS.map(([chave, rotulo, cor]) => {
+    const grupo = abertas.filter((t) => t.situacaoDoPrazo === chave);
+    return { chave, rotulo, cor, n: grupo.length, prazos: grupo.filter(ehPrazo).length };
+  });
+  const maxFaixa = Math.max(1, ...faixas.map((f) => f.n));
+  // Prazo com tarefa espelho (origem 'prazo') já está em p.prazos: só soma os prazos lançados como tarefa (Astrea, à mão).
+  const prazosAbertos = abertas.filter((t) => ehPrazo(t) && t.origem !== 'prazo');
+  const prazosAtrasados = prazosAbertos.filter((t) => t.situacaoDoPrazo === 'atrasada').length + p.prazosVencidos;
+  const pTotal = p.prazos.length + prazosAbertos.length; const pEmDia = pTotal - prazosAtrasados;
   const comProgresso = ativos.filter((x) => x.progresso);
   const avanco = comProgresso.length ? Math.round(comProgresso.reduce((t, x) => t + x.progresso.percentual, 0) / comProgresso.length) : null;
   const pct = (a, b) => (b ? Math.round((a / b) * 100) : 0);
@@ -79,9 +89,9 @@ export default async function painel() {
   const pendTotal = p.pendencias;
   const resumo = [
     { rotulo: 'Pendências', valor: pendTotal, tom: pendTotal ? 'warn' : 'ok' },
-    { rotulo: 'Prazos vencidos', valor: p.prazosVencidos, tom: p.prazosVencidos ? 'alert' : 'ok' },
+    { rotulo: 'Prazos vencidos', valor: prazosAtrasados, tom: prazosAtrasados ? 'alert' : 'ok' },
     { rotulo: 'Projetos ativos', valor: ativos.length },
-    { rotulo: 'Tarefas abertas', valor: tk.resumo.abertas },
+    { rotulo: 'Tarefas abertas', valor: abertas.length },
   ];
 
   const acoes = html`${pode('tarefa.escrever') ? html`<button type="button" class="btn btn--ghost" data-act="tarefa">${icone('plus')}Nova tarefa</button>` : ''}
@@ -94,21 +104,17 @@ export default async function painel() {
 
       <div class="grid3 mt">
         <section class="card glass up">
-          <header class="card__head"><div><h2 class="card__title">Andamento</h2><p class="card__sub">O que está de pé, em números reais</p></div></header>
-          <div class="flex" style="gap:22px;flex-wrap:nowrap">
-            <div class="ring-lg" style="width:150px;height:150px">
-              <svg viewBox="0 0 150 150" aria-hidden="true">
-                ${raw(anelCirc(75, 66, 9, pct(tFeitas, tTotal), 'var(--ring-tasks)'))}
-                ${raw(anelCirc(75, 51, 9, pct(pEmDia, pTotal), 'var(--ring-focus)'))}
-                ${raw(anelCirc(75, 36, 9, avanco ?? 0, 'var(--ring-meet)'))}
-              </svg>
-            </div>
-            <dl class="rings__legend" style="margin:0;display:grid;gap:10px;flex:1">
-              ${legenda('var(--ring-tasks)', 'Tarefas', tTotal ? `${tFeitas}/${tTotal}` : 'sem dados')}
-              ${legenda('var(--ring-focus)', 'Prazos em dia', pTotal ? `${pEmDia}/${pTotal}` : 'sem prazos')}
-              ${legenda('var(--ring-meet)', 'Avanço dos projetos', avanco === null ? 'sem dados' : `${avanco}%`)}
-            </dl>
-          </div>
+          <header class="card__head"><div><h2 class="card__title">Andamento</h2><p class="card__sub">${abertas.length} em aberto · ${prazosAbertos.length + p.prazos.length} prazo(s) processual(is)</p></div>
+            <button class="link" data-ir="tarefas">Abrir →</button></header>
+          ${abertas.length ? html`<div class="andam">${faixas.map((f) => html`<button type="button" class="andam__linha" data-ir="tarefas" title="${f.n} item(ns), ${f.prazos} prazo(s)">
+              <span class="andam__rot">${f.rotulo}${f.prazos ? html`<small>${f.prazos} prazo(s)</small>` : ''}</span>
+              <span class="andam__trilho"><i style="--w:${f.n ? Math.max(4, pct(f.n, maxFaixa)) : 0}%;--c:${raw(f.cor)}"></i></span>
+              <b>${f.n}</b></button>`)}</div>
+            <div class="andam__rodape">
+              <span><b class="${prazosAtrasados ? 'erro-txt' : ''}">${pTotal ? `${pct(pEmDia, pTotal)}%` : '—'}</b> prazos em dia</span>
+              <span><b>${pct(tk.resumo.concluidas, tk.resumo.total)}%</b> tarefas concluídas</span>
+              <span><b>${avanco === null ? '—' : `${avanco}%`}</b> avanço dos projetos</span></div>`
+          : vazio('check', 'Nada em aberto', 'Quando houver tarefas ou prazos, eles aparecem aqui por urgência.')}
         </section>
 
         <section class="card glass up">
@@ -195,12 +201,5 @@ export default async function painel() {
   };
 }
 
-const anelCirc = (c, r, traco, pct, cor) => {
-  const circ = 2 * Math.PI * r;
-  return `<circle cx="${c}" cy="${c}" r="${r}" fill="none" stroke="var(--fill-2)" stroke-width="${traco}"/>
-    <circle class="anel-bar" cx="${c}" cy="${c}" r="${r}" fill="none" stroke="${cor}" stroke-width="${traco}" stroke-linecap="round"
-      stroke-dasharray="${circ.toFixed(2)}" stroke-dashoffset="${circ.toFixed(2)}" data-alvo="${(circ * (1 - Math.max(0, Math.min(100, pct)) / 100)).toFixed(2)}"/>`;
-};
-const legenda = (cor, rotulo, valor) => html`<div class="rings__row" style="--rc:${raw(cor)}"><dt>${rotulo}</dt><dd>${valor}</dd></div>`;
 const bloco = (ico, titulo, sub, tom, destino) => html`<li style="cursor:pointer" data-go="${destino}"><span class="empty__ico" style="width:38px;height:38px;border-radius:12px">${icone(ico)}</span>
   <div><b>${titulo}</b><small>${sub}</small></div><div class="fim"><span class="selo ${tom}">${tom === 'erro' ? 'urgente' : tom === 'aviso' ? 'atenção' : 'rotina'}</span></div></li>`;

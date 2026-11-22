@@ -55,7 +55,7 @@ interface Linha {
   id: string; projeto_id: string; titulo: string; descricao: string | null;
   status: StatusDaTarefa; prioridade: Prioridade; prazo: Date | null;
   responsavel_id: string | null; responsavel: string | null; projeto: string;
-  origem: string; origem_id: string | null; tipo: string; hora: string | null; caso: string | null; processo_ref: string | null; arquivada_em: Date | null; arquivada_motivo: string | null; conclusao_nota: string | null; concluida_por_nome: string | null; publicacao_id: string | null; processo_numero:string|null; vencimento_processual:Date|null; chave_playbook: string | null; concluida_em: Date | null; criado_em: Date;
+  origem: string; origem_id: string | null; tipo: string; hora: string | null; caso: string | null; processo_ref: string | null; arquivada_em: Date | null; arquivada_motivo: string | null; conclusao_nota: string | null; concluida_por_nome: string | null; publicacao_id: string | null; publicacao_trecho: string | null; publicacao_data: Date | null; processo_numero:string|null; vencimento_processual:Date|null; chave_playbook: string | null; concluida_em: Date | null; criado_em: Date;
 }
 
 function enriquecer(l: Linha, hoje: string) {
@@ -65,7 +65,7 @@ function enriquecer(l: Linha, hoje: string) {
     descricao: l.descricao, status: l.status, prioridade: l.prioridade, prazo,
     responsavelId: l.responsavel_id, responsavel: l.responsavel,
     fase: l.fase ?? null, paiId: l.tarefa_pai_id ?? null,
-    origem: l.origem, origemId:l.origem_id, publicacaoId:l.publicacao_id, processo:l.processo_numero, vencimentoProcessual:dia(l.vencimento_processual), tipoAtividade:(l.tipo==='analise'||l.chave_playbook?.startsWith('djen-analise:')||l.chave_playbook?.startsWith('astrea-analise:'))?'analise_intimacao':(l.origem==='prazo'||l.tipo==='prazo')?'prazo_processual':l.tipo==='evento'||l.tipo==='audiencia'?l.tipo:'tarefa',
+    origem: l.origem, origemId:l.origem_id, publicacaoId:l.publicacao_id, publicacaoTrecho:l.publicacao_trecho, publicacaoData:dia(l.publicacao_data), processo:l.processo_numero, vencimentoProcessual:dia(l.vencimento_processual), tipoAtividade:(l.tipo==='analise'||l.chave_playbook?.startsWith('djen-analise:')||l.chave_playbook?.startsWith('astrea-analise:'))?'analise_intimacao':(l.origem==='prazo'||l.tipo==='prazo')?'prazo_processual':l.tipo==='evento'||l.tipo==='audiencia'?l.tipo:'tarefa',
     tipo: l.tipo, hora: l.hora, caso: l.caso, processoId: l.processo_ref, vinculo: l.processo_numero ? 'processo' : l.caso ? 'caso' : null,
     doAstrea: !!l.chave_playbook?.startsWith('astrea'), arquivadaEm: l.arquivada_em, arquivadaMotivo: l.arquivada_motivo, conclusaoNota: l.conclusao_nota, concluidaPor: l.concluida_por_nome, chavePlaybook: l.chave_playbook, playbookNoId:l.playbook_no_id,tarefaPaiId:l.tarefa_pai_id, concluidaEm: l.concluida_em, criadoEm: l.criado_em,
     situacaoDoPrazo: situacaoDoPrazo({ status: l.status, prazo, prioridade: l.prioridade }, hoje),
@@ -104,7 +104,7 @@ export async function listar(db: PoolClient, filtros: Filtros = {}) {
     `SELECT t.id, t.projeto_id, t.titulo, t.descricao, t.status, t.prioridade, t.prazo,
             t.responsavel_id, u.nome AS responsavel, p.nome AS projeto,
             t.origem, t.origem_id, t.tipo, t.hora, t.caso, t.processo_id AS processo_ref, t.arquivada_em, t.arquivada_motivo, t.conclusao_nota, uc.nome AS concluida_por_nome,
-            pub.id AS publicacao_id, coalesce(pr.numero, prt.numero) AS processo_numero, prazo.vencimento AS vencimento_processual, t.chave_playbook,t.playbook_no_id,t.tarefa_pai_id, t.fase, t.concluida_em, t.criado_em
+            coalesce(pub.id, pubA.id) AS publicacao_id, left(coalesce(pub.texto, bl.publicacao_texto, pubA.texto), 6000) AS publicacao_trecho, coalesce(pub.data_disponibilizacao, bl.publicacao_data, pubA.data_disponibilizacao) AS publicacao_data, coalesce(pr.numero, prt.numero) AS processo_numero, prazo.vencimento AS vencimento_processual, t.chave_playbook,t.playbook_no_id,t.tarefa_pai_id, t.fase, t.concluida_em, t.criado_em
        FROM tarefas t
        JOIN projetos p ON p.id = t.projeto_id
        LEFT JOIN usuarios u ON u.id = t.responsavel_id
@@ -112,6 +112,13 @@ export async function listar(db: PoolClient, filtros: Filtros = {}) {
        LEFT JOIN publicacoes pub ON pub.organizacao_id=t.organizacao_id AND (t.chave_playbook='djen-analise:'||pub.id::text OR (t.origem='prazo' AND pub.prazo_id=t.origem_id))
        LEFT JOIN processos pr ON pr.id=coalesce(pub.processo_id,prazo.processo_id) AND pr.organizacao_id=t.organizacao_id
        LEFT JOIN processos prt ON prt.id = t.processo_id
+       LEFT JOIN bi_agenda_linhas bl ON t.chave_playbook LIKE 'astrea:id:%' AND bl.organizacao_id = t.organizacao_id AND bl.astrea_id = substr(t.chave_playbook, 11)
+       -- Prazo do Astrea: a intimação do DJEN do mesmo processo publicada até 45 dias antes do vencimento.
+       LEFT JOIN LATERAL (SELECT x.id, x.texto, x.data_disponibilizacao FROM publicacoes x
+          WHERE pub.id IS NULL AND bl.publicacao_texto IS NULL AND prt.id IS NOT NULL AND t.chave_playbook LIKE 'astrea:%' AND x.organizacao_id = t.organizacao_id
+            AND x.numero_processo = regexp_replace(prt.numero, '\D', '', 'g')
+            AND x.data_disponibilizacao BETWEEN coalesce(t.prazo, current_date) - 45 AND coalesce(t.prazo, current_date)
+          ORDER BY x.data_disponibilizacao DESC LIMIT 1) pubA ON true
        LEFT JOIN usuarios uc ON uc.id = t.concluida_por
       ${cond.length ? `WHERE ${cond.join(' AND ')}` : ''}`, args);
 

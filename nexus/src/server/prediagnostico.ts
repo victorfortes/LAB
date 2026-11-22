@@ -144,61 +144,99 @@ export async function ligarEmpresa(db: PoolClient, id: string, d: z.infer<typeof
 }
 
 const NOMES_FRACOS = /\b(LTDA|S\/?A|EIRELI|ME|EPP|MEI)\b\.?/g;
-/** Etapa 2: processos pelo DJEN (por nome, com o polo) e pela carteira do LAB. */
-export async function buscarProcessos(db: PoolClient, id: string, buscar: typeof fetch = fetch) {
+const SUFIXOS = /\s*(?:[-–,]\s*)?\b(LTDA|LIMITADA|S\/?A|EIRELI|EPP|MEI|ME)\b\.?/gi;
+/**
+ * O DJEN casa o nome EXATO da parte. A empresa costuma aparecer nos autos com o nome antigo (EIRELI que virou
+ * LTDA, ME/EPP no fim, sem o sufixo): "F W E SILVA LTDA" não acha nada, "F W E SILVA EIRELI" acha seis
+ * processos. Então tenta o nome sem sufixo e com cada sufixo usual, além do nome fantasia.
+ */
+export function variacoesDeNome(razao: string, fantasia: string | null): string[] {
+  const base = razao.replace(/\s+EM\s+RECUPERA[CÇ][AÃ]O\s+JUDICIAL.*$/i, '').replace(SUFIXOS, ' ').replace(/[-–,]\s*$/, '').replace(/\s+/g, ' ').trim().toUpperCase();
+  const lista = [razao.toUpperCase().trim(), base, `${base} LTDA`, `${base} EIRELI`, `${base} EIRELI ME`, `${base} ME`, `${base} EPP`, `${base} S/A`, `${base} S.A.`];
+  if (fantasia && fantasia.trim().length >= 4) lista.push(fantasia.toUpperCase().trim());
+  return [...new Set(lista.filter((x) => x.replace(/\W/g, '').length >= 4))];
+}
+const espera = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** Etapa 2: processos pelo DJEN (variações do nome, CNPJ no texto, sócios) e pela carteira do LAB. */
+export async function buscarProcessos(db: PoolClient, id: string, buscar: typeof fetch = fetch, pausa = 350) {
   const p = await carregar(db, id); const dados = p.dados; const e: Empresa = dados.empresa;
-  const nomes = [...new Set([e.razao, e.fantasia].filter((x): x is string => !!x && x.length >= 4))];
-  const alvo = nomes.map((n) => normalizar(n));
+  const nomes = variacoesDeNome(e.razao, e.fantasia);
+  const alvo = [...new Set(nomes.map((n) => normalizar(n).replace(NOMES_FRACOS, '').trim()))];
   const porNumero = new Map<string, any>();
-  const add = (numero: string, info: Record<string, unknown>) => {
+  const add = (mapa: Map<string, any>, numero: string, info: Record<string, unknown>) => {
     const k = so(numero); if (k.length !== 20) return;
-    const atual = porNumero.get(k) ?? { numero: comMascara(k), fontes: [], polo: null, partes: [], publicacoes: 0 };
+    const atual = mapa.get(k) ?? { numero: comMascara(k), fontes: [], polo: null, partes: [], publicacoes: 0, comoConsta: [] };
     for (const [c, v] of Object.entries(info)) {
       if (c === 'fonte') { if (!atual.fontes.includes(v)) atual.fontes.push(v); }
       else if (c === 'parte') { if (v && !atual.partes.includes(v) && atual.partes.length < 6) atual.partes.push(v); }
+      else if (c === 'comoConsta') { if (v && !atual.comoConsta.includes(v) && atual.comoConsta.length < 3) atual.comoConsta.push(v); }
       else if (c === 'publicacoes') atual.publicacoes += Number(v);
       else if (v != null && (atual[c] == null || c === 'ultimaPublicacao' && String(v) > String(atual[c]))) atual[c] = v;
     }
-    porNumero.set(k, atual);
+    mapa.set(k, atual);
   };
-  const avisos: string[] = []; let itensDjen = 0;
-  // DJEN: por nome exato de cada nome da empresa e pelo CNPJ formatado no texto da publicação (acha o que o nome
-  // não acha: execução penal, Projudi). Fica só o que tem a empresa entre as partes ou o CNPJ dela no texto.
-  const consultas: [string, string][] = [...nomes.map((n): [string, string] => ['nomeParte', n]), ['texto', formatarCnpj(e.cnpj)]];
-  for (const [param, nome] of consultas) {
-    for (let pagina = 1; pagina <= 3; pagina++) {
+  const avisos: string[] = []; let itensDjen = 0; const achouPor: Record<string, number> = {};
+  /** Uma consulta ao DJEN; `aceitar` decide se a comunicação é mesmo da pessoa procurada. */
+  const djen = async (param: string, valor: string, paginas: number, aceitar: (it: any) => { quem: { nome: string; polo: string } | null } | null, mapa: Map<string, any>) => {
+    let achados = 0;
+    for (let pagina = 1; pagina <= paginas; pagina++) {
       try {
-        const q = new URLSearchParams({ [param]: nome, pagina: String(pagina), itensPorPagina: '100' });
-        const r = await buscar(`https://comunicaapi.pje.jus.br/api/v1/comunicacao?${q}`, { headers: UA, signal: AbortSignal.timeout(30_000) });
-        if (r.status === 429) { avisos.push('O DJEN pediu para aguardar (limite de consultas). Rode "Buscar processos" de novo em alguns minutos.'); break; }
-        if (!r.ok) { avisos.push(`DJEN respondeu HTTP ${r.status}`); break; }
+        const q = new URLSearchParams({ [param]: valor, pagina: String(pagina), itensPorPagina: '100' });
+        let r = await buscar(`https://comunicaapi.pje.jus.br/api/v1/comunicacao?${q}`, { headers: UA, signal: AbortSignal.timeout(25_000) });
+        if (r.status === 429) { await espera(2500); r = await buscar(`https://comunicaapi.pje.jus.br/api/v1/comunicacao?${q}`, { headers: UA, signal: AbortSignal.timeout(25_000) }); }
+        if (r.status === 429) { avisos.push(`O DJEN pediu para aguardar na busca "${valor}". Rode "Buscar processos" de novo em alguns minutos.`); break; }
+        if (!r.ok) { avisos.push(`DJEN respondeu HTTP ${r.status} para "${valor}"`); break; }
         const j = await r.json() as { count?: number; items?: any[] };
         for (const it of j.items ?? []) {
           itensDjen++;
+          const ok = aceitar(it); if (!ok) continue;
           const dest = (it.destinatarios ?? []) as { nome: string; polo: string }[];
-          const minha = dest.map((x) => ({ x, s: Math.max(...alvo.map((a) => similaridade(String(x.nome).replace(NOMES_FRACOS, ''), a.replace(NOMES_FRACOS, '')))) })).sort((a, b) => b.s - a.s)[0];
-          const cnpjNoTexto = so(it.texto).includes(e.cnpj);
-          if (!cnpjNoTexto && (!minha || minha.s < 0.92)) continue;
-          const contra = dest.filter((x) => x !== minha?.x && x.polo !== minha?.x.polo).map((x) => x.nome);
-          add(it.numero_processo, { fonte: 'DJEN', tribunal: it.siglaTribunal, orgao: it.nomeOrgao, classe: it.nomeClasse, polo: minha?.x.polo === 'A' ? 'ativo' : minha?.x.polo === 'P' ? 'passivo' : null,
-            ultimaPublicacao: it.data_disponibilizacao, publicacoes: 1, parte: contra[0] ?? null });
-          for (const c of contra.slice(1, 3)) add(it.numero_processo, { parte: c });
+          const contra = dest.filter((x) => x !== ok.quem && x.polo !== ok.quem?.polo).map((x) => x.nome);
+          const antes = mapa.has(so(it.numero_processo));
+          add(mapa, it.numero_processo, { fonte: 'DJEN', tribunal: it.siglaTribunal, orgao: it.nomeOrgao, classe: it.nomeClasse, polo: ok.quem?.polo === 'A' ? 'ativo' : ok.quem?.polo === 'P' ? 'passivo' : null,
+            ultimaPublicacao: it.data_disponibilizacao, publicacoes: 1, parte: contra[0] ?? null, comoConsta: ok.quem?.nome ?? null });
+          for (const c of contra.slice(1, 3)) add(mapa, it.numero_processo, { parte: c });
+          if (!antes) achados++;
         }
         if ((j.items ?? []).length < 100) break;
       } catch (er) { avisos.push(`DJEN indisponível agora (${(er as Error).message.slice(0, 60)})`); break; }
+      await espera(pausa);
     }
+    await espera(pausa);
+    return achados;
+  };
+  const daEmpresa = (it: any) => {
+    const dest = (it.destinatarios ?? []) as { nome: string; polo: string }[];
+    const melhor = dest.map((x) => ({ x, s: Math.max(...alvo.map((a) => similaridade(normalizar(String(x.nome)).replace(NOMES_FRACOS, '').trim(), a))) })).sort((a, b) => b.s - a.s)[0];
+    if (melhor && melhor.s >= 0.92) return { quem: melhor.x };
+    return so(it.texto).includes(e.cnpj) ? { quem: null } : null;
+  };
+  for (const n of nomes) achouPor[n] = await djen('nomeParte', n, 3, daEmpresa, porNumero);
+  achouPor[formatarCnpj(e.cnpj)] = await djen('texto', formatarCnpj(e.cnpj), 2, daEmpresa, porNumero);
+  // Processos dos sócios pessoa física (pelo nome completo): exposição pessoal e outras empresas em que aparecem.
+  const porSocio = new Map<string, any>();
+  for (const sc of e.socios.filter((x) => x.tipo === 'PF' && x.nome.trim().split(/\s+/).length >= 3).slice(0, 4)) {
+    const alvoSocio = normalizar(sc.nome);
+    achouPor[sc.nome] = await djen('nomeParte', sc.nome, 1, (it) => {
+      const quem = ((it.destinatarios ?? []) as { nome: string; polo: string }[]).find((x) => similaridade(normalizar(String(x.nome)), alvoSocio) >= 0.97);
+      return quem ? { quem } : null;
+    }, porSocio);
+    for (const v of porSocio.values()) v.socio ??= sc.nome;
   }
   // Carteira do LAB (Astrea): o cliente pode já ser cliente do escritório.
   const { rows: lab } = await db.query<{ numero: string; titulo: string | null; papel: string | null; vara: string | null; acao: string | null }>(
     `SELECT coalesce(numero_original, '') numero, titulo, papel_cliente papel, vara, acao FROM astrea_registros
       WHERE upper(coalesce(cliente_nome, '')) = ANY($1::text[]) OR upper(coalesce(outros_envolvidos, '')) LIKE ANY($2::text[]) LIMIT 300`,
-    [nomes.map((n) => n.toUpperCase()), nomes.map((n) => `%${n.toUpperCase()}%`)]).catch(() => ({ rows: [] as any[] }));
-  for (const x of lab) add(x.numero, { fonte: 'Carteira do LAB', orgao: x.vara, classe: x.acao, polo: /autor|exequente|requerente|reclamante|embargante/i.test(x.papel ?? '') ? 'ativo' : /r[ée]u|executad|requerid|reclamad/i.test(x.papel ?? '') ? 'passivo' : null });
+    [nomes, nomes.map((n) => `%${n}%`)]).catch(() => ({ rows: [] as any[] }));
+  for (const x of lab) add(porNumero, x.numero, { fonte: 'Carteira do LAB', orgao: x.vara, classe: x.acao, polo: /autor|exequente|requerente|reclamante|embargante/i.test(x.papel ?? '') ? 'ativo' : /r[ée]u|executad|requerid|reclamad/i.test(x.papel ?? '') ? 'passivo' : null });
   const antigos = new Map(((dados.processos ?? []) as any[]).map((x) => [so(x.numero), x]));
   for (const [k, v] of porNumero) { const a = antigos.get(k); if (a?.datajud) v.datajud = a.datajud; if (a?.fontes?.includes('Informado pela equipe')) v.fontes.push('Informado pela equipe'); }
   for (const [k, a] of antigos) if (!porNumero.has(k) && a.fontes?.includes('Informado pela equipe')) porNumero.set(k, a);
   dados.processos = [...porNumero.values()].sort((a, b) => String(b.ultimaPublicacao ?? '').localeCompare(String(a.ultimaPublicacao ?? '')));
-  dados.fontes.processos = { djen: { consultas: consultas.map(([, v]) => v), itens: itensDjen }, em: new Date().toISOString(), avisos };
+  for (const k of porNumero.keys()) porSocio.delete(k);
+  dados.processosSocios = [...porSocio.values()].sort((a, b) => String(b.ultimaPublicacao ?? '').localeCompare(String(a.ultimaPublicacao ?? '')));
+  dados.fontes.processos = { djen: { consultas: Object.keys(achouPor), achouPor, itens: itensDjen }, em: new Date().toISOString(), avisos };
   await salvar(db, id, dados, 'datajud');
   return obter(db, id);
 }
@@ -246,7 +284,7 @@ export async function obter(db: PoolClient, id: string) {
   const anos = procs.map((x) => x.datajud?.ajuizamento?.slice(0, 4) ?? x.numero.slice(11, 15)).filter((a) => /^\d{4}$/.test(a)).sort();
   return {
     id: p.id, projetoId: p.projeto_id, cnpj: p.cnpj, cnpjFormatado: formatarCnpj(p.cnpj), etapa: p.etapa, criadoEm: p.criado_em, atualizadoEm: p.atualizado_em,
-    empresa: d.empresa, ligadas: d.ligadas ?? [], processos: procs, fontes: d.fontes ?? {}, avisos: [...(d.avisos ?? []), ...(d.fontes?.processos?.avisos ?? [])],
+    empresa: d.empresa, ligadas: d.ligadas ?? [], processos: procs, processosSocios: d.processosSocios ?? [], fontes: d.fontes ?? {}, avisos: [...(d.avisos ?? []), ...(d.fontes?.processos?.avisos ?? [])],
     resumo: {
       processos: procs.length, emCurso, arquivados: procs.length - emCurso,
       ativo: procs.filter((x) => x.polo === 'ativo').length, passivo: procs.filter((x) => x.polo === 'passivo').length,

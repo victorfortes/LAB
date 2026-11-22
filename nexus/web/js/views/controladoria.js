@@ -22,7 +22,8 @@ let periodoInicio = hojeISO(), periodoFim = hojeISO(), historico = false;
 let consulta='',oabFiltro='',pagina=1;
 
 export default async function controladoria() {
-  const [pendentes, oabs, lista] = await Promise.all([api.get('/api/controladoria/prazos-astrea'), api.get('/api/controladoria/oabs'), api.get(`/api/controladoria/publicacoes?situacao=${filtro}${historico ? '&periodo=todas' : `&inicio=${periodoInicio}&fim=${periodoFim}`}&q=${encodeURIComponent(consulta)}&oab=${encodeURIComponent(oabFiltro)}&pagina=${pagina}`)]);
+  const pendentes = [];
+  const [oabs, lista] = await Promise.all([api.get('/api/controladoria/oabs'), api.get(`/api/controladoria/publicacoes?situacao=${filtro}${historico ? '&periodo=todas' : `&inicio=${periodoInicio}&fim=${periodoFim}`}&q=${encodeURIComponent(consulta)}&oab=${encodeURIComponent(oabFiltro)}&pagina=${pagina}`)]);
   for(const p of lista.publicacoes)p.texto=p.texto_legivel??p.texto;
   const gere = pode('controladoria.gerir');
   const r = lista.resumo;
@@ -36,15 +37,6 @@ export default async function controladoria() {
     })}
     <div data-lote-agendar><div class="skel mt" style="height:120px"></div></div>
     <div data-conferencia><div class="skel mt" style="height:140px"></div></div>
-    ${pendentes.length ? html`<section class="card glass mt" aria-labelledby="astrea-titulo">
-      <header class="card__head"><div><h2 class="card__title" id="astrea-titulo">Prazos do Astrea a vincular</h2>
-      <p class="card__sub">Confira o cliente e vincule o processo ao projeto. O LAB importa os vencimentos confirmados no Astrea e as tarefas correspondentes.</p></div></header>
-      ${pendentes.map((item) => html`<details class="mt">
-        <summary><span class="mono-sm">${item.numero_processo}</span> · ${item.prazos.length} prazo(s) · primeiro vencimento em ${dataBR(item.prazos[0].vencimento)}</summary>
-        <ul>${item.prazos.map((p) => html`<li>${dataBR(p.vencimento)} · ${p.titulo}</li>`)}</ul>
-        ${gere ? html`<button type="button" class="btn btn--ghost" data-astrea-vincular="${item.id}">Vincular ao projeto</button>` : ''}
-      </details>`)}
-    </section>` : ''}
     <form class="tk-bar glass mt" data-periodo><label class="field"><span>Disponibilização de</span><input class="input" type="date" name="inicio" value="${periodoInicio}" required></label><label class="field"><span>Até</span><input class="input" type="date" name="fim" value="${periodoFim}" required></label><button class="btn btn--ghost" type="submit">Aplicar período</button><button class="btn btn--ghost" type="button" data-hoje>Hoje (${lista.totais?.hoje ?? 0})</button><button class="btn btn--ghost" type="button" data-historico>Histórico (${lista.totais?.historico ?? 0})</button></form>
     <form class="tk-bar glass mt" data-busca-pub><label class="field"><span>Buscar publicação ou processo</span><input class="input" name="q" type="search" value="${consulta}" placeholder="Número CNJ, órgão ou trecho da intimação"></label><label class="field"><span>Advogado / OAB</span><select class="select" name="oab"><option value="">Todas as OABs</option>${oabs.map(o=>html`<option value="${o.nome}" ${o.nome===oabFiltro?html`selected`:''}>${o.nome} · ${o.numero_oab}/${o.uf_oab}</option>`)}</select></label><button class="btn btn--ghost">Pesquisar</button></form>
     <p class="dica mt">${historico ? 'Exibindo todo o histórico' : `Disponibilizações de ${dataBR(periodoInicio)} a ${dataBR(periodoFim)}`} · ${lista.publicacoes.length} publicação(ões) neste filtro.</p>

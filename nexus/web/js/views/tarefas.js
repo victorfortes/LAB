@@ -302,7 +302,7 @@ export async function abrirTarefa(t, { aoMudar: aoMudarFora, aoExcluir, aoFechar
   const eq = await equipe().catch(() => []);
   const escreve = pode('tarefa.escrever');
   const k = tipoDe(t);
-  const el = document.createElement('aside'); el.className = 'tk-drawer'; el.setAttribute('role', 'dialog'); el.setAttribute('aria-modal', 'false'); el.setAttribute('aria-label', t.titulo);
+  const el = document.createElement('aside'); el.className = 'tk-drawer'; el.setAttribute('role', 'dialog'); el.setAttribute('aria-modal', 'true'); el.setAttribute('aria-label', t.titulo);
   const fundo = document.createElement('div'); fundo.className = 'tk-drawer__fundo';
   const pintar = () => {
     const conc = t.status === 'concluida';
@@ -322,13 +322,15 @@ export async function abrirTarefa(t, { aoMudar: aoMudarFora, aoExcluir, aoFechar
         ${conc && escreve ? html`<label class="field"><span>O que foi feito</span><textarea class="textarea" data-campo="conclusaoNota" rows="2" placeholder="Ex.: Protocolada a manifestação; aguardando decisão.">${t.conclusaoNota ?? ''}</textarea></label>` : t.conclusaoNota ? html`<p class="dica"><b>O que foi feito:</b> ${t.conclusaoNota}</p>` : ''}
         <div class="tk-drawer__grid">
           <label class="field"><span>Responsável</span><select class="select" data-campo="responsavelId" ${escreve ? '' : raw('disabled')}><option value="">Sem responsável</option>${eq.map((u) => html`<option value="${u.id}" ${u.id === t.responsavelId ? raw('selected') : ''}>${u.nome}</option>`)}</select></label>
-          <label class="field"><span>${k === 'prazo' ? 'Vencimento' : k === 'tarefa' ? 'Entrega' : 'Data'}</span><input class="input" type="date" data-campo="prazo" value="${t.prazo ?? ''}" ${escreve ? '' : raw('disabled')}></label>
+          <label class="field"><span>${k === 'prazo' ? 'Vencimento' : k === 'tarefa' ? 'Entrega' : 'Data'}</span><input class="input" type="date" data-campo="prazo" value="${t.prazo ?? ''}" ${escreve && pode('tarefa.vencimento') ? '' : raw('disabled title="Só a controladoria ou a gestão altera o vencimento"')}></label>
           <label class="field"><span>Tipo</span><select class="select" data-campo="tipo" ${escreve ? '' : raw('disabled')}>${Object.entries(TIPOS).map(([v, x]) => html`<option value="${v}" ${v === k ? raw('selected') : ''}>${x.nome}</option>`)}</select></label>
           ${['evento', 'audiencia'].includes(k) ? html`<label class="field"><span>Hora</span><input class="input" type="time" data-campo="hora" value="${t.hora ?? ''}" ${escreve ? '' : raw('disabled')}></label>`
             : html`<label class="field"><span>Prioridade</span><select class="select" data-campo="prioridade" ${escreve ? '' : raw('disabled')}>${['baixa', 'media', 'alta', 'urgente'].map((p) => html`<option value="${p}" ${p === t.prioridade ? raw('selected') : ''}>${p === 'media' ? 'Média' : p[0].toUpperCase() + p.slice(1)}</option>`)}</select></label>`}
         </div>
         <label class="field"><span>Detalhes</span><textarea class="textarea" data-campo="descricao" rows="5" placeholder="Contexto, links, o que falta…" ${escreve ? '' : raw('disabled')}>${t.descricao ?? ''}</textarea></label>
-        ${t.publicacaoId ? html`<button class="btn btn--ghost btn--sm" data-pub-drawer>${icone('search')}Abrir a intimação de origem</button>` : ''}
+        ${t.publicacaoTrecho ? html`<section class="tk-pub"><header><b>${icone('file')}Intimação de origem</b>${t.publicacaoData ? html`<small>disponibilizada em ${dataBR(t.publicacaoData)}</small>` : ''}</header>
+          <p>${t.publicacaoTrecho}${t.publicacaoTrecho.length >= 1800 ? '…' : ''}</p></section>` : t.doAstrea && !t.arquivadaEm ? html`<p class="dica">Nenhuma intimação do DJEN deste processo nos 45 dias antes do vencimento.</p>` : ''}
+        ${t.publicacaoId ? html`<button class="btn btn--ghost btn--sm" data-pub-drawer>${icone('search')}Abrir a intimação completa</button>` : ''}
         <p class="tk-drawer__rodape">Criada ${relativo(t.criadoEm)}${t.doAstrea ? ' pela agenda do Astrea' : ''} · <span data-salvo>alterações salvam sozinhas</span></p>
       </div>
       ${escreve ? html`<footer class="tk-drawer__foot"><button class="btn btn--ghost btn--sm perigo-btn" data-excluir>${icone('trash')}Excluir</button><button class="btn btn--ghost btn--sm" data-abrir-projeto>${icone('folder')}Abrir projeto</button></footer>` : ''}`);

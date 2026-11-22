@@ -67,6 +67,8 @@ export async function criar(db: PoolClient, d: z.infer<typeof EsquemaNovo>, i: I
   if (d.cnpj) { pre = await prediag.criar(db, { cnpj: d.cnpj }, i); nome = pre.empresa.fantasia || pre.empresa.razao; }
   const { rows: [r] } = await db.query<{ id: string }>(`INSERT INTO novos_clientes (organizacao_id, cnpj, nome, prediagnostico_id, origem, etapa, criado_por) VALUES ($1,$2,$3,$4,$5,'prediagnostico',$6) RETURNING id`,
     [organizacao, pre?.cnpj ?? null, nome, pre?.id ?? null, d.origem ?? null, i.usuarioId]);
+  // Aviso para o escritório inteiro: possível cliente novo (sem projeto ainda).
+  await db.query(`INSERT INTO celebracoes (organizacao_id, projeto_id, titulo, area, criado_por) VALUES ($1, NULL, $2, NULL, $3)`, [organizacao, nome.slice(0, 300), i.usuarioId]);
   await auditar(db, { organizacaoId: organizacao, usuarioId: i.usuarioId, acao: 'novo_cliente.criado', entidade: 'novo_cliente', entidadeId: r!.id, depois: { nome, cnpj: pre?.cnpj ?? null } });
   return obter(db, r!.id);
 }

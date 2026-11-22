@@ -56,7 +56,7 @@ function tabelaProcessos(d, filtro) {
     ${l.map((x) => html`<tr><td><b class="mono-sm">${x.numero}</b><small>${x.datajud?.classe ?? x.classe ?? ''}</small>${x.datajud?.ajuizamento ? html`<small>ajuizado ${dataBR(x.datajud.ajuizamento)}</small>` : ''}</td>
       <td>${x.datajud?.orgao ?? x.orgao ?? '—'}<small>${x.tribunal ?? ''}</small></td>
       <td>${x.polo ? html`<span class="selo ${POLO[x.polo][0]}">${POLO[x.polo][1]}</span>` : html`<span class="selo">a conferir</span>`}</td>
-      <td>${(x.partes ?? []).slice(0, 2).join(' · ') || '—'}</td>
+      <td>${(x.partes ?? []).slice(0, 2).join(' · ') || '—'}${(x.comoConsta ?? []).length ? html`<small>consta como: ${x.comoConsta.join(' / ')}</small>` : ''}</td>
       <td>${x.datajud?.estado === 'ok' ? html`<span class="selo ${x.datajud.arquivado ? '' : 'info'}">${x.datajud.arquivado ? 'Arquivado' : 'Em curso'}</span>${x.datajud.ultimoMovimento ? html`<small>${dataBR(x.datajud.ultimoMovimento.data)} · ${x.datajud.ultimoMovimento.titulo}</small>` : ''}`
         : x.datajud?.estado === 'nao_encontrado' ? html`<small>Fora do DataJud (sigilo ou base pública)</small>` : x.datajud?.estado === 'instavel' ? html`<small>DataJud instável: tente "Completar no DataJud"</small>` : html`<small>${x.ultimaPublicacao ? `última publicação ${dataBR(x.ultimaPublicacao)}` : 'na fila do DataJud'}</small>`}</td>
       <td><small>${(x.fontes ?? []).join(' · ')}</small></td></tr>`)}</tbody></table></div>`;
@@ -86,9 +86,16 @@ export function htmlRelatorio(d, { progresso = '', filtro = 'todos' } = {}) {
       ${pode('projeto.escrever') ? html`<button class="btn btn--ghost btn--sm" data-pd-numeros>${icone('plus')}Incluir processos</button><button class="btn btn--ghost btn--sm" data-pd-refazer>${icone('refresh')}Buscar de novo</button>` : ''}</div></header>
       <div data-pd-tabela>${tabelaProcessos(d, filtro)}</div>
       ${r.recorrentes.length ? html`<h3 class="mini-h mt">Partes que aparecem em mais de um processo</h3><div class="pd-rec">${r.recorrentes.map((x) => html`<span>${x.nome} <b>${x.n}</b></span>`)}</div>` : ''}</section>
+    ${(d.processosSocios ?? []).length ? html`<section class="card glass up mt"><header class="card__head"><div><h2 class="card__title">Processos dos sócios</h2>
+      <p class="card__sub">Em nome próprio, pelo nome completo no DJEN. Mesmo nome não é prova de mesma pessoa: confira o CPF nos autos.</p></div></header>
+      <div class="tbl-wrap"><table class="tbl pd-procs"><thead><tr><th>Processo</th><th>Sócio</th><th>Juízo</th><th>Polo</th><th>Outra parte</th><th>Última publicação</th></tr></thead><tbody>
+      ${d.processosSocios.map((x) => html`<tr><td><b class="mono-sm">${x.numero}</b><small>${x.classe ?? ''}</small></td><td>${x.socio ?? '—'}</td><td>${x.orgao ?? '—'}<small>${x.tribunal ?? ''}</small></td>
+        <td>${x.polo ? html`<span class="selo ${POLO[x.polo][0]}">${POLO[x.polo][1]}</span>` : html`<span class="selo">a conferir</span>`}</td>
+        <td>${(x.partes ?? []).slice(0, 2).join(' · ') || '—'}</td><td>${x.ultimaPublicacao ? dataBR(x.ultimaPublicacao) : '—'}</td></tr>`)}</tbody></table></div></section>` : ''}
     <details class="card glass up mt pd-fontes"><summary>Fontes e limites deste levantamento</summary><ul>
       <li>Cadastro e sócios: ${e.fonte} (dados públicos da Receita Federal; CPF de sócio vem mascarado).</li>
-      <li>Processos: DJEN, Diário de Justiça Eletrônico Nacional (publicações desde 2023, busca pelo nome exato), carteira importada do Astrea e números informados pela equipe; detalhes pelo DataJud (CNJ).</li>
+      <li>Processos: DJEN, Diário de Justiça Eletrônico Nacional (publicações desde 2021, busca pelo nome exato da parte — por isso o sistema tenta o nome com e sem LTDA/EIRELI/ME/EPP e o nome fantasia), carteira importada do Astrea e números informados pela equipe; detalhes pelo DataJud (CNJ).</li>
+      ${d.fontes?.processos?.djen?.achouPor ? html`<li>Buscas no DJEN (processos novos achados por cada uma): ${Object.entries(d.fontes.processos.djen.achouPor).map(([n, q]) => `"${n}" ${q}`).join(' · ')}.</li>` : ''}
       ${(d.avisos ?? []).map((a) => html`<li>${a}</li>`)}
       <li>Documento preliminar: valores e situações precisam de conferência nos autos.</li></ul></details>
   </div>`;

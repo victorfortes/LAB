@@ -37,6 +37,7 @@ import * as gestao from './gestao.ts';
 import * as faturas from './faturas.ts';
 import * as configuracao from './configuracao.ts';
 import * as astreaBase from './astrea_base.ts';
+import * as carteiraAstrea from './carteira_astrea_api.ts';
 import * as diagVersoes from './diagnostico_versoes.ts';
 import * as socios from './socios.ts';
 import * as biAgenda from './bi_agenda.ts';
@@ -328,6 +329,14 @@ export function criarApp(ctx: Contexto) {
             const direcionamento = await banco.comoUsuario(integracao.usuarioId, (db) => controladoriaAuto.direcionarAgenda(db, integracao.organizacaoId, integracao.usuarioId))
               .catch((e) => ({ erro: (e as Error).message }));
             return json({ ...carga, direcionamento }, 201);
+          }
+          // Carteira do Astrea (processos ativos + CNPJ dos clientes), lida pela API na rotina diária.
+          if (rota === '/api/integracao/carteira-astrea') {
+            exigirEscopo(integracao, 'agenda');
+            const corpo = carteiraAstrea.EsquemaCarteira.safeParse(await req.json().catch(() => null));
+            if (!corpo.success) return erro('dados inválidos', 400, corpo.error.issues.slice(0, 5));
+            return json(await banco.comoUsuario(integracao.usuarioId, (db) =>
+              carteiraAstrea.receberCarteira(db, integracao.organizacaoId, corpo.data, integracao.usuarioId)), 201);
           }
           // Publicações que chegaram no Astrea, para a conferência diária com o DJEN do LAB.
           if (rota === '/api/integracao/publicacoes-astrea') {
@@ -821,6 +830,9 @@ export function criarApp(ctx: Contexto) {
         }
         const corpo = tarefas.EsquemaAtualizacao.safeParse(await req.json().catch(() => null));
         if (!corpo.success) return erro('dados inválidos', 400, corpo.error.issues);
+        if (corpo.data.prazo !== undefined && !podeComPapeis(identidade.papeis, 'tarefa.vencimento')) {
+          return erro('a data de vencimento só é alterada pela controladoria ou pela gestão', 403);
+        }
         return json(await banco.comoUsuario(identidade.usuarioId, (db) =>
           tarefas.atualizar(db, mTarefa[1]!, corpo.data, identidade)));
       }

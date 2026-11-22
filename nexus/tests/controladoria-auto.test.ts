@@ -78,3 +78,22 @@ test('agenda do Astrea vira tarefa para quem lançou; concluído no Astrea fecha
   const padroes = await j(req(tc, '/api/controladoria/padroes'));
   expect(padroes.responsaveis.find((x: { resp: string }) => x.resp === 'Maurício Graboski').noLab).toBe('Maurício Graboski');
 });
+
+test('agenda lida pela API do Astrea: chave pelo id, providência e publicação de origem na tarefa; advogado não muda vencimento', async () => {
+  await pg.dono.query(`INSERT INTO bi_agenda_linhas(organizacao_id,ordem,tipo,data,hora,caso,conclusao,juizo,numero,resp,status,titulo,astrea_id,detalhe,publicacao_ref,publicacao_data,publicacao_texto) VALUES
+    ($1,10,'Prazo','30/11/2026','','Cliente RJ x Banco','','1ª Vara','0001234-56.2024.8.16.0001','Maurício Graboski','Em andamento','IMPUGNAR','987654321','Impugnar a relação de credores. [NGA:abc123]','361000752','2026-11-20','Intimação: fica a recuperanda intimada para impugnar no prazo de 10 dias.'),
+    ($1,11,'Prazo','30/11/2026','','Cliente RJ x Banco','','1ª Vara','0001234-56.2024.8.16.0001','Maurício Graboski','Cancelado','CANCELADO NO ASTREA','987654322',NULL,NULL,NULL,NULL)`, [org]);
+  await j(req(tc, '/api/controladoria/direcionar', {}));
+  const { rows } = await pg.dono.query(`SELECT id, descricao FROM tarefas WHERE chave_playbook = 'astrea:id:987654321'`);
+  expect(rows.length).toBe(1);
+  expect(rows[0].descricao).toContain('Processo nº 0001234-56.2024.8.16.0001');
+  expect(rows[0].descricao).toContain('Providência (Astrea): Impugnar a relação de credores.');
+  expect(rows[0].descricao).not.toContain('[NGA:');
+  expect((await pg.dono.query(`SELECT count(*)::int n FROM tarefas WHERE chave_playbook = 'astrea:id:987654322'`)).rows[0].n).toBe(0);
+  const lista = await j(req(tc, '/api/tarefas'));
+  const t = lista.tarefas.find((x: { id: string }) => x.id === rows[0].id);
+  expect(t.publicacaoTrecho).toContain('impugnar no prazo de 10 dias');
+  expect(t.publicacaoData).toBe('2026-11-20');
+  expect((await req(ta, `/api/tarefas/${t.id}`, { prazo: '2026-12-30' }, 'PATCH')).status).toBe(403);
+  expect((await req(tc, `/api/tarefas/${t.id}`, { prazo: '2026-12-30' }, 'PATCH')).status).toBe(200);
+});

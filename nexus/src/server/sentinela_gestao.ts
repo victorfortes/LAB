@@ -246,6 +246,16 @@ export async function sincronizarComCarteira(db: PoolClient, i: Identidade) {
             (SELECT u.nome FROM usuarios u WHERE u.id = p.responsavel_id) AS responsavel
        FROM projetos p JOIN projetos_empresas pe ON pe.projeto_id = p.id JOIN empresas e ON e.id = pe.empresa_id
       WHERE p.situacao <> 'encerrado' AND pe.papel IN ('recuperanda', 'devedora', 'credora') ORDER BY p.nome`);
+  // Carteira do Astrea (lida pela API): clientes pessoa jurídica com CNPJ, os que têm mais processos ativos primeiro.
+  // O teto existe porque o DJEN aguenta poucas consultas por hora: vigiar 470 clientes deixaria todos atrasados.
+  const { rows: [cfg] } = await db.query<{ teto: number }>(`SELECT coalesce((SELECT (valor->>'clientesAstrea')::int FROM sentinela_config WHERE chave = 'carteira'), 80) AS teto`).catch(() => ({ rows: [{ teto: 80 }] }));
+  const { rows: astrea } = await db.query<{ cnpj: string; nome: string; n: number }>(
+    `SELECT cliente_documento AS cnpj, (array_agg(cliente_nome ORDER BY lido_api_em DESC))[1] AS nome, count(*)::int AS n
+       FROM astrea_registros WHERE organizacao_id = $1 AND ativo_no_astrea AND length(cliente_documento) = 14
+      GROUP BY 1 ORDER BY 3 DESC LIMIT $2`, [org, cfg?.teto ?? 80]).catch(() => ({ rows: [] as { cnpj: string; nome: string; n: number }[] }));
+  for (const a of astrea) if (!rows.some((r) => r.cnpj === a.cnpj || r.cnpj_parte === a.cnpj)) {
+    rows.push({ projeto_id: '', projeto: `Carteira do Astrea (${a.n} processo(s) ativo(s))`, empresa_id: '', razao: a.nome, fantasia: null, cnpj: a.cnpj, cnpj_parte: null, responsavel: null });
+  }
   const { rows: ja } = await db.query<{ cnpj: string }>('SELECT cnpj FROM sentinela_cnpjs');
   const monitorados = new Set(ja.map((x) => x.cnpj));
   let cadastrados = 0; let jaMonitorados = 0; const semCnpj: { projetoId: string; projeto: string; empresaId: string; empresa: string }[] = []; const erros: string[] = [];
@@ -258,7 +268,7 @@ export async function sincronizarComCarteira(db: PoolClient, i: Identidade) {
       const id = await cadastrar(db, org, EsquemaClienteSentinela.parse({ razaoSocial: r.razao, cnpj, nomeFantasia: r.fantasia ?? undefined, advogadoResponsavel: r.responsavel ?? undefined }));
       await buscaInicial(db, org, id, new Date());
       // O CNPJ achado na parte do processo volta para o cadastro da empresa.
-      if (!r.cnpj) await db.query('UPDATE empresas SET cnpj = $2, atualizado_em = now() WHERE id = $1 AND cnpj IS NULL', [r.empresa_id, cnpj]);
+      if (!r.cnpj && r.empresa_id) await db.query('UPDATE empresas SET cnpj = $2, atualizado_em = now() WHERE id = $1 AND cnpj IS NULL', [r.empresa_id, cnpj]);
       await db.query('RELEASE SAVEPOINT cart'); monitorados.add(cnpj); cadastrados++;
     } catch (e) { await db.query('ROLLBACK TO SAVEPOINT cart'); erros.push(`${r.razao}: ${(e as Error).message}`.slice(0, 200)); }
   }
@@ -283,14 +293,23 @@ export async function confiabilidade(db: PoolClient) {
   const { rows: [c] } = await db.query<Record<string, number>>(`SELECT count(*)::int AS clientes, count(*) FILTER (WHERE ativo)::int AS ativos,
       count(*) FILTER (WHERE ativo AND ultima_verificacao > now() - interval '36 hours')::int AS em_dia,
       count(*) FILTER (WHERE ativo AND (ultima_verificacao IS NULL OR ultima_verificacao <= now() - interval '36 hours'))::int AS atrasados FROM sentinela_clientes`);
-  const { rows: [cart] } = await db.query<{ empresas: number; sem_cnpj: number; fora: number }>(`SELECT count(DISTINCT e.id)::int AS empresas,
-      count(DISTINCT e.id) FILTER (WHERE coalesce(e.cnpj, '') = '')::int AS sem_cnpj,
-      count(DISTINCT e.id) FILTER (WHERE coalesce(e.cnpj, '') <> '' AND NOT EXISTS (SELECT 1 FROM sentinela_cnpjs k WHERE k.cnpj = regexp_replace(e.cnpj, '\\D', '', 'g')))::int AS fora
-    FROM projetos p JOIN projetos_empresas pe ON pe.projeto_id = p.id JOIN empresas e ON e.id = pe.empresa_id WHERE p.situacao <> 'encerrado' AND pe.papel IN ('recuperanda', 'devedora', 'credora')`);
+  const { rows: [cart] } = await db.query<{ empresas: number; sem_cnpj: number; fora: number }>(`WITH lab AS (
+      SELECT e.id::text AS id, nullif(regexp_replace(coalesce(e.cnpj, ''), '\\D', '', 'g'), '') AS cnpj
+        FROM projetos p JOIN projetos_empresas pe ON pe.projeto_id = p.id JOIN empresas e ON e.id = pe.empresa_id
+       WHERE p.situacao <> 'encerrado' AND pe.papel IN ('recuperanda', 'devedora', 'credora')),
+    astrea AS (
+      SELECT 'astrea:' || cliente_documento AS id, cliente_documento AS cnpj FROM astrea_registros
+       WHERE ativo_no_astrea AND length(cliente_documento) = 14 GROUP BY cliente_documento
+       ORDER BY count(*) DESC LIMIT coalesce((SELECT (valor->>'clientesAstrea')::int FROM sentinela_config WHERE chave = 'carteira'), 80)),
+    tudo AS (SELECT * FROM lab UNION ALL SELECT a.* FROM astrea a WHERE NOT EXISTS (SELECT 1 FROM lab l WHERE l.cnpj = a.cnpj)),
+    unicos AS (SELECT DISTINCT ON (coalesce(cnpj, id)) id, cnpj FROM tudo)
+    SELECT count(*)::int AS empresas, count(*) FILTER (WHERE cnpj IS NULL)::int AS sem_cnpj,
+           count(*) FILTER (WHERE cnpj IS NOT NULL AND NOT EXISTS (SELECT 1 FROM sentinela_cnpjs k WHERE k.cnpj = unicos.cnpj))::int AS fora FROM unicos`);
   const { rows: novas } = await db.query<{ id: string; numero: string; cliente: string; classificacao: string; estado: string; identificada: Date; ajuizamento: string | null; tribunal: string | null; classe: string | null; na_base: boolean }>(
     `SELECT a.id, p.numero_processo AS numero, c.razao_social AS cliente, a.classificacao, a.estado_validacao AS estado, a.identificada_em AS identificada, p.data_ajuizamento::text AS ajuizamento, p.tribunal, p.classe,
             (EXISTS (SELECT 1 FROM processos x WHERE regexp_replace(x.numero, '\\D', '', 'g') = regexp_replace(p.numero_processo, '\\D', '', 'g'))
-             OR EXISTS (SELECT 1 FROM astrea_registros r WHERE regexp_replace(coalesce(r.numero_original, ''), '\\D', '', 'g') = regexp_replace(p.numero_processo, '\\D', '', 'g'))) AS na_base
+             OR EXISTS (SELECT 1 FROM astrea_registros r WHERE regexp_replace(coalesce(r.numero_original, ''), '\\D', '', 'g') = regexp_replace(p.numero_processo, '\\D', '', 'g'))
+             OR EXISTS (SELECT 1 FROM bi_agenda_linhas b WHERE regexp_replace(b.numero, '\\D', '', 'g') = regexp_replace(p.numero_processo, '\\D', '', 'g'))) AS na_base
        FROM sentinela_achados a JOIN sentinela_processos p ON p.id = a.processo_id JOIN sentinela_clientes c ON c.id = a.cliente_id
       WHERE a.classificacao IN ('confirmada', 'provavel') AND a.identificada_em > now() - interval '30 days' ORDER BY a.identificada_em DESC LIMIT 300`);
   const { rows: fontes } = await db.query<{ fonte: string; estado: string; ultimo_sucesso: Date | null; falhas_consecutivas: number }>('SELECT fonte, estado, ultimo_sucesso, falhas_consecutivas FROM sentinela_saude');
