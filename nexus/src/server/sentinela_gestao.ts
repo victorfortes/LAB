@@ -318,7 +318,8 @@ export async function confiabilidade(db: PoolClient) {
   const pctCobertura = diasFechados ? Math.round((1000 * (cob.total.coberto ?? 0)) / diasFechados) / 10 : null;
   const pctClientes = cart!.empresas ? Math.round((1000 * Math.max(0, cart!.empresas - cart!.sem_cnpj - cart!.fora)) / cart!.empresas) / 10 : null;
   const pctEmDia = c!.ativos ? Math.round((1000 * (c!.em_dia ?? 0)) / c!.ativos) / 10 : null;
-  const fontesOk = fontes.filter((f) => f.estado === 'operacional').length;
+  // Limitado pelo tribunal (429) é fonte no ar, em pausa automática: não derruba a nota.
+  const fontesOk = fontes.filter((f) => f.estado === 'operacional' || f.estado === 'limitado').length;
   // Nota única para a tela: média dos três pilares, derrubada se alguma fonte está fora.
   const pilares = [pctCobertura, pctClientes, pctEmDia].filter((x): x is number => x !== null);
   const nota = pilares.length ? Math.round((pilares.reduce((a, b) => a + b, 0) / pilares.length) * (fontes.length && fontesOk < fontes.length ? 0.8 : 1)) : null;

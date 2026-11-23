@@ -38,6 +38,8 @@ export async function cliente(db: PoolClient, id: string): Promise<ClienteSentin
 
 async function saude(db: PoolClient, org: string, fonte: string, ok: boolean, erro = ''): Promise<void> {
   if (ok) await db.query(`INSERT INTO sentinela_saude(organizacao_id,fonte,estado,ultimo_sucesso) VALUES($1,$2,'operacional',now()) ON CONFLICT(organizacao_id,fonte) DO UPDATE SET estado='operacional',ultimo_sucesso=now(),falhas_consecutivas=0`, [org, fonte]);
+  // Limite do tribunal (429, "sobrecarregado") não é fonte fora do ar: fica "limitado" e a pausa automática resolve.
+  else if (/429|sobrecarreg|aguardar/i.test(erro)) await db.query(`INSERT INTO sentinela_saude(organizacao_id,fonte,estado,ultima_falha,ultimo_erro,falhas_consecutivas) VALUES($1,$2,'limitado',now(),$3,0) ON CONFLICT(organizacao_id,fonte) DO UPDATE SET estado='limitado',ultima_falha=now(),ultimo_erro=$3`, [org, fonte, erro.slice(0, 300)]);
   else await db.query(`INSERT INTO sentinela_saude(organizacao_id,fonte,estado,ultima_falha,ultimo_erro,falhas_consecutivas) VALUES($1,$2,'degradado',now(),$3,1) ON CONFLICT(organizacao_id,fonte) DO UPDATE SET estado=CASE WHEN sentinela_saude.falhas_consecutivas+1>=3 THEN 'indisponivel' ELSE 'degradado' END,ultima_falha=now(),ultimo_erro=$3,falhas_consecutivas=sentinela_saude.falhas_consecutivas+1`, [org, fonte, erro.slice(0, 300)]);
 }
 

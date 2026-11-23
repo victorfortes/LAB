@@ -40,8 +40,17 @@ export async function emPausa(alias: string, db?: PoolClient | null): Promise<bo
 }
 export async function pausar(alias: string, minutos: number, motivo: string, db?: PoolClient | null) {
   pausaLocal.set(alias, Date.now() + minutos * 60_000);
-  if (db) await db.query(`INSERT INTO datajud_pausas (indice, ate, motivo) VALUES ($1, now() + make_interval(mins => $2), $3)
-    ON CONFLICT (indice) DO UPDATE SET ate = EXCLUDED.ate, motivo = EXCLUDED.motivo, vezes = datajud_pausas.vezes + 1`, [alias, minutos, motivo.slice(0, 300)]).catch(() => undefined);
+  // Pausa crescente: se o tribunal recusa de novo logo após a última pausa, a próxima dobra (até 2 h).
+  // Sem isso o LAB voltava a bater no TJPR a cada 10-15 min e levava 429 o dia inteiro.
+  if (db) {
+    const { rows } = await db.query<{ ate: Date }>(`INSERT INTO datajud_pausas (indice, ate, motivo, vezes) VALUES ($1, now() + make_interval(mins => $2), $3, 1)
+      ON CONFLICT (indice) DO UPDATE SET
+        vezes = CASE WHEN datajud_pausas.ate > now() - interval '45 minutes' THEN datajud_pausas.vezes + 1 ELSE 1 END,
+        ate = now() + make_interval(mins => least($2 * power(2, CASE WHEN datajud_pausas.ate > now() - interval '45 minutes' THEN least(datajud_pausas.vezes, 4) ELSE 0 END)::int, 120)),
+        motivo = EXCLUDED.motivo
+      RETURNING ate`, [alias, minutos, motivo.slice(0, 300)]).catch(() => ({ rows: [] as { ate: Date }[] }));
+    if (rows[0]) pausaLocal.set(alias, new Date(rows[0].ate).getTime());
+  }
 }
 
 export interface OpcoesConsulta {
