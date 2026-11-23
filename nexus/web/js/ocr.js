@@ -4,6 +4,7 @@
  * sem limite de tempo da nuvem; o servidor recebe só as linhas, como num PDF com texto.
  */
 let trabalhadores;
+const comPrazo = (p, ms) => Promise.race([p, new Promise((_, falha) => setTimeout(() => falha(new Error('tempo esgotado')), ms))]);
 const PASTA = '/js/vendor/ocr';
 
 /** Mesma regra do servidor (leitores.ts#textoIlegivel): pouco texto ou letras soltas sem palavras. */
@@ -27,20 +28,29 @@ async function motores() {
 }
 
 /** Linhas por página de um PDF digitalizado. `maxPaginas` evita travar o navegador com laudos de centenas de páginas. */
-export async function ocrDoPdf(bytes, { maxPaginas = 30, aoProgredir } = {}) {
+export async function ocrDoPdf(bytes, { maxPaginas = 12, aoProgredir } = {}) {
   const { abrirParaImagem } = await import('./vendor/pdf/pdf-linhas.js');
   const doc = await abrirParaImagem(bytes); const ws = await motores();
-  const total = Math.min(doc.paginas, maxPaginas); const paginas = new Array(total); let feitas = 0; let proxima = 1;
+  const total = Math.min(doc.paginas, maxPaginas); const paginas = new Array(total).fill(null).map(() => []); let feitas = 0; let proxima = 1; let puladas = 0; const inicio = Date.now();
   try {
     await Promise.all(ws.map(async (w) => {
       while (proxima <= total) {
         const p = proxima++;
-        const canvas = await doc.desenhar(p, 1.7);
-        const { data } = await w.recognize(canvas);
-        paginas[p - 1] = String(data.text ?? '').split('\n').map((l) => l.replace(/\s+/g, ' ').trim()).filter(Boolean);
-        canvas.width = canvas.height = 0; aoProgredir?.(++feitas, total);
+        // Página que não termina em 60 s (imagem gigante, PDF corrompido) é pulada: não prende o diagnóstico.
+        try {
+          const canvas = await comPrazo(doc.desenhar(p, 1.5), 60_000);
+          const { data } = await comPrazo(w.recognize(canvas), 60_000);
+          paginas[p - 1] = String(data.text ?? '').split('\n').map((l) => l.replace(/\s+/g, ' ').trim()).filter(Boolean);
+          canvas.width = canvas.height = 0;
+        } catch { paginas[p - 1] = []; puladas++; }
+        aoProgredir?.(++feitas, total);
+        if (Date.now() - inicio > 6 * 60_000) proxima = total + 1; // teto por documento
       }
     }));
-  } finally { await doc.fechar(); }
-  return { paginas, truncado: doc.paginas > total, totalPaginas: doc.paginas };
+  } finally {
+    await comPrazo(doc.fechar(), 10_000).catch(() => {});
+    // Motor que estourou o prazo pode ter ficado preso: descarta e cria outro no próximo documento.
+    if (puladas) { for (const w of ws) w.terminate?.().catch?.(() => {}); trabalhadores = undefined; }
+  }
+  return { paginas, truncado: doc.paginas > total || puladas > 0, totalPaginas: doc.paginas, puladas };
 }

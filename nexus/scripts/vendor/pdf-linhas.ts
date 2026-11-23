@@ -17,7 +17,8 @@ export async function linhasDoPdf(bytes: Uint8Array, aoProgredir?: (pagina: numb
     paginas.push([...porY.entries()].sort((a, b) => b[0] - a[0]).map(([, xs]) => xs.sort((a, b) => a.x - b.x).map((x) => x.s).join(' ')));
     aoProgredir?.(p, pdf.numPages);
   }
-  await (pdf as unknown as { destroy?: () => Promise<void> }).destroy?.();
+  // Fechar sem esperar: em alguns PDFs o destroy() do pdf.js nunca resolve e prendia a leitura.
+  void (pdf as unknown as { destroy?: () => Promise<void> }).destroy?.()?.catch?.(() => {});
   return paginas;
 }
 
@@ -28,12 +29,14 @@ export async function abrirParaImagem(bytes: Uint8Array) {
     paginas: pdf.numPages,
     async desenhar(numero: number, escala = 2): Promise<HTMLCanvasElement> {
       const pagina = await pdf.getPage(numero);
-      const vp = pagina.getViewport({ scale: escala });
+      // Página escaneada em alta resolução vira imagem gigante e o OCR não termina: limita o lado maior a 2.500 px.
+      const base = pagina.getViewport({ scale: 1 });
+      const vp = pagina.getViewport({ scale: Math.min(escala, 2500 / Math.max(base.width, base.height)) });
       const canvas = document.createElement('canvas'); canvas.width = Math.ceil(vp.width); canvas.height = Math.ceil(vp.height);
       const ctx = canvas.getContext('2d')!; ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, canvas.width, canvas.height);
       await pagina.render({ canvasContext: ctx, viewport: vp } as never).promise;
       return canvas;
     },
-    async fechar() { await (pdf as unknown as { destroy?: () => Promise<void> }).destroy?.(); },
+    async fechar() { void (pdf as unknown as { destroy?: () => Promise<void> }).destroy?.()?.catch?.(() => {}); },
   };
 }

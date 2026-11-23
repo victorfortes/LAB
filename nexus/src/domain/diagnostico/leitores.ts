@@ -51,6 +51,8 @@ export function classificar(contexto: string, paginas: string[][]): TipoDocument
   const tem = (re: RegExp) => re.test(t);
   if (/livro razao|razao anal|razao_anal|balancete|\brazao\b/.test(c)) return 'demonstracao';
   if (/registrato|relatorio de emprestimos e financiamentos \(scr\)/.test(t) || /\bscr\b/.test(c)) return 'scr';
+  // Matrícula antes de contrato: a certidão cita "alienação fiduciária" nos registros, mas é do cartório.
+  if (/matricula|registro de imove/.test(c) || (/registro de imoveis|serventia registral|livro 2 ?- ?registro geral|oficial de registro de imoveis/.test(t.slice(0, 3000)) && !/cedula|contrato|instrumento particular|aditamento/.test(t.slice(0, 700)))) return 'matricula';
   if (/extrato|saldo anterior|lancamentos do periodo|historico de movimentacao/.test(t) && !/cedula de credito|contrato de/.test(t.slice(0, 1500))) return 'extrato';
   if (/extratos? bancario/.test(c)) return 'extrato';
   if (/cedula de credito|contrato de (abertura de )?credito|cessao fiduciaria|alienacao fiduciaria|contrato de financiamento|finimp|adiantamento sobre contrato de cambio|instrumento particular de (confissao|contrato)/.test(t)
