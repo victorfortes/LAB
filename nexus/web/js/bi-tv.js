@@ -834,13 +834,24 @@ function setUpdatedLabel(){
   const headerEl = document.getElementById('updatedLine');
   if(!UPDATED_AT){
     el.textContent = ROWS.length + ' registros carregados da base inicial.';
+    el.classList.remove('stale');
     headerEl.textContent = '';
+    headerEl.classList.remove('stale');
     return;
   }
   const d = new Date(UPDATED_AT);
   const hhmm = String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
-  el.textContent = ROWS.length + ' registros. Atualizado em ' + fmt(d) + ' às ' + hhmm;
-  headerEl.textContent = 'Atualizado às ' + hhmm;
+  const minAgo = Math.max(0, Math.round((Date.now() - d.getTime())/60000));
+  const hAgo = Math.floor(minAgo/60), dAgo = Math.floor(hAgo/24);
+  const rel = dAgo>=1 ? ('há ' + dAgo + (dAgo===1?' dia':' dias')) : hAgo>=1 ? ('há ' + hAgo + 'h') : ('há ' + minAgo + ' min');
+  // A automação do Astrea publica a agenda todo dia útil. Passando de ~20h sem carga nova, a base está velha:
+  // a TV avisa em vermelho, em vez de mostrar prazos antigos como se fossem os de hoje.
+  const stale = minAgo >= 20*60;
+  const hoje = d.toDateString() === new Date().toDateString();
+  el.textContent = ROWS.length + ' registros. Atualizado em ' + fmt(d) + ' às ' + hhmm + ' (' + rel + ')' + (stale ? ' — base desatualizada: confira a automação do Astrea.' : '');
+  el.classList.toggle('stale', stale);
+  headerEl.textContent = (hoje ? 'Atualizado às ' + hhmm : 'Atualizado ' + fmt(d) + ' ' + hhmm) + (stale ? ' · ' + rel + ' ⚠' : '');
+  headerEl.classList.toggle('stale', stale);
 }
 
 // ================= boot =================
@@ -947,6 +958,6 @@ carregar();
 setInterval(carregar, 2 * 60 * 1000);
 // Virada do dia na TV: a data do topo e "Prazos hoje" acompanham sem precisar recarregar.
 let DIA = new Date().toDateString();
-setInterval(function(){ if(new Date().toDateString() !== DIA){ DIA = new Date().toDateString(); document.getElementById('todayBox').textContent = fmt(new Date()); render(); } }, 60 * 1000);
+setInterval(function(){ if(new Date().toDateString() !== DIA){ DIA = new Date().toDateString(); document.getElementById('todayBox').textContent = fmt(new Date()); render(); } setUpdatedLabel(); }, 60 * 1000);
 
 })();
