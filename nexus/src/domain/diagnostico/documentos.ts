@@ -19,7 +19,7 @@ import { consertarTexto, lerPorTipo } from './leitores.ts';
 export const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
 
 /** Um valor monetário do texto: "R$ 1.234,56", "-R$ 1.234,56", "R$ -", "(1.234,56)", "1.234,56D". */
-const TOKEN = /-?\s?R\$\s*-?\s?[\d.]*\d,\d{2}|-?\s?R\$\s*-(?![\d])|\(\s?[\d.]*\d,\d{2}\s?\)|-?[\d.]*\d,\d{2}\s?[DC]?\b/g;
+const TOKEN = /-?\s?R\$\s*-?\s?[\d.]*\d,\d{2}|-?\s?R\$\s*-?\s?\d{1,3}(?:\.\d{3})+(?![\d,])|-?\s?R\$\s*-(?![\d])|\(\s?[\d.]*\d,\d{2}\s?\)|-?[\d.]*\d,\d{2}\s?[DC]?\b/g;
 
 export interface Valor { reais: number; lado: 'D' | 'C' | null }
 export function lerToken(t: string): Valor | null {
@@ -29,6 +29,8 @@ export function lerToken(t: string): Valor | null {
   const m = /([DC])$/i.exec(s); if (m) { lado = m[1]!.toUpperCase() as 'D' | 'C'; s = s.slice(0, -1); }
   const neg = s.startsWith('-') || /^\(.*\)$/.test(s) || /R\$-/.test(s);
   s = s.replace(/[()R$-]/g, '');
+  // Valor sem centavos só é aceito com "R$" e milhar separado ("R$ 40.762.669"), como nos demonstrativos gerenciais.
+  if (/^\d{1,3}(\.\d{3})+$/.test(s) && /R\$/.test(t)) s += ',00';
   if (!/^[\d.]*\d,\d{2}$/.test(s)) return null;
   const n = Number(s.replace(/\./g, '').replace(',', '.'));
   return { reais: neg ? -n : n, lado };
@@ -83,6 +85,86 @@ function lerBalancoVertical(arquivo: string, pagina: number, linhas: string[], o
   return true;
 }
 
+/** Rótulo sem espaços nem acentos: o PDF de contabilidade costuma vir com "PA TRIMÔNIO", "RECEITAOPERACIONAL". */
+const chave = (s: string) => norm(s).replace(/[^a-z]/g, '');
+
+/**
+ * Balanço em várias páginas, com "ATIVO" e "PASSIVO" como título e "CIRCULANTE" / "NÃO CIRCULANTE" logo abaixo
+ * (formato dos sistemas contábeis mais comuns). Com duas colunas (exercício atual e anterior), vale a primeira.
+ */
+function lerBalancoPorSecoes(arquivo: string, paginas: string[][], out: ResultadoDaLeitura): boolean {
+  const texto = paginas.flat().join('\n');
+  if (!/balancopatrimonial/.test(chave(texto.slice(0, 4000))) && !/balan/.test(norm(arquivo))) return false;
+  let secao: 'A' | 'P' | null = null; let pagAc = 1;
+  const v: Record<string, number> = {};
+  const contas: { conta: string; saldo: number; lado: 'D' | 'C' | null }[] = [];
+  paginas.forEach((linhas, p) => linhas.forEach((l) => {
+    const { rotulo, valores } = partirLinha(l); const k = chave(rotulo);
+    if (!valores.length) { if (k === 'ativo') secao = 'A'; else if (k === 'passivo' || k === 'passivoepatrimonioliquido') secao = 'P'; return; }
+    const x = valores[0]!.reais;
+    if (/^(patrimonioliquido|passivoadescoberto)$/.test(k)) { v.pl ??= x; secao = 'P'; return; }
+    if (secao === 'A' && k === 'circulante') { v.ac ??= x; pagAc = p + 1; }
+    else if (secao === 'A' && k === 'naocirculante') v.anc ??= x;
+    else if (secao === 'P' && k === 'circulante') v.pc ??= x;
+    else if (secao === 'P' && k === 'naocirculante') v.pnc ??= x;
+    if (rotulo && secao && !/^total/.test(k)) contas.push({ conta: rotulo, saldo: x, lado: null });
+  }));
+  if (v.ac === undefined || v.pc === undefined || v.pl === undefined) return false;
+  const anoEspacado = /balan[cç]o patrimonial\s*-\s*((?:\d\s?){4})/i.exec(texto);
+  const ex = anoEspacado ? Number(anoEspacado[1]!.replace(/\s/g, '')) : exercicioDo(texto, arquivo); if (!ex) return false;
+  const ref = `${arquivo} | página ${pagAc}`;
+  out.extracoes.push({ tipo: 'balanco', referencia: ref, dados: {
+    exercicio: ex, convencao: 'sinal', ativoCirculante: v.ac, ativoNaoCirculante: v.anc ?? 0,
+    passivoCirculante: v.pc, passivoNaoCirculante: v.pnc ?? 0, patrimonioLiquido: v.pl, contas,
+  } });
+  const soma = (re: RegExp) => contas.filter((c) => re.test(norm(c.conta))).reduce((t, c) => t + Math.abs(c.saldo), 0);
+  const fiscal = soma(/^(impostos e contribuicoes a recolher|obrigacoes sociais|obrigacoes tributarias)$/) + soma(/^parcelamentos?( de impostos| fiscais)?$/);
+  out.extracoes.push({ tipo: 'passivo_fonte', referencia: ref, dados: { fonte: `Balanço contábil ${ex}`, total: v.pc + (v.pnc ?? 0), fiscal: fiscal || null, periodo: `${ex}-12` } });
+  return true;
+}
+
+/** DRE que ocupa várias páginas (receita na primeira, resultado na última), com rótulos colados. */
+function lerDreDoDocumento(arquivo: string, paginas: string[][], out: ResultadoDaLeitura): boolean {
+  const texto = paginas.flat().join('\n'); const k = chave(texto.slice(0, 6000));
+  if (!/(demonstracaodoresultado|receitaoperacionalbruta|receitabruta)/.test(k) && !/\bdre\b/.test(norm(arquivo))) return false;
+  let receita: number | null = null; let resultado: number | null = null; let financeiras: number | null = null; let pagina = 1;
+  paginas.forEach((linhas, p) => linhas.forEach((l) => {
+    const { rotulo, valores } = partirLinha(l); if (!valores.length) return; const c = chave(rotulo).replace(/^total/, ''); const x = valores[0]!.reais;
+    if (receita === null && /^(receitaoperacionalbruta|receitabruta|receitabrutadevendas|receitabrutaoperacional)/.test(c)) { receita = x; pagina = p + 1; }
+    if (/^(resultadodoexercicio|resultadoliquidodoexercicio|lucroliquido|prejuizoliquido|lucrodoexercicio|prejuizodoexercicio|lucroprejuizoliquido)/.test(c)) resultado = /prejuizo/.test(c) && x > 0 ? -x : x;
+    if (financeiras === null && /^despesasfinanceiras$/.test(c)) financeiras = Math.abs(x);
+  }));
+  if (receita === null && resultado === null) return false;
+  const ex = exercicioDo(texto, arquivo); if (!ex) return false;
+  // Meses do período: "01/01/2025 a 31/12/2025" ou "Janeiro / 2024 a Dezembro / 2024".
+  const t = norm(texto); let meses: number | null = null;
+  const num = /periodo:?\s*\d{2}\/(\d{2})\/\d{4} a \d{2}\/(\d{2})\/\d{4}/.exec(t);
+  const ext = new RegExp(`periodo:?\\s*(${MESES_LONGOS.join('|')})\\s*\\/\\s*\\d{4} a (${MESES_LONGOS.join('|')})`).exec(t);
+  if (num) meses = Number(num[2]) - Number(num[1]) + 1; else if (ext) meses = MESES_LONGOS.indexOf(ext[2]!) - MESES_LONGOS.indexOf(ext[1]!) + 1;
+  out.extracoes.push({ tipo: 'dre_contabil', referencia: `${arquivo} | página ${pagina}`, dados: { exercicio: ex, receitaBruta: receita, resultado, meses, despesasFinanceiras: financeiras } });
+  return true;
+}
+
+/** "Relação de Faturamento de 05/2025 a 05/2026" com só o nome do mês em cada linha: o ano anda junto com os meses. */
+function lerFaturamentoPorIntervalo(arquivo: string, paginas: string[][], out: ResultadoDaLeitura): boolean {
+  const linhas = paginas.flat(); const t = norm(linhas.join('\n'));
+  const m = /faturamento (?:de|entre) (\d{2})\/(\d{4}) (?:a|ate) (\d{2})\/(\d{4})/.exec(t); if (!m) return false;
+  let mes = Number(m[1]); let ano = Number(m[2]);
+  const porAno = new Map<number, { mes: string; valor: number }[]>();
+  for (const l of linhas) {
+    const n = norm(l); const i = MESES_LONGOS.findIndex((x) => n.startsWith(x)); const p = partirLinha(l);
+    if (i < 0 || !p.valores.length || /\d{4}/.test(n.slice(0, 20))) continue;
+    while (i + 1 !== mes) { mes++; if (mes > 12) { mes = 1; ano++; } }
+    porAno.set(ano, [...(porAno.get(ano) ?? []), { mes: `${ano}-${String(mes).padStart(2, '0')}`, valor: p.valores.at(-1)!.reais }]);
+    mes++; if (mes > 12) { mes = 1; ano++; }
+  }
+  if (!porAno.size) return false;
+  // Lista do próprio cliente (fora da escrita fiscal): entra como faturamento gerencial, para comparar com o declarado.
+  for (const [a, serie] of porAno) out.extracoes.push({ tipo: 'faturamento', referencia: `${arquivo} | página 1`, dados: {
+    ano: a, gerencial: Math.round(serie.reduce((s, x) => s + x.valor, 0) * 100) / 100, outros: 0, meses: serie.length, ultimoMes: serie.at(-1)!.mes, serie } });
+  return true;
+}
+
 // ---------------------------------------------------------------------- DRE ---
 
 function lerDre(arquivo: string, pagina: number, linhas: string[], out: ResultadoDaLeitura): boolean {
@@ -113,7 +195,7 @@ function lerDre(arquivo: string, pagina: number, linhas: string[], out: Resultad
 
 function lerFaturamento(arquivo: string, pagina: number, linhas: string[], out: ResultadoDaLeitura): boolean {
   const t = norm(linhas.join('\n')); const a = norm(arquivo);
-  if (!/(declaracao de faturamento|faturamento gerencial|faturamento fiscal)/.test(t + ' ' + a)) return false;
+  if (!/(declaracao de faturamento|faturamento gerencial|faturamento fiscal|demonstrativo mensal do faturamento|^fat(uramento)?\b)/m.test(t + '\n' + a)) return false;
   const gerencial = /gerencial/.test(t) || /gerencial/.test(a);
   const meses: { mes: string; valor: number; outros?: number }[] = [];
   let total: number | null = null;
@@ -131,13 +213,17 @@ function lerFaturamento(arquivo: string, pagina: number, linhas: string[], out: 
     } else if (/^totai?s?\b/.test(n) && p.valores.length) total = p.valores.at(-1)!.reais;
   }
   if (!meses.length) return false;
-  const ano = Number(meses[0]!.mes.slice(0, 4));
-  const somaMeses = Math.round(meses.reduce((s, m) => s + m.valor, 0) * 100) / 100;
-  if (total !== null && Math.abs(total - somaMeses) > 1) out.avisos.push(`${arquivo}: o total declarado (${total.toLocaleString('pt-BR')}) não bate com a soma dos meses (${somaMeses.toLocaleString('pt-BR')}). Usada a soma dos meses.`);
-  const outros = gerencial ? Math.round(meses.reduce((s, m) => s + (m.outros ?? 0), 0) * 100) / 100 : null;
-  out.extracoes.push({ tipo: 'faturamento', referencia: `${arquivo} | página ${pagina}`, dados: {
-    ano, [gerencial ? 'gerencial' : 'fiscal']: somaMeses, ...(gerencial ? { outros } : {}), meses: meses.length, ultimoMes: meses.at(-1)!.mes, serie: meses,
-  } });
+  const somaTudo = Math.round(meses.reduce((s, m) => s + m.valor, 0) * 100) / 100;
+  if (total !== null && Math.abs(total - somaTudo) > 1) out.avisos.push(`${arquivo}: o total declarado (${total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}) não bate com a soma dos meses (${somaTudo.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}). Usada a soma dos meses.`);
+  // Doze meses móveis (nov/25 a out/26) viram um registro por ano civil: cada mês fica no ano a que pertence.
+  for (const ano of [...new Set(meses.map((m) => Number(m.mes.slice(0, 4))))]) {
+    const doAno = meses.filter((m) => Number(m.mes.slice(0, 4)) === ano);
+    const soma = Math.round(doAno.reduce((s, m) => s + m.valor, 0) * 100) / 100;
+    const outros = gerencial ? Math.round(doAno.reduce((s, m) => s + (m.outros ?? 0), 0) * 100) / 100 : null;
+    out.extracoes.push({ tipo: 'faturamento', referencia: `${arquivo} | página ${pagina}`, dados: {
+      ano, [gerencial ? 'gerencial' : 'fiscal']: soma, ...(gerencial ? { outros } : {}), meses: doAno.length, ultimoMes: doAno.at(-1)!.mes, serie: doAno,
+    } });
+  }
   return true;
 }
 
@@ -184,12 +270,21 @@ export function lerDocumentoPdf(arquivo: string, paginasBrutas: string[][], cont
   out.avisos = [];
   const paginas = consertarTexto(paginasBrutas);
   if (lerBalanceteGerencial(arquivo, paginas, out)) return out;
-  let algum = false;
+  if (lerFaturamentoPorIntervalo(arquivo, paginas, out)) return out;
+  let algum = lerBalancoPorSecoes(arquivo, paginas, out);
+  const temBalanco = algum;
+  // DRE no documento inteiro (receita numa página, resultado em outra, rótulos colados, linhas "*** Total").
+  const colunasMensais = paginas.some((ls) => ls.some((l) => /^\s*acumulado\b/i.test(l)));
+  const dreInteira = !colunasMensais && lerDreDoDocumento(arquivo, paginas, out) && out.extracoes.some((x) => x.tipo === 'dre_contabil' && x.dados.receitaBruta !== null && x.dados.resultado !== null);
+  if (!dreInteira) out.extracoes = out.extracoes.filter((x) => x.tipo !== 'dre_contabil');
+  algum ||= dreInteira;
   paginas.forEach((linhas, i) => {
     if (lerFaturamento(arquivo, i + 1, linhas, out)) { algum = true; return; }
-    if (lerBalancoVertical(arquivo, i + 1, linhas, out)) { algum = true; return; }
-    if (lerDre(arquivo, i + 1, linhas, out)) algum = true;
+    if (!temBalanco && lerBalancoVertical(arquivo, i + 1, linhas, out)) { algum = true; return; }
+    if (!dreInteira && lerDre(arquivo, i + 1, linhas, out)) algum = true;
   });
+  // Demonstrativo gerencial ("G-Balanço e DRE", "DRE gerencial"): não é a escrita contábil, entra como gerencial para comparar.
+  if (/^g[-_ ]|gerencial/i.test(arquivo)) for (const x of out.extracoes) if (x.tipo === 'dre_contabil') x.tipo = 'dre_gerencial';
   // DRE contábil em mais de uma página repete o cabeçalho: fica a página que trouxe o resultado.
   const dres = out.extracoes.filter((x) => x.tipo === 'dre_contabil');
   if (dres.length > 1) {
@@ -203,15 +298,24 @@ export function lerDocumentoPdf(arquivo: string, paginasBrutas: string[][], cont
   return lerTextoDeDemonstracao(arquivo, paginas);
 }
 
-/** Junta, por ano, o faturamento fiscal e o gerencial que vieram de arquivos diferentes. */
+/**
+ * Junta, por ano, o faturamento fiscal e o gerencial que vieram de arquivos diferentes. Quando dois arquivos trazem
+ * o mesmo mês (relatório anual e relatório de doze meses móveis), o mês conta uma vez só, com o valor do último arquivo.
+ */
 export function juntarFaturamento(fs: ExtracaoLida[]) {
-  const porAno = new Map<number, { ano: number; fiscal: number | null; gerencial: number | null; outros: number | null; refs: string[]; mesesFiscal: number | null; mesesGerencial: number | null }>();
+  type Serie = { mes: string; valor: number; outros?: number }[];
+  const porAno = new Map<number, { ano: number; fiscal: Map<string, number>; gerencial: Map<string, number>; outros: number | null; refs: string[]; fiscalSemSerie: number | null; gerencialSemSerie: number | null; mesesF: number | null; mesesG: number | null }>();
   for (const f of fs) {
-    const d = f.dados as { ano: number; fiscal?: number; gerencial?: number; outros?: number; meses?: number };
-    const a = porAno.get(d.ano) ?? { ano: d.ano, fiscal: null, gerencial: null, outros: null, refs: [], mesesFiscal: null, mesesGerencial: null };
-    if (typeof d.fiscal === 'number') { a.fiscal = d.fiscal; a.mesesFiscal = d.meses ?? null; }
-    if (typeof d.gerencial === 'number') { a.gerencial = d.gerencial; a.mesesGerencial = d.meses ?? null; a.outros = d.outros ?? null; }
+    const d = f.dados as { ano: number; fiscal?: number; gerencial?: number; outros?: number; meses?: number; serie?: Serie };
+    const a = porAno.get(d.ano) ?? { ano: d.ano, fiscal: new Map<string, number>(), gerencial: new Map<string, number>(), outros: null, refs: [] as string[], fiscalSemSerie: null, gerencialSemSerie: null, mesesF: null, mesesG: null };
+    if (typeof d.fiscal === 'number') { if (d.serie?.length) for (const m of d.serie) a.fiscal.set(m.mes, m.valor); else { a.fiscalSemSerie = d.fiscal; a.mesesF = d.meses ?? null; } }
+    if (typeof d.gerencial === 'number') { if (d.serie?.length) for (const m of d.serie) a.gerencial.set(m.mes, m.valor); else { a.gerencialSemSerie = d.gerencial; a.mesesG = d.meses ?? null; } a.outros = d.outros ?? a.outros; }
     a.refs.push(f.referencia); porAno.set(d.ano, a);
   }
-  return [...porAno.values()].sort((x, y) => x.ano - y.ano);
+  const somar = (m: Map<string, number>) => Math.round([...m.values()].reduce((s, v) => s + v, 0) * 100) / 100;
+  return [...porAno.values()].sort((x, y) => x.ano - y.ano).map((a) => ({
+    ano: a.ano, refs: a.refs, outros: a.outros,
+    fiscal: a.fiscal.size ? somar(a.fiscal) : a.fiscalSemSerie, mesesFiscal: a.fiscal.size || a.mesesF,
+    gerencial: a.gerencial.size ? somar(a.gerencial) : a.gerencialSemSerie, mesesGerencial: a.gerencial.size || a.mesesG,
+  }));
 }

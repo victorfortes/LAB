@@ -3,7 +3,7 @@ import { api } from '../api.js';
 import { pode } from '../estado.js';
 import { $, $$, dataBR, hojeISO, html, icone, ouvir, paraCentavos, reais } from '../util.js';
 import { erroDe, formulario, toast, vazio } from '../ui.js';
-import { moeda } from '../graficos.js';
+import { moeda } from '../graficos.js?v=2313';
 import { painelSaude } from './portal_financeiro.js';
 
 const SIT = { aberto: ['info', 'Em aberto'], parcial: ['aviso', 'Parcial'], liquidado: ['ok', 'Liquidado'], cancelado: ['', 'Cancelado'] };

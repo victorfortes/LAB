@@ -18,6 +18,7 @@ import { linhasDoPdf } from './qgc.ts';
 import { lerConteudoDocumento, type Deposito } from './arquivos.ts';
 import { chaveDoHash } from '../store/arquivos.ts';
 import { quadro as quadroSocios } from './socios.ts';
+import { organizarDocumentos } from './organizar.ts';
 
 const TIPOS = ['balanco', 'dre_contabil', 'dre_gerencial', 'faturamento', 'extrato', 'passivo_fonte', 'clientes_abc', 'partes_relacionadas'] as const;
 export const EsquemaExtracao = z.object({
@@ -153,6 +154,8 @@ export async function lerPlanilhasDoProjeto(db: PoolClient, projetoId: string, d
 
 export async function gerar(db: PoolClient, projetoId: string, motivo: 'manual' | 'rodada_de_entrega', identidade: Identidade, dep?: Deposito, opcoes: { lerArquivos?: boolean } = {}) {
   const leitura = dep && opcoes.lerArquivos !== false ? await lerPlanilhasDoProjeto(db, projetoId, dep, identidade) : { planilhasLidas: 0, extracoes: 0, avisos: [] as string[] };
+  // Antes de medir a cobertura, cada documento solto vai para o item do checklist que atende (pasta, nome, conteúdo).
+  const organizacao = await organizarDocumentos(db, projetoId, identidade);
   const { rows: antigos } = await db.query<{ avisos: string[] }>('SELECT avisos FROM diagnostico_leituras WHERE projeto_id = $1', [projetoId]);
   const avisosDeLeitura = [...new Set([...antigos.flatMap((a) => a.avisos), ...leitura.avisos])];
   const { rows: pj } = await db.query<{ organizacao_id: string; nome: string; posicao_cliente: 'devedor' | 'credor'; razao: string | null; cnpj: string | null; segmento: string | null }>(
@@ -242,7 +245,7 @@ export async function gerar(db: PoolClient, projetoId: string, motivo: 'manual' 
   await db.query(`INSERT INTO diagnostico_versoes (organizacao_id, projeto_id, numero, gerado_por, motivo, documentos, resultado) VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb)`,
     [pj[0].organizacao_id, projetoId, numero, identidade.usuarioId, motivo, JSON.stringify(documentos), JSON.stringify(relatorio)]);
   await auditar(db, { organizacaoId: pj[0].organizacao_id, usuarioId: identidade.usuarioId, acao: 'diagnostico.versao_gerada', entidade: 'projeto', entidadeId: projetoId, depois: { numero, documentos: documentos.length, motivo } });
-  return { numero, relatorio, leitura };
+  return { numero, relatorio, leitura, organizacao };
 }
 
 export async function listarVersoes(db: PoolClient, projetoId: string) {

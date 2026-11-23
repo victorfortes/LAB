@@ -7,7 +7,7 @@ import { api } from '../api.js';
 import { estado, pode } from '../estado.js';
 import { html, icone, ouvir, paraCentavos, raw, reais } from '../util.js';
 import { confirmar, erroDe, formulario, toast, vazio } from '../ui.js';
-import { moeda } from '../graficos.js';
+import { moeda } from '../graficos.js?v=2313';
 
 const MESES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
 const rotuloMes = (c) => `${MESES[Number(c.slice(5, 7)) - 1]}/${c.slice(2, 4)}`;

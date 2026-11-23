@@ -6,6 +6,8 @@
  */
 import type { DadosContrato, DadosExtrato } from './leitores.ts';
 
+const brlInteiro = (n: number) => `${n < 0 ? '-' : ''}R$ ${Math.abs(n).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
 export interface Extraida { tipo: string; referencia: string; dados: Record<string, unknown> }
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const arq = (ref: string) => ref.split(' | ')[0]!;
@@ -64,8 +66,8 @@ export function resumirLeituras(ex: readonly Extraida[], hoje: string) {
   // ---- riscos que os documentos mostram ----
   const riscos: { tema: string; achado: string; porQueImporta: string; natureza: 'fato' | 'hipotese' | 'pendencia'; prioridade: 'Alta' | 'Media' }[] = [];
   const f0 = fluxo[0];
-  if (f0 && f0.diasNegativos) riscos.push({ tema: 'Caixa', achado: `Fluxo de caixa projetado negativo em ${f0.diasNegativos} de ${f0.dias} dias; pior saldo R$ ${(f0.piorSaldo / 1e6).toFixed(2).replace('.', ',')} mi em ${f0.piorDia.split('-').reverse().join('/')}`, porQueImporta: 'Mostra a urgência: sem medida (RJ, stay, renegociação), o caixa não cobre os compromissos do período.', natureza: 'fato', prioridade: f0.diasNegativos / f0.dias >= 0.3 ? 'Alta' : 'Media' });
-  if (resumoContratos && resumoContratos.foraDaRj) riscos.push({ tema: 'Garantias fiduciárias', achado: `${Math.round((resumoContratos.foraDaRj / Math.max(1, resumoContratos.totalContratado)) * 100)}% do valor contratado nos contratos lidos tem garantia fiduciária (R$ ${(resumoContratos.foraDaRj / 1e6).toFixed(1).replace('.', ',')} mi)`, porQueImporta: 'Crédito com alienação ou cessão fiduciária fica fora da RJ (art. 49, § 3º): esses bancos podem manter travas e retomar bens. Conferir registro e valor das garantias.', natureza: 'hipotese', prioridade: 'Alta' });
+  if (f0 && f0.diasNegativos) riscos.push({ tema: 'Caixa', achado: `Fluxo de caixa projetado negativo em ${f0.diasNegativos} de ${f0.dias} dias; pior saldo ${brlInteiro(f0.piorSaldo)} em ${f0.piorDia.split('-').reverse().join('/')}`, porQueImporta: 'Mostra a urgência: sem medida (RJ, stay, renegociação), o caixa não cobre os compromissos do período.', natureza: 'fato', prioridade: f0.diasNegativos / f0.dias >= 0.3 ? 'Alta' : 'Media' });
+  if (resumoContratos && resumoContratos.foraDaRj) riscos.push({ tema: 'Garantias fiduciárias', achado: `${Math.round((resumoContratos.foraDaRj / Math.max(1, resumoContratos.totalContratado)) * 100)}% do valor contratado nos contratos lidos tem garantia fiduciária (${brlInteiro(resumoContratos.foraDaRj)})`, porQueImporta: 'Crédito com alienação ou cessão fiduciária fica fora da RJ (art. 49, § 3º): esses bancos podem manter travas e retomar bens. Conferir registro e valor das garantias.', natureza: 'hipotese', prioridade: 'Alta' });
   const bloq = contas.reduce((t, c) => t + (c.sinais.bloqueioJudicial ?? 0), 0);
   if (bloq > 0) riscos.push({ tema: 'Constrição judicial', achado: `Bloqueios judiciais nos extratos somam R$ ${bloq.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, porQueImporta: 'Indica execuções em curso atingindo o caixa: entram no mapa do passivo e na urgência do pedido.', natureza: 'fato', prioridade: 'Alta' });
   const vencidas = vigencias.filter((v) => v.vencido);

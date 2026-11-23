@@ -3,7 +3,7 @@ import { api } from '../api.js';
 import { pode } from '../estado.js';
 import { $, $$, hojeISO, html, icone, ouvir, paraCentavos, reais } from '../util.js';
 import { erroDe, formulario, toast, vazio } from '../ui.js';
-import { corDaClasse, graficoDesembolso, graficoSaldo, moeda } from '../graficos.js';
+import { corDaClasse, graficoDesembolso, graficoSaldo, moeda } from '../graficos.js?v=2313';
 
 const K0 = { desagio: 0.5, carenciaMeses: 12, parcelas: 60, periodicidade: 'mensal', jurosAoAno: 0, correcaoAoAno: 0, sistema: 'sem_juros', modalidade: 'parcelas', bulletPercentual: 0.3 };
 const ESTRESSE = [['base', 'Base'], ['otimista', 'Otimista'], ['conservador', 'Conservador'], ['severo', 'Estresse severo'], ['personalizado', 'Personalizado']];

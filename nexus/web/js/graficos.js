@@ -3,14 +3,16 @@ const NS = 'http://www.w3.org/2000/svg';
 const el = (n, a = {}, pai) => { const e = document.createElementNS(NS, n); for (const k in a) e.setAttribute(k, a[k]); pai?.appendChild(e); return e; };
 export const CORES = { I: 'var(--s1)', II: 'var(--s2)', III: 'var(--s3)', IV: 'var(--s4)' };
 export const corDaClasse = (id, i) => CORES[id] ?? ['var(--s1)', 'var(--s2)', 'var(--s3)', 'var(--s4)'][i % 4];
-export const moeda = (c) => { const n = Number(c) / 100; const a = Math.abs(n); const s = a >= 1e9 ? `${(a / 1e9).toFixed(1)} bi` : a >= 1e6 ? `${(a / 1e6).toFixed(2)} mi` : a >= 1e3 ? `${(a / 1e3).toFixed(0)} mil` : a.toFixed(0); return `${n < 0 ? '−' : ''}R$ ${s.replace('.', ',')}`; };
+// Valor por inteiro, com centavos, como no documento. A versão curta fica só para a régua dos gráficos.
+export const moeda = (c) => { const n = Number(c) / 100; return `${n < 0 ? '−' : ''}R$ ${Math.abs(n).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`; };
+export const moedaCurta = (c) => { const n = Number(c) / 100; const a = Math.abs(n); const s = a >= 1e9 ? `${(a / 1e9).toFixed(1)} bi` : a >= 1e6 ? `${(a / 1e6).toFixed(2)} mi` : a >= 1e3 ? `${(a / 1e3).toFixed(0)} mil` : a.toFixed(0); return `${n < 0 ? '−' : ''}R$ ${s.replace('.', ',')}`; };
 const rotMes = (m) => { const [a, b] = m.split('-'); return `${b}/${a.slice(2)}`; };
 const L = 720, A = 240, M = { t: 12, r: 10, b: 24, l: 62 };
 
 function tip(alvo) { const t = document.createElement('div'); t.className = 'graf__tip'; t.hidden = true; alvo.appendChild(t); return t; }
 function preencher(t, titulo, linhas) { t.replaceChildren(); const h = document.createElement('b'); h.textContent = titulo; t.appendChild(h); for (const [r, v] of linhas) { const d = document.createElement('div'); const a = document.createElement('span'); a.textContent = r; const b = document.createElement('span'); b.textContent = v; d.append(a, b); t.appendChild(d); } }
 function escala(min, max) { if (min === max) { min -= 1; max += 1; } const y = (v) => M.t + (A - M.t - M.b) * (1 - (v - min) / (max - min)); return y; }
-function grade(svg, y, min, max) { for (let i = 0; i <= 3; i++) { const v = min + ((max - min) * i) / 3; el('line', { x1: M.l, x2: L - M.r, y1: y(v), y2: y(v), stroke: 'rgba(255,255,255,.07)' }, svg); const t = el('text', { x: M.l - 8, y: y(v) + 4, 'text-anchor': 'end' }, svg); t.textContent = moeda(v); } }
+function grade(svg, y, min, max) { for (let i = 0; i <= 3; i++) { const v = min + ((max - min) * i) / 3; el('line', { x1: M.l, x2: L - M.r, y1: y(v), y2: y(v), stroke: 'rgba(255,255,255,.07)' }, svg); const t = el('text', { x: M.l - 8, y: y(v) + 4, 'text-anchor': 'end' }, svg); t.textContent = moedaCurta(v); } }
 function eixoX(svg, serie, x) { const p = Math.max(1, Math.ceil(serie.length / 8)); serie.forEach((s, i) => { if (i % p) return; const t = el('text', { x: x(i), y: A - 6, 'text-anchor': 'middle' }, svg); t.textContent = rotMes(s.mes); }); }
 
 export function graficoSaldo(alvo, serie, reserva = 0) {

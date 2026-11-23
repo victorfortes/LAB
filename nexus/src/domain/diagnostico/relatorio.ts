@@ -39,6 +39,7 @@ export interface EntradaDoDiagnostico {
 export const AVISO = 'Leitura automática para revisão profissional. Não conclui sobre viabilidade. Confira vigência e julgados antes de citar qualquer tese.';
 const FORA_PADRAO = ['Relação de empregados', 'Certidões de protesto', 'Extratos de todas as contas bancárias', 'Contrato de locação do imóvel da operação'];
 
+const brl = (n: number) => `${n < 0 ? '-' : ''}R$ ${Math.abs(n).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const semDados = (pedir: string[]) => ({ semDados: true as const, pedir });
 
 export function montarRelatorio(e: EntradaDoDiagnostico) {
@@ -64,12 +65,14 @@ export function montarRelatorio(e: EntradaDoDiagnostico) {
 
   // Resumo: cada card tem borda de status. Só entram números que existem.
   const cards: { rotulo: string; valor: string; status: 'vermelho' | 'ambar' | 'verde'; ref?: string }[] = [];
-  if (faturamento && faturamento.diferencaAcumulada) cards.push({ rotulo: 'Faturamento gerencial acima do fiscal', valor: `R$ ${(faturamento.diferencaAcumulada / 1e6).toFixed(1).replace('.', ',')} mi`, status: faturamento.diferencaAcumulada > 0 ? 'vermelho' : 'verde' });
+  if (faturamento && faturamento.diferencaAcumulada) cards.push({ rotulo: 'Faturamento gerencial acima do fiscal', valor: brl(faturamento.diferencaAcumulada), status: faturamento.diferencaAcumulada > 0 ? 'vermelho' : 'verde' });
   if (mapa) cards.push({ rotulo: `do passivo fica fora da recuperação judicial (${mapa.fonte})`, valor: `${Math.round((mapa.foraDaRj / mapa.total) * 100)}%`, status: mapa.foraDaRj / mapa.total >= 0.35 ? 'vermelho' : mapa.foraDaRj / mapa.total >= 0.15 ? 'ambar' : 'verde' });
-  const ult = balancos.at(-1); if (ult) cards.push({ rotulo: `Patrimônio líquido em ${ult.exercicio}`, valor: `R$ ${(ult.patrimonioLiquido / 1e6).toFixed(1).replace('.', ',')} mi`, status: ult.patrimonioLiquido < 0 ? 'vermelho' : 'verde', ref: ult.ref.arquivo });
+  const ult = balancos.at(-1); if (ult) cards.push({ rotulo: `Patrimônio líquido em ${ult.exercicio}`, valor: brl(ult.patrimonioLiquido), status: ult.patrimonioLiquido < 0 ? 'vermelho' : 'verde', ref: ult.ref.arquivo });
   // O extrato que mais recebe é o que mostra a dependência de fomento.
-  const ex = [...extratos].sort((a, b) => b.entradasTotal - a.entradasTotal)[0]; if (ex?.percentualFomentoNasEntradas != null) cards.push({ rotulo: 'Das entradas do extrato vieram de fomento', valor: `${Math.round(ex.percentualFomentoNasEntradas)}%`, status: ex.percentualFomentoNasEntradas >= 25 ? 'vermelho' : 'ambar' });
-  cards.push({ rotulo: 'Itens do checklist entregues por completo', valor: `${Math.round(cobertura.percentuais.entregue)}%`, status: cobertura.percentuais.entregue < 50 ? 'vermelho' : cobertura.percentuais.entregue < 80 ? 'ambar' : 'verde' });
+  const ex = [...extratos].sort((a, b) => b.entradasTotal - a.entradasTotal)[0]; if (ex?.percentualFomentoNasEntradas) cards.push({ rotulo: 'Das entradas do extrato vieram de fomento', valor: `${Math.round(ex.percentualFomentoNasEntradas)}%`, status: ex.percentualFomentoNasEntradas >= 25 ? 'vermelho' : 'ambar' });
+  // Item com documento recebido (ainda em conferência ou já aprovado). "Entregue por completo" só depois da aprovação da equipe.
+  const comDoc = cobertura.total ? Math.round((cobertura.itens.filter((i) => i.temArquivo && ['enviado', 'em_analise', 'aprovado', 'complementacao'].includes(i.situacao)).length / cobertura.total) * 100) : 0;
+  cards.push({ rotulo: 'Itens do checklist com documento recebido', valor: `${comDoc}%`, status: comDoc < 50 ? 'vermelho' : comDoc < 80 ? 'ambar' : 'verde' });
 
   const porArea = new Map<string, typeof cobertura.itens>();
   for (const i of cobertura.itens) if (i.status !== 'entregue') porArea.set(i.area, [...(porArea.get(i.area) ?? []), i]);

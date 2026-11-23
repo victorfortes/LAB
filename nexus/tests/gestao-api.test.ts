@@ -170,7 +170,7 @@ describe('Sentinela na nuvem', () => {
     await pg.dono.query(`UPDATE sentinela_tarefas SET status='pendente',tentativas=0`);
     await rotinaSentinela(banco, { fetch: fake([], 0, 429), agora: AGORA });
     const { rows } = await pg.dono.query(`SELECT count(*)::int n FROM sentinela_tarefas WHERE status='executando' OR tentativas>0`); expect(rows[0].n).toBe(0);
-    expect((await pg.dono.query(`SELECT estado FROM sentinela_saude WHERE fonte='djen'`)).rows[0].estado).toBe('degradado');
+    expect((await pg.dono.query(`SELECT estado FROM sentinela_saude WHERE fonte='djen'`)).rows[0].estado).toBe('limitado');
   });
   test('paginação é retomada: orçamento esgotado guarda a página', async () => {
     const { rotinaSentinela } = await import('../src/server/sentinela.ts');

@@ -56,7 +56,8 @@ export async function gerarComProgresso(ctx, botao) {
     mostrar('Montando o relatório…');
     const v = await api.post(`${base}/versoes`, { motivo: 'manual', lerArquivos: false });
     versaoNaTela.delete(ctx.id);
-    toast(`Versão ${v.numero} gerada${feitos ? ` · ${feitos} arquivo(s) lido(s)` : ''}${avisos.length ? ` · ${avisos.length} aviso(s) no relatório` : ''}`);
+    const org = v.organizacao; const orgTxt = org?.vinculados ? ` · ${org.vinculados} documento(s) organizados em ${org.itensAtendidos} item(ns) do checklist${org.itensCriados ? ' (checklist criado)' : ''}` : '';
+    toast(`Versão ${v.numero} gerada${feitos ? ` · ${feitos} arquivo(s) lido(s)` : ''}${orgTxt}${avisos.length ? ` · ${avisos.length} aviso(s) no relatório` : ''}`);
     ctx.recarregar();
   } catch (e) {
     if (botao) { botao.disabled = false; botao.innerHTML = texto; }

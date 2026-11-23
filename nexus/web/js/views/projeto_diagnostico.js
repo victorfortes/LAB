@@ -14,7 +14,7 @@ import { erroDe, formulario, toast, vazio } from '../ui.js';
 import { aoSair } from '../shell.js';
 import { abrirAnalises } from './projeto_extra.js';
 import { secaoRaioX } from './projeto_raiox.js';
-import { gerarComProgresso, secaoRelatorio } from './projeto_diag_relatorio.js';
+import { gerarComProgresso, secaoRelatorio } from './projeto_diag_relatorio.js?v=2313';
 import { secaoSocios } from './projeto_socios.js';
 
 const SEGMENTOS = [['', 'Segmento não informado'], ['transportadora', 'Transportadora'], ['industria', 'Indústria'], ['comercio', 'Comércio'], ['servicos', 'Serviços'], ['agronegocio', 'Agronegócio'], ['construcao', 'Construção'], ['saude', 'Saúde'], ['outro', 'Outro']];
