@@ -13,14 +13,15 @@ import { NaoEncontrado } from './erros.ts';
 import { modeloDe } from '../domain/portal/checklist.ts';
 import { ITEM, itensDoDocumento, norm } from '../domain/diagnostico/organizar.ts';
 
-export async function organizarDocumentos(db: PoolClient, projetoId: string, identidade: Identidade) {
+export async function organizarDocumentos(db: PoolClient, projetoId: string, identidade: Identidade, opcoes: { criarChecklist?: boolean } = {}) {
   const { rows: pj } = await db.query<{ organizacao_id: string; tipo: string }>('SELECT organizacao_id, tipo FROM projetos WHERE id = $1', [projetoId]);
   const projeto = pj[0]; if (!projeto) throw new NaoEncontrado('projeto não encontrado');
 
-  // 1. Checklist: se não existe, nasce do modelo do procedimento.
+  // 1. Checklist: se não existe, nasce do modelo do procedimento. Criar o checklist é ato da NGA; quando o próprio
+  // cliente dispara a organização (ao subir documentos em lote), só vinculamos ao que já existe.
   let itensCriados = 0;
   const n = (await db.query<{ n: number }>('SELECT count(*)::int AS n FROM requisitos WHERE projeto_id = $1', [projetoId])).rows[0]?.n ?? 0;
-  if (!n) {
+  if (!n && opcoes.criarChecklist !== false) {
     // Tipo sem modelo próprio (consultivo, contencioso) não pode deixar o diagnóstico "0 de 0": usa o checklist de RJ/RE,
     // o mais completo e o da maioria dos casos de devedor.
     const modelo = modeloDe(projeto.tipo); const base = modelo.length ? modelo : modeloDe('recuperacao_judicial');

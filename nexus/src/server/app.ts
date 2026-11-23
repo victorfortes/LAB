@@ -19,6 +19,7 @@ import { AMBIENTES, MODULOS, resumoDeEstado } from './modulos.ts';
 import { TransicaoInvalida } from '../domain/portal/checklist.ts';
 import { TransicaoDeFaseInvalida } from '../domain/projeto/fases.ts';
 import * as portal from './portal.ts';
+import { organizarDocumentos } from './organizar.ts';
 import * as analise from './analise.ts';
 import * as analiseAuto from './analise_auto.ts';
 import { diagnostico } from './diagnostico.ts';
@@ -1172,6 +1173,17 @@ export function criarApp(ctx: Contexto) {
               ehCliente ? 'cliente' : 'nga')),
           temArquivo: false,
         }, 201);
+      }
+
+      // Organizar o lote: ao subir muitos documentos (ou um ZIP) de uma vez, cada arquivo vai para o item do
+      // checklist que atende (pela pasta, pelo nome e pelo conteúdo), já como "enviado". Assim fica organizado na
+      // hora, para o escritório e para o cliente, sem esperar a geração do diagnóstico. O cliente pode disparar
+      // (organiza só o que já existe); criar o checklist do modelo continua sendo ato da NGA.
+      const mOrganizar = /^\/api\/projetos\/([0-9a-f-]{36})\/organizar$/.exec(rota);
+      if (mOrganizar && metodo === 'POST') {
+        exigir(identidade.papeis, 'documento.escrever');
+        return json(await banco.comoUsuario(identidade.usuarioId, (db) =>
+          organizarDocumentos(db, mOrganizar[1]!, identidade, { criarChecklist: !ehCliente })));
       }
 
       const mVinculo = /^\/api\/requisitos\/([0-9a-f-]{36})\/vinculo$/.exec(rota);

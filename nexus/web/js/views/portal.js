@@ -245,7 +245,14 @@ async function documentos(p) {
         if (!arquivos.length) return;
         for (const f of arquivos) guardarRecente(p, f);
         enviarDocumentos({ projetoId: p.projeto_id, arquivos, campos: (it) => ({ titulo: titulo(it), categoria: 'Enviado pelo cliente' }),
-          aoConcluir: ({ recebidos }) => { if (recebidos) { toast(`${recebidos} documento(s) recebido(s). A leitura começou.`); api.limparCache(); if (location.hash.includes('documentos')) navegar(); } } });
+          // Terminou o lote: o servidor organiza cada arquivo no item do checklist que ele atende (pela pasta, nome e
+          // conteúdo), já como "enviado". Assim o escritório e o cliente veem tudo arrumado na hora, não um monte solto.
+          aoConcluir: async ({ recebidos }) => {
+            if (!recebidos) return;
+            let msg = `${recebidos} documento(s) entregue(s).`;
+            try { const r = await api.post(`/api/projetos/${p.projeto_id}/organizar`, {}); if (r?.vinculados) msg += ` ${r.vinculados} já organizado(s) no checklist.`; } catch { /* organização é melhor-esforço; a leitura segue */ }
+            toast(msg + ' A leitura começou.'); api.limparCache(); if (location.hash.includes('documentos')) navegar();
+          } });
       };
       entrada.addEventListener('change', (e) => enviar([...e.target.files]));
       ['dragenter', 'dragover'].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.add('over'); }));
