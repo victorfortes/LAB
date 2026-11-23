@@ -93,8 +93,10 @@ export function montarCasca() {
     <div class="wall" aria-hidden="true"><div class="wall__grid"></div><div class="wall__glow a"></div><div class="wall__glow b"></div><canvas id="fx"></canvas><div class="wall__scan"></div></div>
     <div class="app">
       <aside class="side glass glass--chrome" aria-label="Navegação">
-        <a class="brand" href="#/${inicioPadrao()}" aria-label="NGA LAB">
-          <img class="brand__logo" src="/img/nga.png" alt="NGA" width="91" height="35"><span class="brand__name"><em>LAB</em></span></a>
+        ${ehCliente() ? html`<a class="brand brand--oficial" href="#/${inicioPadrao()}" aria-label="NGA Advogados">
+          <img class="brand__logo" src="/img/nga-adv.png" alt="NGA Advogados" width="150" height="38"></a>`
+        : html`<a class="brand" href="#/${inicioPadrao()}" aria-label="NGA LAB">
+          <img class="brand__logo" src="/img/nga.png" alt="NGA" width="91" height="35"><span class="brand__name"><em>LAB</em></span></a>`}
         ${ehCliente() ? html`<div class="acesso-cliente" role="note"><span class="acesso-cliente__kicker">${icone('lock')}Portal do cliente</span><b title="${eu.organizacoes?.[0]?.nome ?? ''}">${eu.organizacoes?.[0]?.nome ?? ''}</b></div>` : ''}
         <nav class="nav" aria-label="Principal"><div class="nav__track"><span class="nav__lens" aria-hidden="true"></span>
           ${nav().map((n) => html`<a class="nav__item" href="#/${n.rota}" data-route="${n.rota}">${icone(n.icone)}<span>${n.rotulo}</span>${n.contagem ? html`<b class="nav__count" id="cnt-${n.contagem}" hidden></b>` : ''}</a>`)}
@@ -106,7 +108,7 @@ export function montarCasca() {
           <span><b>${eu.usuario.nome}</b><small>${papel}</small></span>${icone('chevronDown')}</button>
       </aside>
       <header class="toolbar">
-        <div class="toolbar__title glass glass--chrome"><span id="titulo-compacto">NGA LAB</span>${ehCliente() ? html`<em class="selo-cliente">Portal do cliente</em>` : ''}</div>
+        <div class="toolbar__title glass glass--chrome"><span id="titulo-compacto">${ehCliente() ? 'NGA Advogados' : 'NGA LAB'}</span>${ehCliente() ? html`<em class="selo-cliente">Portal do cliente</em>` : ''}</div>
         <div class="toolbar__tools glass glass--chrome">
           <button type="button" class="search-pill" id="btn-busca" aria-label="Buscar (⌘K)">${icone('search')}<span>Buscar</span><kbd>⌘K</kbd></button>
           ${ehCliente() || (!pode('projeto.escrever') && !pode('fatura.gerir')) ? '' : html`<button type="button" class="tbtn" id="btn-novo" aria-label="Criar" title="Criar">${icone('plus')}</button>`}

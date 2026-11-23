@@ -9,6 +9,7 @@ import { avisosDoCliente, onboardingDoCliente } from './avisos_portal.js';
 import { abaManuais, boasVindas } from '../manuais.js';
 import { RECURSOS } from '../recursos.js';
 import { api } from '../api.js';
+import { arquivosDoDrop, enviarDocumentos } from '../envio.js';
 import { imprimirFatura, verFatura } from '../fatura_modelo.js';
 import { estado, pode } from '../estado.js';
 import { anel } from '../fx.js';
@@ -216,7 +217,7 @@ async function documentos(p) {
   return {
     resumo: check.itens.length ? [{ rotulo: 'Aprovados', valor: check.progresso.aprovados }, { rotulo: 'Obrigatórios', valor: check.progresso.obrigatorios }, { rotulo: 'Aguardando você', valor: check.progresso.aguardandoOCliente, tom: 'warn' }] : [],
     html: html`<label class="drop up" id="soltar" tabindex="0"><input type="file" id="arq" hidden multiple>${icone('upload')}
-        <b>Solte aqui os seus documentos</b><small>Pode enviar tudo de uma vez, sem se preocupar com a ordem: o sistema lê cada arquivo, reconhece o tipo e a equipe da NGA organiza no lugar certo.</small></label>
+        <b>Solte aqui os seus documentos</b><small>Pode enviar tudo de uma vez, sem se preocupar com a ordem: arquivos soltos, pastas inteiras, ZIP ou RAR (até 50 MB por arquivo). O envio continua em segundo plano e a equipe da NGA organiza no lugar certo.</small></label>
       ${recentes(p).length ? html`<section class="card glass up mt"><header class="card__head"><div><h2 class="card__title">Enviados agora</h2><p class="card__sub">Recebidos e em leitura pela NGA</p></div></header>
         <ul class="lista">${recentes(p).map((r) => html`<li><span class="empty__ico" style="width:36px;height:36px;border-radius:11px">${icone('doc')}</span><div><b>${r.nome}</b><small>${relativo(r.quando)} · ${tamanho(r.tamanho)}</small></div>
           <div class="fim"><span class="leitura lendo"><i class="vivo ambar"></i>Em leitura</span></div></li>`)}</ul></section>` : ''}
@@ -238,32 +239,27 @@ async function documentos(p) {
           ${d.tem_arquivo ? html`<div class="fim"><button type="button" class="btn btn--ghost" data-baixar="${d.id}">${icone('download')}Baixar</button></div>` : ''}</li>`)}</ul>` : html`<p class="dica">Nenhum documento publicado para você ainda.</p>`}</section>`,
     depois(el) {
       const drop = $('#soltar', el); const entrada = $('#arq', el);
-      const enviar = async (arquivos) => {
-        let ok = 0;
-        for (const f of arquivos) {
-          drop.classList.add('over');
-          const fd = new FormData(); fd.append('arquivo', f); fd.append('titulo', f.name.replace(/\.[^.]+$/, '')); fd.append('categoria', 'Enviado pelo cliente');
-          try { await api.enviar(`/api/projetos/${p.projeto_id}/documentos`, fd); ok++; guardarRecente(p, f); } catch (er) { erroDe(er); }
-        }
-        drop.classList.remove('over');
-        if (ok) { toast(`${ok} documento(s) recebido(s). A leitura começou.`); navegar(); }
+      // Envio em segundo plano: ZIP/RAR abertos no navegador, direto ao Storage, com fila e progresso no canto.
+      const titulo = (it, base) => [it.caminho, base ?? it.nome.replace(/\.[^.]+$/, '')].filter(Boolean).join(' / ').slice(0, 300);
+      const enviar = (arquivos) => {
+        if (!arquivos.length) return;
+        for (const f of arquivos) guardarRecente(p, f);
+        enviarDocumentos({ projetoId: p.projeto_id, arquivos, campos: (it) => ({ titulo: titulo(it), categoria: 'Enviado pelo cliente' }),
+          aoConcluir: ({ recebidos }) => { if (recebidos) { toast(`${recebidos} documento(s) recebido(s). A leitura começou.`); api.limparCache(); if (location.hash.includes('documentos')) navegar(); } } });
       };
       entrada.addEventListener('change', (e) => enviar([...e.target.files]));
       ['dragenter', 'dragover'].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.add('over'); }));
       ['dragleave', 'drop'].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.remove('over'); }));
-      drop.addEventListener('drop', (e) => enviar([...e.dataTransfer.files]));
+      drop.addEventListener('drop', async (e) => enviar(await arquivosDoDrop(e.dataTransfer)));
       drop.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); entrada.click(); } });
       ouvir(el, 'click', '[data-baixar]', async (b) => { try { const r = await api.post(`/api/documentos/${b.dataset.baixar}/link`); window.open(r.url, '_blank', 'noopener'); } catch (e) { erroDe(e); } });
       el.addEventListener('change', async (e) => {
         const inp = e.target.closest('input[data-req]'); if (!inp?.files?.length) return;
-        const arquivos = [...inp.files]; let ok = 0;
-        for (const f of arquivos) {
-          // Com vários arquivos, cada um leva o próprio nome junto do item ("Balanço · 2023.pdf").
-          const titulo = arquivos.length > 1 ? `${inp.dataset.t} · ${f.name.replace(/\.[^.]+$/, '')}` : inp.dataset.t;
-          const fd = new FormData(); fd.append('arquivo', f); fd.append('titulo', titulo); fd.append('categoria', inp.dataset.c); fd.append('requisitoId', inp.dataset.req);
-          try { await api.enviar(`/api/projetos/${p.projeto_id}/documentos`, fd); ok++; } catch (er) { erroDe(er); }
-        }
-        if (ok) { toast(ok > 1 ? `${ok} arquivos enviados. O escritório vai conferir.` : 'Documento enviado. O escritório vai conferir.'); navegar(); }
+        const arquivos = [...inp.files]; const { t, c, req } = inp.dataset; inp.value = '';
+        // Com vários arquivos (ou um ZIP), cada um leva o próprio nome junto do item ("Balanço · 2023.pdf").
+        const unico = arquivos.length === 1 && !/\.(zip|rar)$/i.test(arquivos[0].name);
+        enviarDocumentos({ projetoId: p.projeto_id, arquivos, campos: (it) => ({ titulo: unico ? t : `${t} · ${titulo(it)}`.slice(0, 300), categoria: c, requisitoId: req }),
+          aoConcluir: ({ recebidos }) => { if (recebidos) { toast(recebidos > 1 ? `${recebidos} arquivos enviados. O escritório vai conferir.` : 'Documento enviado. O escritório vai conferir.'); api.limparCache(); navegar(); } } });
       });
     },
   };

@@ -34,6 +34,8 @@ export interface ArquivoGuardado {
   readonly tamanho: number;
   /** O conteúdo já estava guardado: deduplicado, não regravado. */
   readonly jaExistia: boolean;
+  /** O armazenamento externo falhou: quem chamou deve guardar o conteúdo no banco (caminho antigo). */
+  readonly guardarNoBanco?: boolean;
 }
 
 export interface Armazenamento {
@@ -43,6 +45,10 @@ export interface Armazenamento {
   ler(chave: string, hashEsperado?: string): Promise<Uint8Array>;
   existe(chave: string): Promise<boolean>;
   remover(chave: string): Promise<void>;
+  /** false: o conteúdo NÃO é copiado para o banco (Storage na nuvem). Padrão: copia. */
+  readonly guardaNoBanco?: boolean;
+  /** Endereço assinado de uso único para o navegador enviar o arquivo direto (sem passar pela função). */
+  urlDeEnvio?(chave: string): Promise<string>;
 }
 
 export class ErroDeArmazenamento extends Error {

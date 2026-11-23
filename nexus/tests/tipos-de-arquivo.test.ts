@@ -90,3 +90,18 @@ describe('nome do arquivo no download', () => {
     expect(n).toEndWith('.pdf');
   });
 });
+
+test('PDF: "/JS" dentro de imagem comprimida não é script; script de verdade é desligado sem mudar o tamanho', async () => {
+  const { acoesAtivasDoPdf, desarmarPdf, reconhecerTipo } = await import('../src/store/tipos-de-arquivo.ts');
+  const enc = (s: string) => new Uint8Array([...s].map((c) => c.charCodeAt(0)));
+  const imagem = enc('%PDF-1.4\n1 0 obj << /Length 20 >>\nstream\n\x8f\x02/JS\x9f(\xfe,\x00/Launch\x11\nendstream\nendobj\n%%EOF');
+  expect(acoesAtivasDoPdf(new TextDecoder('latin1').decode(imagem))).toHaveLength(0);
+  expect(() => reconhecerTipo(imagem, 'contrato.pdf')).not.toThrow();
+  const comScript = enc('%PDF-1.4\n1 0 obj << /OpenAction << /S /JavaScript /JS (app.alert(1)) >> >>\nendobj\n2 0 obj << /S /J#61vaScript >>\nendobj\n%%EOF');
+  expect(() => reconhecerTipo(comScript, 'extrato.pdf')).toThrow();
+  const d = desarmarPdf(comScript);
+  expect(d.desarmadas).toBe(3);
+  expect(d.bytes.length).toBe(comScript.length);
+  expect(() => reconhecerTipo(d.bytes, 'extrato.pdf')).not.toThrow();
+  expect(new TextDecoder('latin1').decode(d.bytes)).toContain('/S /XXXXXXXXXX /XX (app.alert(1))');
+});

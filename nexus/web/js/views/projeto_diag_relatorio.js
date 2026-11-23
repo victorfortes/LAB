@@ -27,13 +27,25 @@ export async function gerarComProgresso(ctx, botao) {
   const mostrar = (t) => { if (botao) botao.textContent = t; };
   if (botao) botao.disabled = true;
   try {
-    let { restantes } = await api.get(`${base}/leituras`);
-    const total = restantes; let feitos = 0;
-    while (restantes > 0 && feitos < 400) {
+    // Os PDFs são lidos AQUI, no navegador (sem o limite de tempo da nuvem); o servidor recebe só as linhas.
+    const { proximos = [] } = await api.get(`${base}/leituras`);
+    const total = proximos.length; let feitos = 0;
+    let leitor;
+    for (const d of proximos) {
       mostrar(`Lendo arquivo ${feitos + 1} de ${total}…`);
-      const r = await api.post(`${base}/leituras`, {});
-      if (!r.lido) break;
-      avisos.push(...r.avisos); feitos++; restantes = r.restantes;
+      let corpo = { documentoId: d.id };
+      if (d.ehPdf) {
+        try {
+          leitor ??= import('../vendor/pdf/pdf-linhas.js');
+          const { url } = await api.post(`/api/documentos/${d.id}/link`);
+          const bytes = new Uint8Array(await (await fetch(url, { credentials: 'same-origin' })).arrayBuffer());
+          const paginas = await (await leitor).linhasDoPdf(bytes, (p, n) => mostrar(`Lendo arquivo ${feitos + 1} de ${total} · página ${p} de ${n}…`));
+          corpo = { ...corpo, paginas };
+        } catch (e) { corpo = { ...corpo, erro: e.message }; }
+      }
+      try { const r = await api.post(`${base}/leituras`, corpo); avisos.push(...(r.avisos ?? [])); }
+      catch (e) { avisos.push(`${d.nome}: ${e.message}`); }
+      feitos++;
     }
     mostrar('Montando o relatório…');
     const v = await api.post(`${base}/versoes`, { motivo: 'manual', lerArquivos: false });

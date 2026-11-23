@@ -23,7 +23,7 @@ import {
   type Armazenamento, ArquivoAusente, ArquivoCorrompido, chaveDoHash,
 } from '../store/arquivos.ts';
 import {
-  TIPOS_ACEITOS, TipoRecusado, nomeSeguro, reconhecerTipo,
+  TIPOS_ACEITOS, TipoRecusado, desarmarPdf, nomeSeguro, reconhecerTipo,
 } from '../store/tipos-de-arquivo.ts';
 import {
   type SegredoDeArquivos, VALIDADE_PADRAO_SEGUNDOS, assinar, segredoDeArquivos,
@@ -67,7 +67,12 @@ export interface ArquivoRecebido {
   readonly nome: string;
   /** O conteúdo já estava no acervo: outro documento aponta para os mesmos bytes. */
   readonly deduplicado: boolean;
+  /** Quantas ações automáticas (script) do PDF foram desligadas antes de guardar. */
+  readonly desarmado: number;
 }
+
+/** Arquivo já em memória (veio do Storage): evita copiar 40 MB de novo para um `File`. */
+export interface BytesRecebidos { readonly name: string; readonly size: number; readonly bytes: Uint8Array }
 
 /**
  * Guarda o conteúdo e cria a linha de `documentos`.
@@ -80,7 +85,7 @@ export interface ArquivoRecebido {
 export async function receber(
   db: PoolClient,
   projetoId: string,
-  arquivo: File,
+  arquivo: File | BytesRecebidos,
   dados: z.infer<typeof EsquemaMetadados>,
   identidade: Identidade,
   dep: Deposito,
@@ -99,7 +104,9 @@ export async function receber(
   // por esta via; quem chama pelo portal informa a organização do requisito.
   if (!organizacaoId && origem === 'interno') throw new NaoEncontrado('projeto não encontrado');
 
-  const bytes = new Uint8Array(await arquivo.arrayBuffer());
+  const originais = arquivo instanceof File ? new Uint8Array(await arquivo.arrayBuffer()) : arquivo.bytes;
+  // PDF com script (comum em extrato e guia) não é recusado: o script é desligado e o documento segue.
+  const { bytes, desarmadas } = desarmarPdf(originais);
   // O tipo vem dos BYTES, nunca do `Content-Type` que o navegador declarou.
   const tipo = reconhecerTipo(bytes, arquivo.name);
   const guardado = await dep.armazenamento.guardar(bytes);
@@ -115,14 +122,15 @@ export async function receber(
      dados.titulo, dados.categoria ?? null, guardado.chave, tipo.mime,
      guardado.tamanho, guardado.hash, nome, origem, identidade.usuarioId]);
 
-  await db.query('SELECT guardar_conteudo_documento($1,$2)', [documentoId, Buffer.from(bytes)]);
+  // Com Storage, o conteúdo fica só lá: copiar 40 MB para dentro do banco era o que travava o envio.
+  if (dep.armazenamento.guardaNoBanco !== false || guardado.guardarNoBanco) await db.query('SELECT guardar_conteudo_documento($1,$2)', [documentoId, Buffer.from(bytes)]);
 
   await auditar(db, {
     organizacaoId: organizacaoId ?? null, usuarioId: identidade.usuarioId,
     acao: 'documento.arquivo_recebido', entidade: 'documento', entidadeId: documentoId,
     depois: {
       titulo: dados.titulo, nome, tipo: tipo.mime, bytes: guardado.tamanho,
-      hash: guardado.hash, deduplicado: guardado.jaExistia, origem,
+      hash: guardado.hash, deduplicado: guardado.jaExistia, origem, ...(desarmadas ? { scriptsDesligados: desarmadas } : {}),
     },
     origem: origem === 'portal_cliente' ? 'portal' : 'api',
   });
@@ -130,7 +138,7 @@ export async function receber(
   return {
     documentoId, hash: guardado.hash, tamanho: guardado.tamanho,
     tipo: tipo.mime, rotuloDoTipo: tipo.rotulo, nome,
-    deduplicado: guardado.jaExistia,
+    deduplicado: guardado.jaExistia, desarmado: desarmadas,
   };
 }
 

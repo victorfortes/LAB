@@ -56,6 +56,6 @@ test('painel: agenda do Astrea contada por urgência, próximos prazos e cumprid
   expect(a.faixas.adiante.total).toBe(1);
   expect(a.meusAbertos).toBe(3);
   expect(a.proximos[0]).toMatchObject({ titulo: 'RECURSO', vencimento: '2026-11-23' });
-  expect(a.meusProximos[0].titulo).toBe('AUDIÊNCIA');
+  expect(a.meusProximos[0]!.titulo).toBe('AUDIÊNCIA');
   expect(a.cumpridosPorDia.find((d) => d.dia === '2026-11-21')).toMatchObject({ total: 1, meus: 1 });
 });

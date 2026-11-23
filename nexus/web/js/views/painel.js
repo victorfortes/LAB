@@ -10,9 +10,9 @@ import { api } from '../api.js';
 import { estado, pode } from '../estado.js';
 import { anel } from '../fx.js';
 import { avatar, dataCurta, dataBR, hojeISO, html, icone, matiz, ouvir, pilha, raw, relativo } from '../util.js';
-import { cabecalho, vazio, toast, erroDe } from '../ui.js';
+import { cabecalho, vazio, toast, erroDe, modal } from '../ui.js';
 import { aoSair, ir, navegar } from '../shell.js';
-import { novaTarefa } from './tarefas.js';
+import { novaTarefa, abrirTarefa } from './tarefas.js';
 import { cartaoProjeto, novoProjeto } from './projetos.js';
 
 const saudacao = () => { const h = new Date().getHours(); return h < 12 ? 'Bom dia' : h < 18 ? 'Boa tarde' : 'Boa noite'; };
@@ -104,7 +104,7 @@ export default async function painel() {
     html: html`
       ${cabecalho({ titulo: `${saudacao()}, ${primeiro}`, sub: `${new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })} · ${pendTotal ? `${pendTotal} coisa(s) pedindo você` : 'nada pendente'}`, acoes, resumo })}
 
-      <div class="grid3 mt">
+      <div class="grid3 mt painel-topo">
         <section class="card glass up">
           <header class="card__head"><div><h2 class="card__title">Andamento</h2><p class="card__sub">${ag ? `Prazos, audiências e eventos em aberto no Astrea${ag.atualizadoEm ? ` · lido ${relativo(ag.atualizadoEm)}` : ''}` : 'Tarefas em aberto no LAB'}</p></div>
             ${ag && ag.meusAbertos ? html`<div class="cli-seg" role="group" aria-label="De quem"><button type="button" class="${escopo === 'todos' ? 'is-on' : ''}" data-escopo="todos">Escritório</button><button type="button" class="${escopo === 'meus' ? 'is-on' : ''}" data-escopo="meus">Meus</button></div>` : ''}</header>
@@ -124,13 +124,13 @@ export default async function painel() {
           <header class="card__head"><div><h2 class="card__title">Próximo prazo</h2><p class="card__sub">${escopo === 'meus' ? 'Seus, pela agenda do Astrea' : 'Do escritório, pela agenda do Astrea'} · dias úteis</p></div>
             <button class="link" data-ir="calendario">Calendário →</button></header>
           ${proximoAg ? html`
-            <div class="pcard__next" style="padding:16px;border-radius:18px;background:var(--accent-soft);border:1px solid #F0A32E44">
+            <div class="pcard__next is-click" role="button" tabindex="0" data-agenda="${proximoAg.astreaId ?? ''}" data-idx="0" title="Abrir o prazo" style="padding:16px;border-radius:18px;background:var(--accent-soft);border:1px solid #F0A32E44">
               <small class="muted">${proximoAg.diasUteis === 0 ? 'VENCE HOJE' : `EM ${proximoAg.diasUteis} DIA(S) ÚTIL(EIS)`} · ${proximoAg.tipo.toUpperCase()}${proximoAg.hora ? ` ÀS ${proximoAg.hora}` : ''}</small>
               <h3 style="margin:6px 0 4px;font:700 21px var(--font-display)">${proximoAg.titulo}</h3>
               <span class="mono-sm">${dataBR(proximoAg.vencimento)}${proximoAg.numero ? ` · ${proximoAg.numero}` : ''}</span>
               <p class="dica" style="margin:6px 0 0">${proximoAg.caso}${proximoAg.responsavel ? ` · ${proximoAg.responsavel}` : ''}</p>
             </div>
-            <ul class="lista mt">${proximos.slice(1, 4).map((z) => html`<li><div><b>${z.titulo}</b><small>${z.caso || z.numero}${z.responsavel ? ` · ${z.responsavel}` : ''}</small></div>
+            <ul class="lista mt">${proximos.slice(1, 4).map((z, i) => html`<li class="is-click" role="button" tabindex="0" data-agenda="${z.astreaId ?? ''}" data-idx="${i + 1}" title="Abrir o prazo"><div><b>${z.titulo}</b><small>${z.caso || z.numero}${z.responsavel ? ` · ${z.responsavel}` : ''}</small></div>
               <div class="fim"><span class="selo ${z.diasUteis <= 1 ? 'erro' : 'aviso'}">${z.diasUteis === 0 ? 'hoje' : `${z.diasUteis} d`}</span></div></li>`)}</ul>`
           : vazio('calendar', 'Nenhum prazo à frente', ag ? 'A agenda do Astrea não tem prazo, audiência ou evento em aberto daqui para a frente.' : 'Sem acesso à agenda do Astrea.')}
         </section>
@@ -138,8 +138,8 @@ export default async function painel() {
         <section class="card glass up">
           <header class="card__head"><div><h2 class="card__title">Esta semana</h2><p class="card__sub">Cumpridos por dia: Astrea + tarefas do LAB</p></div>
             <span class="selo ${totalSemana ? 'ok' : ''}">${totalSemana} cumprido(s)</span></header>
-          <div class="barras">${porDia.map((d) => html`<div class="barra ${d.iso === hojeISO() ? 'hoje' : ''}" title="${d.astrea} no Astrea · ${d.lab} no LAB"><b>${d.n || ''}</b>
-            <div class="barra__col"><i data-h="${d.n ? Math.max(8, (d.n / maxDia) * 100) : 0}"></i></div><small>${d.rotulo}</small></div>`)}</div>
+          <div class="barras">${porDia.map((d) => html`<button type="button" class="barra ${d.iso === hojeISO() ? 'hoje' : ''}" data-dia="${d.iso}" title="${d.astrea} no Astrea · ${d.lab} no LAB · clique para ver a lista"><b>${d.n || ''}</b>
+            <div class="barra__col"><i data-h="${d.n ? Math.max(8, (d.n / maxDia) * 100) : 0}"></i></div><small>${d.rotulo}</small></button>`)}</div>
         </section>
       </div>
 
@@ -190,6 +190,42 @@ export default async function painel() {
         } catch { /* próximo ciclo */ }
       }, 8000);
       aoSair(() => clearInterval(t));
+      // Prazo da agenda: abre a tarefa do LAB ligada a ele; sem tarefa (processo sem projeto), mostra a ficha do Astrea.
+      const abrirAgenda = (item) => {
+        if (!item) return;
+        const t = item.astreaId && tk.tarefas.find((x) => x.chavePlaybook === `astrea:id:${item.astreaId}`);
+        if (t) return abrirTarefa(t, { aoMudar: () => {} });
+        modal({ titulo: item.titulo, subtitulo: `${item.tipo} · ${dataBR(item.vencimento)}${item.hora ? ` às ${item.hora}` : ''}`, acoes: [{ id: 'bi', rotulo: 'Abrir no BI de Prazos' }, { id: 'fechar', rotulo: 'Fechar', tipo: 'primario' }],
+          corpo: String(html`<dl class="ficha-ag"><div><dt>Processo</dt><dd class="mono-sm">${item.numero || '—'}</dd></div><div><dt>Caso</dt><dd>${item.caso || '—'}</dd></div>
+            <div><dt>Juízo</dt><dd>${item.juizo || '—'}</dd></div><div><dt>Responsável</dt><dd>${item.responsavel || '—'}</dd></div></dl>
+            <p class="dica">Este item ainda não virou tarefa no LAB: o processo não está ligado a um projeto. Ligue o processo ao projeto na Controladoria para ele aparecer em Tarefas.</p>`),
+          aoAbrir(el) { el.addEventListener('acao', (e) => { el.fechar(); if (e.detail.id === 'bi') ir('bi-prazos'); }); } });
+      };
+      const porAgenda = (b) => abrirAgenda(proximos[Number(b.dataset.idx)]);
+      ouvir(raiz, 'click', '[data-agenda]', porAgenda);
+      raiz.addEventListener('keydown', (e) => { const b = e.target.closest?.('[data-agenda]'); if (b && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); porAgenda(b); } });
+      // Dia da semana: a lista do que foi cumprido (Astrea + LAB), cada item abre a tarefa.
+      ouvir(raiz, 'click', '[data-dia]', (b) => {
+        const dia = b.dataset.dia;
+        const ast = (ag?.cumpridosPorDia.find((x) => x.dia === dia)?.itens ?? []).filter((x) => escopo === 'todos' || x.meu);
+        const lab = tk.tarefas.filter((t) => t.concluidaEm && !t.doAstrea && (escopo === 'todos' || t.responsavelId === estado.eu.usuario.id) && new Date(t.concluidaEm).toLocaleDateString('sv-SE') === dia);
+        const itens = [...ast.map((x, i) => ({ k: `a${i}`, titulo: x.titulo, sub: [x.caso || x.numero, x.responsavel].filter(Boolean).join(' · '), selo: x.tipo, x })), ...lab.map((t) => ({ k: `l${t.id}`, titulo: t.titulo, sub: [t.projeto, t.responsavel].filter(Boolean).join(' · '), selo: 'LAB', t }))];
+        modal({ titulo: `Cumpridos em ${dataBR(dia)}`, subtitulo: `${itens.length} item(ns) · ${escopo === 'meus' ? 'seus' : 'do escritório'}`, largo: true, acoes: [{ id: 'fechar', rotulo: 'Fechar', tipo: 'primario' }],
+          corpo: itens.length ? String(html`<ul class="lista lista-dia">${itens.map((x) => html`<li class="is-click" role="button" tabindex="0" data-k="${x.k}"><div><b>${x.titulo}</b><small>${x.sub}</small></div><div class="fim"><span class="selo ${x.t ? 'info' : 'ok'}">${x.selo}</span></div></li>`)}</ul>`)
+            : String(html`<p class="dica">Nada cumprido neste dia.</p>`),
+          aoAbrir(el) {
+            el.addEventListener('acao', () => el.fechar());
+            el.addEventListener('click', (e) => {
+              const li = e.target.closest('[data-k]'); if (!li) return;
+              const x = itens.find((y) => y.k === li.dataset.k); if (!x) return;
+              el.fechar();
+              if (x.t) return abrirTarefa(x.t, { aoMudar: () => {} });
+              const t = x.x.astreaId && tk.tarefas.find((y) => y.chavePlaybook === `astrea:id:${x.x.astreaId}`);
+              if (t) return abrirTarefa(t, { aoMudar: () => {} });
+              abrirAgenda({ ...x.x, juizo: '', hora: null });
+            });
+          } });
+      });
       ouvir(raiz, 'click', '[data-escopo]', (b) => { localStorage.setItem('nx-painel-escopo', b.dataset.escopo); navegar(); });
       ouvir(raiz, 'click', '[data-ir]', (b) => ir(b.dataset.ir));
       ouvir(raiz, 'click', '[data-go]', (b) => ir(b.dataset.go));

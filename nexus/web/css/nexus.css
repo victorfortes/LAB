@@ -994,3 +994,48 @@ body.bv-aberto { overflow: hidden; }
 .andam-c__leg dd b { font: 700 15px var(--font-mono); }
 .andam-c__leg dd small { display: block; font-size: 10.5px; color: var(--text-3); }
 @media (max-width: 1280px) and (min-width: 701px) { .andam-c { flex-direction: column; align-items: stretch; } .andam-c__anel { align-self: center; } }
+
+/* Painel: cartões do topo na altura do conteúdo, itens clicáveis (22/11 noite) */
+.grid3.painel-topo { align-items: start; }
+.painel-topo .is-click { cursor: pointer; transition: transform .15s, background .15s; }
+.painel-topo .pcard__next.is-click:hover { transform: translateY(-1px); border-color: #F0A32E88 !important; }
+.painel-topo .lista li.is-click:hover, .lista-dia li.is-click:hover { background: var(--fill); }
+.painel-topo .barras { height: 150px; }
+.painel-topo button.barra { background: none; border: 0; padding: 0; font: inherit; color: inherit; cursor: pointer; }
+.painel-topo button.barra:hover .barra__col { background: rgba(255,255,255,.07); }
+.lista-dia { max-height: 60vh; overflow-y: auto; }
+.lista-dia li { cursor: pointer; border-radius: 12px; padding-inline: 8px; }
+.ficha-ag { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 16px; margin: 0 0 12px; }
+.ficha-ag dt { font-size: 11px; color: var(--text-3); text-transform: uppercase; letter-spacing: .05em; }
+.ficha-ag dd { margin: 2px 0 0; }
+
+/* Trilha "Onde está o seu processo": o brilho do passo atual não é mais cortado em quadrado pela rolagem. */
+.trilha { padding: 32px 30px 18px; margin: -24px -26px 0; }
+.trilha .passo:first-child { padding-left: 0; }
+/* Portal: logo oficial do escritório */
+.brand--oficial .brand__logo { height: 36px; max-height: 36px; }
+.bv__marca img { display: block; height: 30px; width: auto; }
+
+/* Fila de envio de documentos (envio.js) */
+.envio { position: fixed; right: 18px; bottom: 18px; z-index: 2400; width: min(420px, calc(100vw - 24px)); max-height: min(70vh, 560px); display: flex; flex-direction: column; border-radius: 20px; background: rgba(14,20,33,.97); border: 1px solid var(--sep); box-shadow: 0 30px 80px -20px rgba(0,0,0,.7); backdrop-filter: blur(16px); overflow: hidden; }
+.envio__head { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 12px 14px 8px; }
+.envio__head b { display: block; font-size: 14px; } .envio__head small { display: block; font-size: 11.5px; color: var(--text-3); }
+.envio__head > div:last-child { display: flex; gap: 4px; }
+.envio__barra { height: 4px; margin: 0 14px 8px; border-radius: 99px; background: var(--fill-2); overflow: hidden; }
+.envio__barra i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--lab-amber), #ffd28a); transition: width .3s; }
+.envio.feito .envio__barra i { background: var(--lab-green); }
+.envio__lista { list-style: none; margin: 0; padding: 0 8px 10px; overflow-y: auto; display: grid; gap: 2px; }
+.envio__it { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; padding: 7px 8px; border-radius: 10px; font-size: 12.5px; }
+.envio__it:hover { background: var(--fill); }
+.envio__nome { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.envio__it small { color: var(--text-3); font-size: 11px; text-align: right; white-space: nowrap; }
+.envio__it.is-erro small { color: var(--lab-red); white-space: normal; grid-column: 1 / -1; text-align: left; }
+.envio__it.is-pronto small { color: var(--lab-green); }
+.envio__mini { grid-column: 1 / -1; height: 3px; border-radius: 99px; background: var(--fill-2); overflow: hidden; }
+.envio__mini i { display: block; height: 100%; background: var(--lab-amber); transition: width .25s; }
+.envio__it.is-pronto .envio__mini i { background: var(--lab-green); }
+.envio__it.is-erro .envio__mini { display: none; }
+.envio__it .link { grid-column: 1 / -1; justify-self: start; font-size: 11.5px; }
+.envio.min .envio__lista, .envio.min .envio__barra { display: none; }
+.envio.min .envio__head [data-min] svg { transform: rotate(180deg); }
+@media (max-width: 700px) { .envio { right: 8px; left: 8px; bottom: 80px; width: auto; } }

@@ -1087,6 +1087,25 @@ export function criarApp(ctx: Contexto) {
           portal.aplicarModelo(db, mChecklist[1]!, identidade)), 201);
       }
 
+      // Envio direto ao Storage: o navegador pede um endereço assinado de uso único para o conteúdo (chave = hash).
+      if (rota === '/api/arquivos/envio' && metodo === 'POST') {
+        exigir(identidade.papeis, 'documento.escrever');
+        const pe = z.object({ projetoId: z.string().uuid(), tamanho: z.number().int().positive(), hash: z.string().regex(/^[0-9a-f]{64}$/), nome: z.string().min(1).max(300) }).safeParse(await req.json().catch(() => null));
+        if (!pe.success) return erro('dados inválidos', 400, pe.error.issues);
+        const d = pe.data;
+        if (d.tamanho > deposito.limiteBytes) return erro(`arquivo de ${(d.tamanho / 1_048_576).toFixed(1)} MB excede o limite de ${(deposito.limiteBytes / 1_048_576).toFixed(0)} MB`, 413);
+        const ok = await banco.comoUsuario(identidade.usuarioId, async (db) => (await db.query<{ ok: boolean }>(
+          'SELECT (EXISTS (SELECT 1 FROM projetos WHERE id = $1) OR EXISTS (SELECT 1 FROM requisitos WHERE projeto_id = $1)) AS ok', [d.projetoId])).rows[0]!.ok);
+        if (!ok) return erro('projeto não encontrado', 404);
+        const arm = deposito.armazenamento;
+        if (!arm.urlDeEnvio) return json({ modo: 'direto' });
+        const chave = chaveDoHash(d.hash);
+        if (await arm.existe(chave)) return json({ modo: 'storage', jaExiste: true });
+        // Sem endereço do Storage (fora do ar), o navegador cai no envio pela API, como antes.
+        const url = await arm.urlDeEnvio(chave).catch((e) => { console.error('envio: sem URL do Storage', (e as Error).message); return null; });
+        return json(url ? { modo: 'storage', jaExiste: false, url } : { modo: 'direto' });
+      }
+
       const mEnvio = /^\/api\/projetos\/([0-9a-f-]{36})\/documentos$/.exec(rota);
       if (mEnvio && metodo === 'GET') {
         exigir(identidade.papeis, 'documento.ler');
@@ -1127,7 +1146,25 @@ export function criarApp(ctx: Contexto) {
           return json(guardado, 201);
         }
 
-        const corpo = portal.EsquemaEnvio.safeParse(await req.json().catch(() => null));
+        const bruto = await req.json().catch(() => null) as Record<string, unknown> | null;
+        // Conteúdo que o navegador já mandou ao Storage: o servidor lê de lá, confere o hash e registra.
+        if (bruto && typeof bruto['hash'] === 'string') {
+          const d = z.object({ hash: z.string().regex(/^[0-9a-f]{64}$/), nome: z.string().min(1).max(300), tamanho: z.number().int().positive() }).safeParse(bruto);
+          const meta = arquivos.EsquemaMetadados.safeParse({ titulo: bruto['titulo'] ?? bruto['nome'], categoria: bruto['categoria'] ?? undefined, requisitoId: bruto['requisitoId'] ?? undefined });
+          if (!d.success || !meta.success) return erro('dados inválidos', 400, (d.error ?? meta.error)?.issues);
+          if (d.data.tamanho > deposito.limiteBytes) return erro('arquivo acima do limite', 413);
+          const bytes = await deposito.armazenamento.ler(chaveDoHash(d.data.hash), d.data.hash).catch(() => null);
+          if (!bytes) return erro('o arquivo não chegou ao armazenamento: envie de novo', 409);
+          const guardado = await banco.comoUsuario(identidade.usuarioId, async (db) => {
+            const recebido = await arquivos.receber(db, projetoId, { name: d.data.nome, size: bytes.length, bytes }, meta.data, identidade, deposito, ehCliente ? 'portal_cliente' : 'interno');
+            if (!meta.data.requisitoId) return { ...recebido, temArquivo: true };
+            const vinculo = await portal.vincularAoRequisito(db, meta.data.requisitoId, recebido.documentoId, identidade, ehCliente ? 'cliente' : 'nga');
+            return { ...recebido, ...vinculo, temArquivo: true };
+          });
+          agendarAnalise(guardado.documentoId);
+          return json(guardado, 201);
+        }
+        const corpo = portal.EsquemaEnvio.safeParse(bruto);
         if (!corpo.success) return erro('dados inválidos', 400, corpo.error.issues);
         return json({
           ...await banco.comoUsuario(identidade.usuarioId, (db) =>
@@ -1566,7 +1603,12 @@ export function criarApp(ctx: Contexto) {
         if (ehCliente) return erro('acesso negado', 403);
         exigir(identidade.papeis, 'analise.executar');
         if (metodo === 'GET') return json(await como((db) => diagVersoes.pendentesDeLeitura(db, mDiagLeit[1]!)));
-        if (metodo === 'POST') return json(await como((db) => diagVersoes.lerProximo(db, mDiagLeit[1]!, deposito, identidade, ctx.limitePdfBytes)));
+        if (metodo === 'POST') {
+          const corpo = z.object({ documentoId: z.string().uuid().optional(), paginas: z.array(z.array(z.string().max(20_000)).max(20_000)).max(5_000).optional(), erro: z.string().max(500).optional() }).safeParse(await req.json().catch(() => ({})));
+          if (!corpo.success) return erro('dados inválidos', 400, corpo.error.issues.slice(0, 3));
+          if (corpo.data.documentoId) return json(await como((db) => diagVersoes.lerDocumento(db, mDiagLeit[1]!, corpo.data.documentoId!, deposito, identidade, { paginas: corpo.data.paginas, erro: corpo.data.erro })));
+          return json(await como((db) => diagVersoes.lerProximo(db, mDiagLeit[1]!, deposito, identidade, ctx.limitePdfBytes)));
+        }
         return erro('método não permitido', 405);
       }
       // Patrimônio dos sócios do cliente.

@@ -76,7 +76,7 @@ export async function boasVindas(projeto, { forcar = false } = {}) {
     const pintar = () => {
       const e = etapas[i]; const ultima = i === etapas.length - 1;
       el.innerHTML = String(html`<div class="bv__caixa">
-        <header class="bv__topo"><div class="bv__marca">NGA <em>ADVOGADOS</em></div><span class="bv__passo">Etapa ${i + 1} de ${etapas.length}</span></header>
+        <header class="bv__topo"><div class="bv__marca"><img src="/img/nga-adv.png" alt="NGA Advogados" height="30"></div><span class="bv__passo">Etapa ${i + 1} de ${etapas.length}</span></header>
         <div class="bv__trilha">${etapas.map((_, k) => html`<i class="${k < i ? 'ok' : k === i ? 'at' : ''}"></i>`)}</div>
         ${i === 0 ? html`<p class="bv__intro">Bem-vindo ao portal do cliente. Antes de começar, leia estes guias rápidos: eles explicam como o trabalho vai funcionar. Leva poucos minutos e só acontece uma vez.</p>` : ''}
         <div class="bv__conteudo" data-rolagem>${e.tipo === 'manual' ? htmlManual(e.m) : e.tipo === 'video' ? html`<h3 class="bv__h">Veja como enviar os documentos</h3>${htmlVideo(st.videoUrl)}` : html`<h3 class="bv__h">Contatos oficiais do escritório</h3><p class="dica">Guarde estes canais. Eles também ficam na aba "Manuais" do portal.</p>${htmlContatos(st.contatos, extra)}`}</div>

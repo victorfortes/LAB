@@ -111,8 +111,8 @@ export async function painelAgenda(db: PoolClient, nome: string, hojeISO?: strin
   const iso = (br: string) => `${br.slice(6, 10)}-${br.slice(3, 5)}-${br.slice(0, 2)}`;
   const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
   const eu = norm(nome);
-  const { rows } = await db.query<{ tipo: string; data: string; hora: string | null; titulo: string; caso: string; numero: string; resp: string; status: string; conclusao: string; juizo: string }>(
-    `SELECT tipo, data, hora, titulo, caso, numero, resp, status, conclusao, juizo FROM bi_agenda_linhas`);
+  const { rows } = await db.query<{ tipo: string; data: string; hora: string | null; titulo: string; caso: string; numero: string; resp: string; status: string; conclusao: string; juizo: string; astrea_id: string | null }>(
+    `SELECT tipo, data, hora, titulo, caso, numero, resp, status, conclusao, juizo, astrea_id FROM bi_agenda_linhas`);
   const { rows: [c] } = await db.query<{ recebido_em: Date | null }>('SELECT recebido_em FROM bi_agenda_cargas ORDER BY recebido_em DESC LIMIT 1');
   const FAIXAS = ['atrasada', 'hoje', 'esta_semana', 'adiante'] as const;
   const vazio = () => Object.fromEntries(FAIXAS.map((f) => [f, { total: 0, prazos: 0, eventos: 0 }])) as Record<typeof FAIXAS[number], { total: number; prazos: number; eventos: number }>;
@@ -128,14 +128,17 @@ export async function painelAgenda(db: PoolClient, nome: string, hojeISO?: strin
     abertos.push({ ...r, venc, dias, meu });
   }
   const futuros = abertos.filter((a) => a.venc >= hoje).sort((a, b) => a.venc.localeCompare(b.venc) || (a.hora ?? '').localeCompare(b.hora ?? ''));
-  const item = (a: typeof abertos[number]) => ({ tipo: a.tipo, vencimento: a.venc, hora: a.hora || null, titulo: a.titulo, caso: a.caso, numero: a.numero, responsavel: a.resp, juizo: a.juizo, diasUteis: a.dias, meu: a.meu });
+  const item = (a: typeof abertos[number]) => ({ astreaId: a.astrea_id, tipo: a.tipo, vencimento: a.venc, hora: a.hora || null, titulo: a.titulo, caso: a.caso, numero: a.numero, responsavel: a.resp, juizo: a.juizo, diasUteis: a.dias, meu: a.meu });
   // Cumpridos por dia (últimos 7 dias), pela data de conclusão no Astrea.
   const dias7 = Array.from({ length: 7 }, (_, i) => new Date(Date.parse(`${hoje}T12:00:00Z`) - (6 - i) * 86_400_000).toISOString().slice(0, 10));
-  const porDia = new Map(dias7.map((d) => [d, { total: 0, meus: 0 }]));
+  type Cumprido = { astreaId: string | null; tipo: string; titulo: string; caso: string; numero: string; responsavel: string; vencimento: string; meu: boolean };
+  const porDia = new Map(dias7.map((d) => [d, { total: 0, meus: 0, itens: [] as Cumprido[] }]));
   for (const r of rows) {
     if (!/conclu/i.test(r.status) || !/^\d{2}\/\d{2}\/\d{4}$/.test(r.conclusao)) continue;
     const d = porDia.get(iso(r.conclusao)); if (!d) continue;
-    d.total++; if (eu && norm(r.resp) === eu) d.meus++;
+    const meu = !!eu && norm(r.resp) === eu;
+    d.total++; if (meu) d.meus++;
+    if (d.itens.length < 200) d.itens.push({ astreaId: r.astrea_id, tipo: r.tipo, titulo: r.titulo, caso: r.caso, numero: r.numero, responsavel: r.resp, vencimento: iso(r.data), meu });
   }
   return {
     atualizadoEm: c?.recebido_em ?? null, hoje, abertos: abertos.length, meusAbertos: abertos.filter((a) => a.meu).length,

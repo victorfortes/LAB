@@ -119,11 +119,43 @@ function recusarConteudoAtivoNoZip(entradas: readonly EntradaZip[]): void {
  * não é visto aqui: isto é uma barreira adicional, não substitui antivírus.
  */
 function recusarPdfAtivo(dados: Uint8Array): void {
-  const texto = new TextDecoder('latin1').decode(dados)
-    .replace(/#([0-9a-fA-F]{2})/g, (_m, h: string) => String.fromCharCode(parseInt(h, 16)));
-  if (/\/(JavaScript|JS|Launch|RichMedia)\b/.test(texto)) {
+  if (acoesAtivasDoPdf(new TextDecoder('latin1').decode(dados)).length) {
     throw new TipoRecusado('o PDF contém script ou ação automática e foi recusado. Imprima como PDF e envie de novo');
   }
+}
+
+const NOMES_ATIVOS = ['JavaScript', 'JS', 'Launch', 'RichMedia'];
+const RE_ATIVO = new RegExp(`/(?:${NOMES_ATIVOS.map((n) => n.split('').map((c) => `(?:${c}|#${c.charCodeAt(0).toString(16)})`).join('')).join('|')})(?=[\\s()<>\\[\\]{}/%]|$)`, 'gi');
+/**
+ * Posições dos nomes de ação ativa na ESTRUTURA do PDF. O conteúdo dos blocos stream…endstream (imagem,
+ * fonte, texto comprimido) é ignorado: ali os bytes são aleatórios e "/JS" aparece por acaso — era isso que
+ * recusava contrato e CCB escaneados. Nome ofuscado (/J#61vaScript) também conta.
+ */
+export function acoesAtivasDoPdf(texto: string): { inicio: number; tamanho: number }[] {
+  const streams: [number, number][] = [];
+  const reS = /\bstream\r?\n/g; let m: RegExpExecArray | null;
+  while ((m = reS.exec(texto))) {
+    const fim = texto.indexOf('endstream', m.index + m[0].length);
+    if (fim < 0) { streams.push([m.index, texto.length]); break; }
+    streams.push([m.index + m[0].length, fim]); reS.lastIndex = fim + 9;
+  }
+  const dentro = (i: number) => { let lo = 0, hi = streams.length - 1; while (lo <= hi) { const md = (lo + hi) >> 1; const [a, b] = streams[md]!; if (i < a) hi = md - 1; else if (i >= b) lo = md + 1; else return true; } return false; };
+  return [...texto.matchAll(RE_ATIVO)].filter((x) => !dentro(x.index!)).map((x) => ({ inicio: x.index!, tamanho: x[0].length }));
+}
+
+/**
+ * Desarma o PDF em vez de recusar: extrato de banco e guia do governo vêm muitas vezes com JavaScript
+ * (formulário, impressão automática). Cada nome de ação ativa vira um nome inerte DO MESMO TAMANHO
+ * ("/XXXX..."). Como nenhum byte muda de posição, a tabela de referências continua certa e o documento
+ * abre igual, só que sem executar nada. Devolve os bytes novos e quantas ações foram desligadas.
+ */
+export function desarmarPdf(dados: Uint8Array): { bytes: Uint8Array; desarmadas: number } {
+  if (!(dados[0] === 0x25 && dados[1] === 0x50 && dados[2] === 0x44 && dados[3] === 0x46)) return { bytes: dados, desarmadas: 0 };
+  const achados = acoesAtivasDoPdf(new TextDecoder('latin1').decode(dados));
+  if (!achados.length) return { bytes: dados, desarmadas: 0 };
+  const saida = new Uint8Array(dados);
+  for (const a of achados) for (let i = 1; i < a.tamanho; i++) saida[a.inicio + i] = 0x58; // 'X'
+  return { bytes: saida, desarmadas: achados.length };
 }
 
 const AMOSTRA_DE_TEXTO = 64 * 1024;

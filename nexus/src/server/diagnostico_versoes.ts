@@ -62,8 +62,43 @@ const PENDENTES_SQL = `SELECT d.id, coalesce(d.nome_original, d.titulo) AS nome,
 
 /** Quantos arquivos do cliente ainda não passaram pela leitura do diagnóstico. */
 export async function pendentesDeLeitura(db: PoolClient, projetoId: string) {
-  const { rows } = await db.query<{ nome: string }>(PENDENTES_SQL, [projetoId]);
-  return { restantes: rows.length, nomes: rows.slice(0, 50).map((r) => r.nome) };
+  const { rows } = await db.query<{ id: string; nome: string; tamanho: number | null }>(PENDENTES_SQL, [projetoId]);
+  return { restantes: rows.length, nomes: rows.slice(0, 50).map((r) => r.nome),
+    // A tela lê os PDFs no navegador (sem limite de CPU) e manda só as linhas de texto.
+    proximos: rows.slice(0, 500).map((r) => ({ id: r.id, nome: r.nome, tamanho: r.tamanho, ehPdf: /\.pdf$/i.test(r.nome) })) };
+}
+
+/**
+ * Lê UM documento escolhido. PDF chega já em linhas (extraídas no navegador da equipe): a função na nuvem só
+ * interpreta texto, que é barato — era a abertura do PDF aqui dentro que estourava o tempo (504) com cliente
+ * de muitos documentos. Planilha é lida aqui. `erro` registra a falha do navegador para o arquivo não voltar à fila.
+ */
+export async function lerDocumento(db: PoolClient, projetoId: string, documentoId: string, dep: Deposito, identidade: Identidade, opcoes: { paginas?: string[][]; erro?: string } = {}) {
+  const { rows: pj } = await db.query<{ organizacao_id: string }>('SELECT organizacao_id FROM projetos WHERE id = $1', [projetoId]);
+  if (!pj[0]) throw new NaoEncontrado('projeto não encontrado');
+  const { rows: docs } = await db.query<{ id: string; nome: string; hash_sha256: string | null; tamanho: number | null }>(
+    `SELECT d.id, coalesce(d.nome_original, d.titulo) AS nome, d.hash_sha256, d.tamanho_bytes::int AS tamanho FROM documentos d WHERE d.id = $1 AND d.projeto_id = $2`, [documentoId, projetoId]);
+  const d = docs[0]; if (!d) throw new NaoEncontrado('documento não encontrado');
+  const ehPdf = /\.pdf$/i.test(d.nome);
+  let r: { extracoes: ExtracaoLida[]; avisos: string[] };
+  await db.query('SAVEPOINT leitura_doc');
+  try {
+    if (opcoes.erro) r = { extracoes: [], avisos: [`${d.nome}: não foi possível ler (${opcoes.erro.slice(0, 200)})`] };
+    else if (ehPdf) {
+      const paginas = opcoes.paginas;
+      if (!paginas) throw new Error('o texto do PDF não veio da tela');
+      r = paginas.flat().join('').length < 40 * Math.max(1, paginas.length)
+        ? { extracoes: [], avisos: [`${d.nome}: PDF digitalizado (sem texto). OCR não disponível neste servidor; números deste arquivo não foram lidos.`] }
+        : lerDocumentoPdf(d.nome, paginas);
+    } else r = lerPlanilha(d.nome, await lerConteudoDocumento(db, d.id, dep, chaveDoHash(d.hash_sha256!), d.hash_sha256!));
+    for (const x of r.extracoes) { await db.query(`INSERT INTO diagnostico_extracoes (organizacao_id, projeto_id, documento_id, tipo, referencia, dados, qualidade, origem, criado_por) VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9)`, [pj[0].organizacao_id, projetoId, d.id, x.tipo, x.referencia, JSON.stringify(x.dados), ehPdf ? 'regular' : 'boa', ehPdf ? 'pdf_texto' : 'planilha', identidade.usuarioId]); }
+    await db.query('RELEASE SAVEPOINT leitura_doc');
+  } catch (e) {
+    await db.query('ROLLBACK TO SAVEPOINT leitura_doc');
+    r = { extracoes: [], avisos: [`${d.nome}: não foi possível ler (${(e as Error).message})`] };
+  }
+  await db.query(`INSERT INTO diagnostico_leituras (documento_id, organizacao_id, projeto_id, extracoes, avisos) VALUES ($1,$2,$3,$4,$5::jsonb)`, [d.id, pj[0].organizacao_id, projetoId, r.extracoes.length, JSON.stringify(r.avisos)]);
+  return { lido: d.nome, extracoes: r.extracoes.length, avisos: r.avisos };
 }
 
 /**
