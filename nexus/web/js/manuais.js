@@ -8,6 +8,7 @@
 import { api } from './api.js';
 import { html, icone, raw } from './util.js';
 import { erroDe } from './ui.js';
+import { falar, parar as pararFala, falaDisponivel } from './fala.js';
 
 export const MANUAIS = [
   { chave: 'portal', titulo: 'Como funciona o seu portal', icone: 'home', resumo: 'O que você encontra aqui e como acompanhar o seu caso.', secoes: [
@@ -35,6 +36,26 @@ export const MANUAIS = [
 ];
 
 const ROTULO_CONTATO = { telefone: 'Telefone', whatsapp: 'WhatsApp', email: 'E-mail', site: 'Site', endereco: 'Endereço', horario: 'Atendimento' };
+
+/** Texto corrido de um manual (título, resumo e seções), para a narração em voz alta. */
+export const textoDoManual = (m) => [m.titulo + '.', m.resumo, ...m.secoes.flatMap(([t, ps]) => [t + '.', ...ps])].join(' ');
+/**
+ * Botão "Ouvir/Parar" que lê um texto em voz alta com a voz do navegador (de graça, sem servidor). Liga num container
+ * que já tenha `<button data-ouvir>`. Devolve uma função para parar a narração (ao trocar de etapa ou fechar).
+ */
+export function ligarOuvir(raiz, obterTexto) {
+  const btn = raiz.querySelector('[data-ouvir]'); if (!btn) return () => {};
+  let ctrl = null;
+  const rotular = (ouvindo) => { btn.setAttribute('aria-pressed', ouvindo ? 'true' : 'false'); btn.innerHTML = String(ouvindo ? html`${icone('stop')} Parar` : html`${icone('play')} Ouvir`); };
+  const parar = () => { ctrl?.parar(); ctrl = null; rotular(false); };
+  rotular(false);
+  btn.addEventListener('click', () => {
+    if (ctrl) { parar(); return; }
+    ctrl = falar(obterTexto(), { aoFim: () => { ctrl = null; rotular(false); } });
+    rotular(true);
+  });
+  return parar;
+}
 const linkContato = (c) => c.tipo === 'email' ? `mailto:${c.valor}` : c.tipo === 'telefone' ? `tel:${c.valor.replace(/[^\d+]/g, '')}` : c.tipo === 'whatsapp' ? `https://wa.me/${c.valor.replace(/\D/g, '')}` : c.tipo === 'site' ? c.valor : null;
 
 export function htmlManual(m) {
@@ -72,8 +93,13 @@ export async function boasVindas(projeto, { forcar = false } = {}) {
   const el = document.createElement('div'); el.className = 'bv'; el.setAttribute('role', 'dialog'); el.setAttribute('aria-modal', 'true'); el.setAttribute('aria-label', 'Boas-vindas ao portal');
   document.body.append(el); document.body.classList.add('bv-aberto');
   const registrar = (chave) => api.post('/api/portal/boas-vindas/leitura', { chave }).catch(erroDe);
+  // Texto corrido de uma etapa, para a narração (manual ou contatos; o vídeo já tem a própria voz).
+  const textoDaEtapa = (e) => e.tipo === 'manual' ? textoDoManual(e.m)
+    : e.tipo === 'contatos' ? ['Contatos oficiais do escritório. Guarde estes canais.', ...[...extra, ...(st.contatos ?? [])].map((c) => `${ROTULO_CONTATO[c.tipo] ?? c.tipo}: ${c.rotulo}, ${c.valor}.`)].join(' ')
+    : '';
   return new Promise((fim) => {
     const pintar = () => {
+      pararFala(); // troca de etapa: corta qualquer narração em andamento
       const e = etapas[i]; const ultima = i === etapas.length - 1;
       el.innerHTML = String(html`<div class="bv__caixa">
         <header class="bv__topo"><div class="bv__marca"><img src="/img/nga-adv.png" alt="NGA Advogados" height="30"></div><span class="bv__passo">Etapa ${i + 1} de ${etapas.length}</span></header>
@@ -81,6 +107,7 @@ export async function boasVindas(projeto, { forcar = false } = {}) {
         ${i === 0 ? html`<p class="bv__intro">Bem-vindo ao portal do cliente. Antes de começar, leia estes guias rápidos: eles explicam como o trabalho vai funcionar. Leva poucos minutos e só acontece uma vez.</p>` : ''}
         <div class="bv__conteudo" data-rolagem>${e.tipo === 'manual' ? htmlManual(e.m) : e.tipo === 'video' ? html`<h3 class="bv__h">Veja como enviar os documentos</h3>${htmlVideo(st.videoUrl)}` : html`<h3 class="bv__h">Contatos oficiais do escritório</h3><p class="dica">Guarde estes canais. Eles também ficam na aba "Manuais" do portal.</p>${htmlContatos(st.contatos, extra)}`}</div>
         <footer class="bv__pe"><span class="bv__dica" data-dica>${e.tipo === 'manual' && !e.lido ? 'Role até o fim para continuar' : e.tipo === 'video' && !e.lido ? 'Assista até o fim para continuar' : ''}</span>
+          ${falaDisponivel() && e.tipo !== 'video' ? html`<button type="button" class="btn btn--ghost bv__ouvir" data-ouvir aria-pressed="false" title="Ouvir este guia em voz alta">${icone('play')} Ouvir</button>` : ''}
           ${i > 0 ? html`<button type="button" class="btn btn--ghost" data-voltar>Voltar</button>` : ''}
           <button type="button" class="btn btn--accent" data-proximo ${(e.tipo === 'manual' || e.tipo === 'video') && !e.lido ? raw('disabled') : ''}>${ultima ? 'Entrar no portal' : 'Próximo'}</button></footer></div>`);
       const prox = el.querySelector('[data-proximo]'); const rol = el.querySelector('[data-rolagem]'); rol.scrollTop = 0;
@@ -96,7 +123,9 @@ export async function boasVindas(projeto, { forcar = false } = {}) {
         // Vídeo indisponível (rede, formato): não prende o cliente.
         v?.addEventListener('error', () => { el.querySelector('[data-dica]').textContent = 'Vídeo indisponível agora; você pode vê-lo depois na aba Manuais.'; liberar(); });
       }
-      prox.addEventListener('click', () => { if (ultima) { el.remove(); document.body.classList.remove('bv-aberto'); fim(true); } else { i++; pintar(); } });
+      const introTxt = i === 0 ? 'Bem-vindo ao portal do cliente da NGA. ' : '';
+      ligarOuvir(el, () => introTxt + textoDaEtapa(e));
+      prox.addEventListener('click', () => { if (ultima) { pararFala(); el.remove(); document.body.classList.remove('bv-aberto'); fim(true); } else { i++; pintar(); } });
       el.querySelector('[data-voltar]')?.addEventListener('click', () => { i--; pintar(); });
       prox.focus();
     };
@@ -115,7 +144,14 @@ export async function abaManuais(projeto) {
       <div data-leitor class="mt"></div>`,
     depois(el) {
       el.querySelectorAll('[data-video]').forEach(prepararVideo);
-      el.addEventListener('click', (e) => { const b = e.target.closest('[data-manual]'); if (!b) return; const m = MANUAIS.find((x) => x.chave === b.dataset.manual); const alvo = el.querySelector('[data-leitor]'); alvo.innerHTML = String(html`<section class="card glass up manual-leitor">${htmlManual(m)}</section>`); alvo.scrollIntoView({ behavior: 'smooth', block: 'start' }); });
+      el.addEventListener('click', (e) => {
+        const b = e.target.closest('[data-manual]'); if (!b) return;
+        pararFala(); // abriu outro guia: corta a narração anterior
+        const m = MANUAIS.find((x) => x.chave === b.dataset.manual); const alvo = el.querySelector('[data-leitor]');
+        alvo.innerHTML = String(html`<section class="card glass up manual-leitor">${falaDisponivel() ? html`<div class="manual-leitor__barra"><button type="button" class="btn btn--ghost" data-ouvir aria-pressed="false" title="Ouvir este guia em voz alta">${icone('play')} Ouvir</button></div>` : ''}${htmlManual(m)}</section>`);
+        ligarOuvir(alvo, () => textoDoManual(m));
+        alvo.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
     },
   };
 }

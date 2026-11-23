@@ -807,6 +807,10 @@ body.bv-aberto { overflow: hidden; }
 .bv__pe { display: flex; align-items: center; gap: 10px; padding: 14px 24px; border-top: 1px solid rgba(255,255,255,.08); }
 .bv__dica { flex: 1; font-size: 12.5px; color: var(--lab-amber); }
 .bv__pe .btn { min-height: 46px; padding-inline: 22px; }
+/* Botão "Ouvir" (narração grátis do navegador): ícone + texto, e o estado "tocando" em destaque. */
+.bv__ouvir svg, .manual-leitor__barra .btn svg { width: 16px; height: 16px; vertical-align: -3px; margin-right: 5px; }
+.bv__ouvir[aria-pressed="true"], .manual-leitor__barra .btn[aria-pressed="true"] { color: var(--lab-amber); border-color: var(--lab-amber); }
+.manual-leitor__barra { display: flex; justify-content: flex-end; margin-bottom: 10px; }
 .manual__head { display: flex; gap: 14px; align-items: center; margin-bottom: 8px; } .manual__head h3 { margin: 0; font: 700 21px var(--font-display, inherit); } .manual__head p { margin: 2px 0 0; color: var(--text-2); font-size: 14px; }
 .manual__ico { width: 46px; height: 46px; border-radius: 14px; display: grid; place-items: center; background: rgba(240,163,46,.14); color: var(--lab-amber); flex: none; } .manual__ico .ico { width: 22px; height: 22px; }
 .manual section { margin-top: 16px; } .manual h4 { margin: 0 0 6px; font-size: 13px; letter-spacing: .1em; text-transform: uppercase; color: var(--lab-amber); }
