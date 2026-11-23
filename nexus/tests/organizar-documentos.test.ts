@@ -41,6 +41,12 @@ describe('leitores para o formato dos sistemas contábeis', () => {
     ]);
     expect(r.extracoes).toEqual([expect.objectContaining({ tipo: 'dre_contabil', dados: { exercicio: 2024, receitaBruta: 54083802.04, resultado: -2747002.69, meses: 12, despesasFinanceiras: 1264212.85 } })]);
   });
+  test('balancete lido como DRE (receita zero, sem resultado) não vira extração de DRE', () => {
+    const r = lerDocumentoPdf('Balancete 1 trimestre 2026.pdf', [
+      ['Período: 01/01/2026 a 31/03/2026', 'DEMONSTRAÇÃO DO RESULTADO DO EXERCÍCIO', 'RECEITA BRUTA 0,00', 'CONTAS DE RESULTADO 0,00'],
+    ]);
+    expect(r.extracoes.some((x) => x.tipo === 'dre_contabil' || x.tipo === 'dre_gerencial')).toBe(false);
+  });
   test('demonstrativo gerencial (G-) em reais sem centavos entra como gerencial', () => {
     const r = lerDocumentoPdf('G-Balanço e DRE - 2023 - Fitaflex.pdf', [['DEMONSTRAÇÃO DO RESULTADO DE EXERCICIO - 31/12/2023.', 'RECEITA BRUTA COM VENDAS R$ 102.284.953', '= LUCRO LÍQUIDO DO EXERCÍCIO R$ 24.724.045']]);
     expect(r.extracoes[0]).toMatchObject({ tipo: 'dre_gerencial', dados: { exercicio: 2023, receitaBruta: 102284953, resultado: 24724045 } });

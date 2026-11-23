@@ -80,7 +80,9 @@ function lerTabela(arquivo: string, aba: string, linhas: string[][], out: Result
     for (const { i, ano } of cabAnos) {
       const v = (l?: string[]) => (l ? reais(l[i]) : null);
       if (pistas.ac && pistas.anc && pistas.pc && pistas.pnc && pistas.pl) out.extracoes.push({ tipo: 'balanco', referencia: ref, dados: { exercicio: Number(ano), ativoCirculante: v(pistas.ac), ativoNaoCirculante: v(pistas.anc), passivoCirculante: v(pistas.pc), passivoNaoCirculante: v(pistas.pnc), patrimonioLiquido: v(pistas.pl), convencao: 'sinal' } });
-      else if (pistas.rec || pistas.res) out.extracoes.push({ tipo: gerencial ? 'dre_gerencial' : 'dre_contabil', referencia: ref, dados: { exercicio: Number(ano), receitaBruta: v(pistas.rec), resultado: v(pistas.res) } });
+      else if (pistas.rec || pistas.res) { const receitaBruta = v(pistas.rec); const resultado = v(pistas.res);
+        // Só é DRE com algum número útil: receita zero e resultado vazio é balancete/demonstração lida errado.
+        if ((receitaBruta !== null && receitaBruta !== 0) || resultado !== null) out.extracoes.push({ tipo: gerencial ? 'dre_gerencial' : 'dre_contabil', referencia: ref, dados: { exercicio: Number(ano), receitaBruta, resultado } }); }
     }
     if (out.extracoes.some((x) => x.referencia === ref)) return;
   }
