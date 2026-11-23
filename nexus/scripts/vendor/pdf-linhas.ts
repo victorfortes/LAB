@@ -1,6 +1,8 @@
 // Entrada do bundle de navegador (web/js/vendor/pdf/): extrai as linhas de texto de um PDF com o mesmo
 // algoritmo de src/server/qgc.ts#linhasDoPdf, para o navegador fazer o trabalho pesado em vez da função na nuvem.
-import { getDocumentProxy } from 'unpdf';
+import { getDocumentProxy, registerImageDecoders } from 'unpdf';
+// Decodificadores de imagem (JBIG2, JPEG 2000): sem eles, a página escaneada sai em branco para o OCR.
+registerImageDecoders();
 export async function linhasDoPdf(bytes: Uint8Array, aoProgredir?: (pagina: number, total: number) => void): Promise<string[][]> {
   const pdf = await getDocumentProxy(new Uint8Array(bytes));
   const paginas: string[][] = [];
@@ -17,4 +19,21 @@ export async function linhasDoPdf(bytes: Uint8Array, aoProgredir?: (pagina: numb
   }
   await (pdf as unknown as { destroy?: () => Promise<void> }).destroy?.();
   return paginas;
+}
+
+/** Abre o PDF uma vez e desenha cada página num canvas (para o OCR de documento digitalizado). */
+export async function abrirParaImagem(bytes: Uint8Array) {
+  const pdf = await getDocumentProxy(new Uint8Array(bytes));
+  return {
+    paginas: pdf.numPages,
+    async desenhar(numero: number, escala = 2): Promise<HTMLCanvasElement> {
+      const pagina = await pdf.getPage(numero);
+      const vp = pagina.getViewport({ scale: escala });
+      const canvas = document.createElement('canvas'); canvas.width = Math.ceil(vp.width); canvas.height = Math.ceil(vp.height);
+      const ctx = canvas.getContext('2d')!; ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+      await pagina.render({ canvasContext: ctx, viewport: vp } as never).promise;
+      return canvas;
+    },
+    async fechar() { await (pdf as unknown as { destroy?: () => Promise<void> }).destroy?.(); },
+  };
 }

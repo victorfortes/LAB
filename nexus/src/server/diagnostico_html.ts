@@ -238,10 +238,58 @@ const DESCR: Record<string, string> = {
   riscos: 'Fato, hipótese e pendência', conclusoes: 'Leitura de caminho, frentes de trabalho e limites',
 };
 
+// -------------------------------------------- leituras dos documentos do cliente ---
+type L = import('../domain/diagnostico/leituras_resumo.ts').ResumoDeLeituras;
+const dataBr = (iso: string | null | undefined) => (iso ? iso.split('-').reverse().join('/') : '·');
+const RJ_SELO: Record<string, [Tom, string]> = { fora: ['mal', 'Fora da RJ'], dentro: ['ok', 'Na RJ'], parcial: ['meio', 'Parcial'] };
+function blocosEndividamento(l: L): string[] {
+  const b: string[] = []; const R = l.resumoContratos;
+  if (R) {
+    b.push(linha(col(3, kpi(mi(R.totalContratado), `contratado em ${R.quantidade} contrato(s) lido(s)`)), col(3, kpi(mi(R.foraDaRj), 'com garantia fiduciária (fora da RJ, indício)', R.foraDaRj ? 'mal' : 'neutro')),
+      col(3, kpi(String(R.avalistas.length), 'avalista(s) identificado(s)', R.avalistas.length ? 'meio' : 'neutro')), col(3, kpi(String(R.comFundoGarantidor), 'contrato(s) com fundo garantidor (FGI/FGO)'))));
+    b.push(linha(col(12, `${titulo('Contratos de crédito lidos')}${tabela([{ t: 'Credor', w: '13%' }, { t: 'Instrumento' }, { t: 'Valor', n: true, w: '13%' }, { t: 'Taxa', w: '9%' }, { t: 'Garantias', w: '22%' }, { t: 'Enquadramento', w: '13%' }],
+      l.contratos.slice(0, 40).map((c) => [`<b>${esc(c.credor ?? '·')}</b>${c.numero ? `<span class="sub">nº ${esc(c.numero)}</span>` : ''}`, `${esc(c.instrumento)}<span class="sub">${esc(c.arquivo)}</span>`,
+        `${c.valor === null ? '·' : (c.moeda ?? 'BRL') === 'BRL' ? brl(c.valor) : `${esc(c.moeda)} ${dec(c.valor, 2)}`}${c.valorRotulo && /conferir/.test(c.valorRotulo) ? '<span class="sub">conferir</span>' : ''}`,
+        esc([c.taxaMes !== null ? `${dec(c.taxaMes, 2)}% a.m.` : '', c.taxaAno ? `${dec(c.taxaAno, 2)}% a.a.` : ''].filter(Boolean).join(' · ') || '·'),
+        esc([...c.garantias, c.fundoGarantidor].filter(Boolean).join(', ') || 'não identificada'), `${selo(...(RJ_SELO[c.enquadramento.rj] ?? RJ_SELO.parcial!))}<span class="sub">${esc(c.enquadramento.classe)}</span>`]))}${nota('Enquadramento indicativo pela garantia descrita no contrato (art. 49, § 3º e § 4º, e art. 41 da Lei 11.101/2005): conferir registro da garantia, valor dos bens e data do crédito antes de usar.')}`)));
+    if (R.porCredor.length) b.push(linha(col(12, `${titulo('Por credor')}${tabela([{ t: 'Credor' }, { t: 'Contratos', n: true, w: '12%' }, { t: 'Contratado', n: true, w: '18%' }, { t: 'Com garantia fiduciária', n: true, w: '22%' }], R.porCredor.map((p) => [`<b>${esc(p.credor)}</b>`, String(p.n), brl(p.total), brl(p.fora)]))}`)));
+  }
+  for (const e of l.endividamento.slice(0, 2)) b.push(linha(col(12, `${titulo(`Endividamento informado pelo cliente · saldo ${mi(e.totalSaldo)}`)}${tabela([{ t: 'Credor' }, { t: 'Modalidade' }, { t: 'Contratado', n: true }, { t: 'Saldo devedor', n: true }, { t: 'Parcelas', n: true, w: '9%' }],
+    e.itens.slice(0, 25).map((i) => [`<b>${esc(i.credor)}</b>`, esc(i.modalidade ?? '·'), brl(i.valorContrato), brl(i.saldoDevedor), i.parcelas === null ? '·' : String(i.parcelas)]))}${nota(`Fonte: ${esc(e.arquivo)}.`)}`)));
+  for (const q of l.qgc.slice(0, 1)) b.push(linha(col(5, `${titulo('Quadro de credores entregue')}${tabela([{ t: 'Classe' }, { t: 'Valor', n: true }], Object.entries(q.porClasse).map(([k, v]) => [/^(I|II|III|IV)$/.test(k) ? `Classe ${k}` : esc(k), brl(v)]))}${nota(`Sujeito à RJ: ${brl(q.totalSujeito)}. Fonte: ${esc(q.arquivo)}.`)}`),
+    col(7, `${titulo('Maiores credores')}${tabela([{ t: 'Credor' }, { t: 'Classe', w: '22%' }, { t: 'Valor', n: true, w: '24%' }], q.maiores.slice(0, 10).map((m) => [esc(m.credor), esc(/^(I|II|III|IV)$/.test(m.classe) ? `Classe ${m.classe}` : m.classe), brl(m.valor)]))}`)));
+  for (const s of l.scr.slice(0, 1)) b.push(linha(col(12, `${titulo(`SCR do Banco Central${s.referencia ? ` · ${s.referencia}` : ''}`)}<div class="dg-linha">${col(3, kpi(s.emDia === null ? '·' : mi(s.emDia), 'em dia'))}${col(3, kpi(s.vencida === null ? '·' : mi(s.vencida), 'vencida', s.vencida ? 'mal' : 'neutro'))}${col(3, kpi(s.coobrigacoes === null ? '·' : mi(s.coobrigacoes), 'coobrigações (avais e fianças)'))}${col(3, kpi(s.limites === null ? '·' : mi(s.limites), 'limites de crédito'))}</div>${s.instituicoes.length ? nota(`Instituições: ${s.instituicoes.slice(0, 12).map(esc).join('; ')}.`) : ''}`)));
+  return b;
+}
+function blocosFinanceiro(l: L): string[] {
+  const b: string[] = [];
+  if (l.contas.length) b.push(linha(col(12, `${titulo('Contas bancárias lidas dos extratos')}${tabela([{ t: 'Conta', w: '22%' }, { t: 'Meses', w: '16%' }, { t: 'Entradas', n: true }, { t: 'Saídas', n: true }, { t: 'Último saldo', n: true }, { t: 'Sinais', w: '24%' }],
+    l.contas.map((c) => [`<b>${esc(c.banco)}</b>${c.conta ? `<span class="sub">conta ${esc(c.conta)}</span>` : ''}`, `${c.meses.length} mês(es)<span class="sub">${c.mesesConferidos} fecham com o saldo${c.mesesSemConferencia ? `, ${c.mesesSemConferencia} a conferir` : ''}</span>`,
+      brl(c.entradas), brl(c.saidas), brl(c.saldoFinal), esc([c.sinais.bloqueioJudicial ? `bloqueio judicial ${brl(c.sinais.bloqueioJudicial)}` : '', c.sinais.servicoDivida ? `parcelas/empréstimos ${brl(c.sinais.servicoDivida)}` : '', c.sinais.devolucaoCheque ? `cheques devolvidos ${brl(c.sinais.devolucaoCheque)}` : ''].filter(Boolean).join('; ') || '·')]))}${nota('Entradas e saídas somam só os meses que fecham com o saldo informado pelo banco; os demais ficam para conferência.')}`)));
+  for (const f of l.fluxo.slice(0, 1)) b.push(linha(col(3, kpi(`${f.diasNegativos} de ${f.dias}`, 'dias com saldo projetado negativo', f.diasNegativos ? 'mal' : 'ok')), col(3, kpi(mi(f.piorSaldo), `pior saldo, em ${dataBr(f.piorDia)}`, f.piorSaldo < 0 ? 'mal' : 'neutro')), col(3, kpi(mi(f.entradas), 'entradas previstas')), col(3, kpi(mi(f.saidas), 'saídas previstas'))),
+    linha(col(12, nota(`Fluxo de caixa projetado de ${dataBr(f.de)} a ${dataBr(f.ate)} · ${esc(f.arquivo)}.`))));
+  for (const s of l.servicoDivida.slice(0, 1)) b.push(linha(col(12, `${titulo(`Serviço da dívida bancária${s.periodo ? ` · ${s.periodo}` : ''} · ${mi(s.total)}`)}${tabela([{ t: 'Banco' }, { t: 'Amortização', n: true }, { t: 'Juros', n: true }, { t: 'Total', n: true }, { t: '%', n: true, w: '8%' }], s.bancos.map((x) => [`<b>${esc(x.banco)}</b>`, brl(x.amortizacao), brl(x.juros), brl(x.total), dec((x.total / Math.max(1, s.total)) * 100)]))}${nota(`Fonte: ${esc(s.arquivo)}.`)}`)));
+  for (const f of l.fornecedores) b.push(linha(col(12, `${titulo(`Fornecedores · ${f.quantidade} · dez maiores = ${dec(f.percentualTop10)}% das compras`)}${tabela([{ t: 'Fornecedor' }, { t: 'Valor', n: true, w: '20%' }, { t: '%', n: true, w: '9%' }], f.top10.map((x) => [esc(x.nome), brl(x.valor), dec(x.percentual)]))}${nota(`Fonte: ${esc(f.arquivo)}. Fornecedor estratégico entra no plano (classe III/IV) e no risco de corte de insumo.`)}`)));
+  return b;
+}
+function blocosPatrimonio(l: L): string[] {
+  const b: string[] = [];
+  if (l.imoveis.length) b.push(linha(col(12, `${titulo(`Imóveis pelas matrículas · ${l.imoveis.filter((i) => !i.livre).length} com ônus`)}${tabela([{ t: 'Matrícula', w: '14%' }, { t: 'Comarca', w: '16%' }, { t: 'Área', w: '14%' }, { t: 'Ônus ativos' }, { t: 'Situação', w: '12%' }],
+    l.imoveis.map((i) => [`<b>nº ${esc(i.numero ?? '·')}</b><span class="sub">${esc(i.arquivo)}</span>`, esc(i.comarca ?? '·'), esc(i.area ?? '·'), esc(i.onus.filter((o) => !o.cancelado).map((o) => `${o.ato ? `${o.ato} ` : ''}${o.tipo}${o.credor ? ` (${o.credor})` : ''}`).join('; ') || 'nenhum'), selo(i.livre ? 'ok' : 'mal', i.livre ? 'Livre' : 'Onerado')]))}${nota('Lido por OCR quando a matrícula é digitalizada: conferir na certidão antes de usar.')}`)));
+  for (const so of l.sociedade.slice(0, 2)) b.push(linha(col(12, `${titulo(`Contrato social${so.empresa ? ` · ${so.empresa}` : ''}${so.capital !== null ? ` · capital ${brl(so.capital)}` : ''}`)}${so.socios.length ? tabela([{ t: 'Sócio' }, { t: 'CPF', w: '18%' }, { t: 'Quotas', n: true, w: '14%' }, { t: 'Valor', n: true, w: '16%' }], so.socios.map((x) => [`<b>${esc(x.nome)}</b>`, esc(x.documento ?? '·'), x.quotas === null ? '·' : x.quotas.toLocaleString('pt-BR'), brl(x.valor)])) : ''}${so.administradores.length ? nota(`Administração: ${so.administradores.map(esc).join('; ')}.`) : ''}${nota(`Fonte: ${esc(so.arquivo)}.`)}`)));
+  const R = l.resumoContratos; if (!R?.avalistas.length) return b;
+  return [...b, linha(col(12, `${titulo('Avalistas nos contratos lidos')}${tabela([{ t: 'Avalista' }, { t: 'CPF', w: '18%' }, { t: 'Contratos', n: true, w: '12%' }, { t: 'Valor garantido', n: true, w: '20%' }], R.avalistas.map((a) => [`<b>${esc(a.nome)}</b>`, esc(a.documento ?? '·'), String(a.contratos), brl(a.valor)]))}${nota('A recuperação judicial não alcança o avalista (Súmula 581 do STJ): o banco pode executá-lo. Levantar o patrimônio de cada um.')}`))];
+}
+function blocosDados(l: L): string[] {
+  if (!l.vigencias.length) return [];
+  return [linha(col(12, `${titulo('Validade de licenças, outorgas e apólices')}${tabela([{ t: 'Documento' }, { t: 'Número', w: '18%' }, { t: 'Vence em', w: '14%' }, { t: 'Situação', w: '14%' }], l.vigencias.map((v) => [`${esc(v.documento)}<span class="sub">${esc(v.arquivo)}</span>`, esc(v.numero ?? '·'), dataBr(v.vence), selo(v.vencido ? 'mal' : 'ok', v.vencido ? 'Vencido' : 'Vigente')]))}`))];
+}
+
 export function renderizarDiagnostico(r: RelatorioDiagnostico): string {
   const C = r.capa as RelatorioDiagnostico['capa'] & { cnpj?: string | null; segmento?: string | null };
   const J = r.juridico as RelatorioDiagnostico['juridico'] & Partial<{ comuns: Requisito[]; documentosArt51: { inciso: string; fundamento: string; documento: string; situacao: string; itens: number; entregues: number }[] }>;
   const M = r.endividamento[0];
+  const LT0 = (r as { leituras?: L | null }).leituras ?? null;
   const s: string[] = [];
   const nSec = (id: string) => SECOES.findIndex(([x]) => x === id) + 1;
   const sec = (id: (typeof SECOES)[number][0], manchete: string, lead: string, corpo: string[]) => s.push(secao(id, nSec(id), SECOES[nSec(id) - 1]![1], manchete, lead, corpo));
@@ -266,10 +314,13 @@ export function renderizarDiagnostico(r: RelatorioDiagnostico): string {
         { t: 'Pendente', v: B.respostas.pendente + B.respostas.marcado_sem_arquivo, cor: 'mal' }], (v) => `${v}`)}
         <div class="dg-linha" style="margin:5mm 0 0">${col(4, kpi(pct(B.percentuais.entregue, 0), 'dos itens entregues por completo', B.percentuais.entregue < 50 ? 'mal' : B.percentuais.entregue < 80 ? 'meio' : 'ok'))}${col(4, kpi(String(B.marcadosSemArquivo.length), 'marcados "sim" sem arquivo (tratados como pendentes)', B.marcadosSemArquivo.length ? 'meio' : 'neutro'))}${col(4, kpi(String(B.ilegiveis), 'arquivos sem leitura confiável', B.ilegiveis ? 'meio' : 'neutro'))}</div>
         ${B.marcadosSemArquivo.length ? nota(`Marcados "sim" sem arquivo: ${B.marcadosSemArquivo.slice(0, 6).map(esc).join('; ')}${B.marcadosSemArquivo.length > 6 ? '; e outros' : ''}.`) : ''}`)),
+    ...(LT0 ? blocosDados(LT0) : []),
     linha(col(12, `${titulo('Documentos lidos')}${B.documentos.length ? tabela([{ t: 'Área', w: '22%' }, { t: 'Documento' }, { t: 'Leitura', w: '30%' }], B.documentos.map((d) => [esc(d.area), esc(d.nome), `${selo(d.qualidade === 'boa' ? 'ok' : d.qualidade === 'ilegivel' ? 'mal' : 'meio', d.qualidade === 'boa' ? 'Lido' : d.qualidade === 'ilegivel' ? 'Ilegível' : 'Regular')}${d.detalhe ? `<span class="sub">${esc(d.detalhe)}</span>` : ''}`])) : vazio(['Documentos pelo portal do cliente'], 'Nenhum documento recebido.')}`)),
   ]);
 
   // 3. Endividamento por natureza
+  const LT = (r as { leituras?: L | null }).leituras ?? null;
+  const endL = LT ? blocosEndividamento(LT) : [];
   if (M) {
     const comp = r.endividamento[1];
     sec('endividamento', `Onde está a dor: ${M.principalDor?.categoria ?? 'passivo'}`, esc(M.principalDor?.texto ?? ''), [
@@ -278,8 +329,10 @@ export function renderizarDiagnostico(r: RelatorioDiagnostico): string {
       linha(col(12, `${titulo('Composição')}${tabela([{ t: 'Natureza', w: '20%' }, { t: 'Principais contas' }, { t: 'Classe (art. 41)', w: '17%' }, { t: 'RJ', w: '8%' }, { t: 'RE', w: '8%' }, { t: 'R$ mi', n: true, w: '9%' }, { t: '%', n: true, w: '7%' }],
         M.categorias.map((c) => [`<b>${esc(c.categoria)}</b>`, esc(c.contas.slice(0, 3).map((x) => x.conta).join(', ')), esc(CATEGORIA[c.categoria]?.classe ?? (c as { classe?: string }).classe ?? 'A definir'), selo(...(RJ[c.rj] ?? RJ.depende!)), selo(...(RE[c.re] ?? RE.depende!)), mi2(c.valor), dec(c.percentual)]),
         `<tr class="tot"><td>Total</td><td></td><td></td><td></td><td></td><td class="n">${mi2(M.total)}</td><td class="n">100,0</td></tr>`)}${comp ? nota(`Comparação: ${esc(comp.fonte)} soma ${mi(comp.total)}; maior fatia ${esc(comp.principalDor?.categoria ?? '')} (${dec(comp.principalDor?.percentual ?? 0)}%).`) : ''}`)),
+      ...endL,
     ]);
-  } else sec('endividamento', 'Mapa do endividamento', 'O passivo aberto por conta ainda não foi entregue; sem ele, não é possível medir o que a recuperação alcança.', [linha(col(12, vazio(['Balanço ou balancete com o passivo aberto por conta', 'Relatório consolidado de endividamento', 'Relação nominal de credores (art. 51, III)'])))]);
+  } else if (endL.length) sec('endividamento', LT?.resumoContratos ? `${LT.resumoContratos.quantidade} contrato(s) de crédito lidos · ${mi(LT.resumoContratos.totalContratado)}` : 'Endividamento pelos documentos do cliente', 'Contratos, quadro de credores, planilha de endividamento e SCR lidos dos arquivos entregues; cada linha indica a origem.', endL);
+  else sec('endividamento', 'Mapa do endividamento', 'O passivo aberto por conta ainda não foi entregue; sem ele, não é possível medir o que a recuperação alcança.', [linha(col(12, vazio(['Balanço ou balancete com o passivo aberto por conta', 'Relatório consolidado de endividamento', 'Relação nominal de credores (art. 51, III)'])))]);
 
   // 4. Sujeição à RJ e à RE
   const porRe = (k: string) => (M ? M.categorias.filter((c) => c.re === k).reduce((t, c) => t + c.valor, 0) : 0);
@@ -357,6 +410,7 @@ export function renderizarDiagnostico(r: RelatorioDiagnostico): string {
     fin.push(linha(col(F2.abc ? 7 : 12, `${titulo('Passivo por fonte (R$ mi)')}${tabela([{ t: 'Fonte' }, { t: 'Passivo total', n: true }, { t: 'Passivo fiscal', n: true }], P.fontes.map((f) => [`${esc(f.fonte)}${ref(f.ref)}`, mi2(f.total), mi2(f.fiscal)]))}${nota(`Faixa do passivo total: ${brl(P.total.minimo)} a ${brl(P.total.maximo)}.${P.fiscal ? ` Passivo fiscal: ${brl(P.fiscal.minimo)} a ${brl(P.fiscal.maximo)}.` : ''} A divergência entre fontes é mostrada como faixa, nunca como média.`)}`),
       F2.abc ? col(5, `${titulo('Concentração de clientes')}<div class="dg-linha" style="margin-bottom:3mm">${col(4, kpi(pct(F2.abc.top1), 'maior cliente'))}${col(4, kpi(pct(F2.abc.top5), 'cinco maiores'))}${col(4, kpi(pct(F2.abc.top10), 'dez maiores'))}</div>${(F2.abc as { principais?: { nome: string; valor: number; percentual: number | null }[] }).principais?.length ? tabela([{ t: 'Cliente' }, { t: '%', n: true }], (F2.abc as { principais: { nome: string; percentual: number | null }[] }).principais.slice(0, 6).map((c) => [esc(c.nome), c.percentual === null ? '·' : dec(c.percentual)])) : ''}`) : ''));
   }
+  if (LT0) fin.push(...blocosFinanceiro(LT0));
   const ex0 = !('semDados' in F1) ? [...F1.extratos].sort((a, b) => b.entradasTotal - a.entradasTotal)[0] : undefined;
   sec('financeiro', ex0?.percentualFomentoNasEntradas != null && ex0.percentualFomentoNasEntradas >= 25 ? `Caixa dependente de fomento: ${dec(ex0.percentualFomentoNasEntradas, 0)}% das entradas no ${ex0.banco}` : 'Extratos, passivo e clientes', 'Movimento bancário classificado pela contraparte (fomento, tributos, cartórios, partes relacionadas). O passivo aparece por fonte, com a faixa entre elas.',
     fin.length ? fin : [linha(col(12, vazio([...('semDados' in F1 ? F1.pedir : []), ...('semDados' in F2 ? F2.pedir : [])])))]);
@@ -371,6 +425,7 @@ export function renderizarDiagnostico(r: RelatorioDiagnostico): string {
     if (S.alertas.length) pat.push(linha(col(12, `${titulo('O que olhar')}${S.alertas.map((a) => `<div class="dg-it ${a.tom === 'erro' ? 'mal' : 'meio'}"><b>${esc(a.titulo)}.</b> ${esc(a.detalhe)}</div>`).join('')}`)));
   } else pat.push(linha(col(12, vazio(P.pedir))));
   if (P.parteRelacionadaPorBanco.some((b) => b.entradas || b.saidas)) pat.push(linha(col(12, `${titulo('Fluxos com partes relacionadas nos extratos')}${tabela([{ t: 'Conta' }, { t: 'Entradas', n: true }, { t: 'Saídas', n: true }, { t: 'Líquido', n: true }], P.parteRelacionadaPorBanco.map((b) => [esc(b.banco), brl(b.entradas), brl(b.saidas), `<span class="${neg(b.liquido).trim()}">${brl(b.liquido)}</span>`]))}${nota('Créditos de sócios e de empresas do grupo não votam na assembleia (art. 43) nem contam na adesão da RE (art. 163, § 3º, II).')}`)));
+  if (LT0) pat.push(...blocosPatrimonio(LT0));
   sec('patrimonio', S?.garantidores ? 'Sócios garantidores com patrimônio exposto' : 'Patrimônio dos sócios e grupo econômico', 'Bens declarados ou levantados, ônus e garantias prestadas pelos sócios. A relação de bens particulares dos sócios controladores e administradores instrui a petição (art. 51, VI).', pat);
 
   // 11. Riscos

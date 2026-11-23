@@ -26,6 +26,8 @@ export interface EntradaDoDiagnostico {
   foraDoChecklist?: string[];
   /** Avisos da leitura automática de planilhas (layout não reconhecido, linhas ignoradas). Entram em "Limites desta análise". */
   avisosDeLeitura?: string[];
+  /** O que os leitores de documentos extraíram (extratos, contratos, QGC, fluxo...), já consolidado. */
+  leituras?: import('./leituras_resumo.ts').ResumoDeLeituras;
   /** Mapa do endividamento por natureza (balanço e balancete mais recentes). */
   endividamento?: MapaDoEndividamento[];
   /** Respostas do cliente ao checklist em planilha; quando existem, a cobertura usa elas. */
@@ -101,7 +103,8 @@ export function montarRelatorio(e: EntradaDoDiagnostico) {
     patrimonio: { semDados: !e.socios?.socios.length, socios: e.socios?.socios.length ? e.socios : null, pedir: ['Relação de bens da empresa e dos sócios', 'IRPF dos sócios e avalistas', 'Matrículas imobiliárias atualizadas', 'Organograma e empresas do grupo'], parteRelacionadaPorBanco: extratos.map((x) => ({ banco: x.banco, ...x.grupos.parteRelacionada })) },
     juridico: { ...juridico, aviso: 'Leitura indicativa a partir dos documentos, conferida com a Lei 11.101/2005 na redação da Lei 14.112/2020. Confira os julgados antes de usar em peça.' },
     endividamento: e.endividamento ?? [],
-    riscos,
+    riscos: [...riscos, ...((e.leituras?.riscos ?? []) as typeof riscos)],
+    leituras: e.leituras ?? null,
     proximosPassos: [
       { frente: 'Esclarecer com o contador', itens: ['Diferenças entre faturamento fiscal e gerencial', 'Contas de ajuste e saldos com sócios'] },
       { frente: 'Completar a contabilidade', itens: ['Exercícios e balancetes ausentes', 'Razão analítico das contas relevantes'] },

@@ -8,6 +8,7 @@ import { auditar } from '../store/conexao.ts';
 import type { Identidade } from '../security/sessao.ts';
 import { NaoEncontrado, PedidoInvalido } from './erros.ts';
 import { compararVersoes, montarRelatorio, type DocumentoLido, type RelatorioDiagnostico } from '../domain/diagnostico/relatorio.ts';
+import { resumirLeituras } from '../domain/diagnostico/leituras_resumo.ts';
 import type { Qualidade } from '../domain/diagnostico/analises.ts';
 import { renderizarDiagnostico } from './diagnostico_html.ts';
 import { lerPlanilha, type ExtracaoLida } from '../domain/diagnostico/planilhas.ts';
@@ -73,11 +74,11 @@ export async function pendentesDeLeitura(db: PoolClient, projetoId: string) {
  * interpreta texto, que é barato — era a abertura do PDF aqui dentro que estourava o tempo (504) com cliente
  * de muitos documentos. Planilha é lida aqui. `erro` registra a falha do navegador para o arquivo não voltar à fila.
  */
-export async function lerDocumento(db: PoolClient, projetoId: string, documentoId: string, dep: Deposito, identidade: Identidade, opcoes: { paginas?: string[][]; erro?: string } = {}) {
+export async function lerDocumento(db: PoolClient, projetoId: string, documentoId: string, dep: Deposito, identidade: Identidade, opcoes: { paginas?: string[][]; erro?: string; ocr?: boolean } = {}) {
   const { rows: pj } = await db.query<{ organizacao_id: string }>('SELECT organizacao_id FROM projetos WHERE id = $1', [projetoId]);
   if (!pj[0]) throw new NaoEncontrado('projeto não encontrado');
-  const { rows: docs } = await db.query<{ id: string; nome: string; hash_sha256: string | null; tamanho: number | null }>(
-    `SELECT d.id, coalesce(d.nome_original, d.titulo) AS nome, d.hash_sha256, d.tamanho_bytes::int AS tamanho FROM documentos d WHERE d.id = $1 AND d.projeto_id = $2`, [documentoId, projetoId]);
+  const { rows: docs } = await db.query<{ id: string; nome: string; titulo: string; hash_sha256: string | null; tamanho: number | null }>(
+    `SELECT d.id, coalesce(d.nome_original, d.titulo) AS nome, coalesce(d.titulo, '') || ' ' || coalesce(d.categoria, '') AS titulo, d.hash_sha256, d.tamanho_bytes::int AS tamanho FROM documentos d WHERE d.id = $1 AND d.projeto_id = $2`, [documentoId, projetoId]);
   const d = docs[0]; if (!d) throw new NaoEncontrado('documento não encontrado');
   const ehPdf = /\.pdf$/i.test(d.nome);
   let r: { extracoes: ExtracaoLida[]; avisos: string[] };
@@ -89,9 +90,9 @@ export async function lerDocumento(db: PoolClient, projetoId: string, documentoI
       if (!paginas) throw new Error('o texto do PDF não veio da tela');
       r = paginas.flat().join('').length < 40 * Math.max(1, paginas.length)
         ? { extracoes: [], avisos: [`${d.nome}: PDF digitalizado (sem texto). OCR não disponível neste servidor; números deste arquivo não foram lidos.`] }
-        : lerDocumentoPdf(d.nome, paginas);
+        : lerDocumentoPdf(d.nome, paginas, d.titulo);
     } else r = lerPlanilha(d.nome, await lerConteudoDocumento(db, d.id, dep, chaveDoHash(d.hash_sha256!), d.hash_sha256!));
-    for (const x of r.extracoes) { await db.query(`INSERT INTO diagnostico_extracoes (organizacao_id, projeto_id, documento_id, tipo, referencia, dados, qualidade, origem, criado_por) VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9)`, [pj[0].organizacao_id, projetoId, d.id, x.tipo, x.referencia, JSON.stringify(x.dados), ehPdf ? 'regular' : 'boa', ehPdf ? 'pdf_texto' : 'planilha', identidade.usuarioId]); }
+    for (const x of r.extracoes) { await db.query(`INSERT INTO diagnostico_extracoes (organizacao_id, projeto_id, documento_id, tipo, referencia, dados, qualidade, origem, criado_por) VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9)`, [pj[0].organizacao_id, projetoId, d.id, x.tipo, x.referencia, JSON.stringify(x.dados), ehPdf ? 'regular' : 'boa', ehPdf ? (opcoes.ocr ? 'pdf_ocr' : 'pdf_texto') : 'planilha', identidade.usuarioId]); }
     await db.query('RELEASE SAVEPOINT leitura_doc');
   } catch (e) {
     await db.query('ROLLBACK TO SAVEPOINT leitura_doc');
@@ -208,13 +209,29 @@ export async function gerar(db: PoolClient, projetoId: string, motivo: 'manual' 
   const quem = (await db.query<{ nome: string }>('SELECT nome FROM usuarios WHERE id = $1', [identidade.usuarioId])).rows[0]?.nome ?? 'sistema';
   const hoje = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
 
+  // Extratos em PDF: uma linha do tempo por conta, só com os meses que fecham com o saldo do banco.
+  const leituras = resumirLeituras(ex as never, hoje);
+  const porConta = new Map<string, { banco: string; saldoInicial: number | null; linhas: unknown[]; refs: string[]; de: string }>();
+  const extratosParaAnalise: unknown[] = [];
+  for (const x of com('extrato')) {
+    const d = x.dados as { banco: string; conta?: string | null; periodo?: { de: string | null }; confere?: boolean | null; saldoInicial?: number | null; linhas: unknown[] };
+    if (!d.periodo) { extratosParaAnalise.push({ ...d, ref: refDe(x.referencia) }); continue; }
+    if (d.confere !== true) continue;
+    const k = `${d.banco}|${String(d.conta ?? '').replace(/\D/g, '').replace(/^0+/, '')}`;
+    const c = porConta.get(k) ?? { banco: `${d.banco}${d.conta ? ` · ${d.conta}` : ''}`, saldoInicial: null, linhas: [], refs: [], de: '9999' };
+    if ((d.periodo.de ?? '9999') < c.de) { c.de = d.periodo.de ?? c.de; c.saldoInicial = d.saldoInicial ?? null; }
+    c.linhas.push(...d.linhas); c.refs.push(refDe(x.referencia).arquivo); porConta.set(k, c);
+  }
+  for (const c of porConta.values()) extratosParaAnalise.push({ banco: c.banco, saldoInicial: c.saldoInicial ?? undefined, linhas: c.linhas, ref: { arquivo: `${c.refs.length} extrato(s) mensal(is)` } });
+
   const relatorio = montarRelatorio({
+    leituras,
     projeto: { nome: pj[0].nome, razaoSocial: pj[0].razao, posicao: pj[0].posicao_cliente, cnpj: pj[0].cnpj, segmento: pj[0].segmento }, dataBase: hoje, geradoPor: quem, versao: numero,
     documentos, checklist, portal,
     balancos: com('balanco').filter((x) => ['ativoCirculante', 'ativoNaoCirculante', 'passivoCirculante', 'passivoNaoCirculante', 'patrimonioLiquido'].every((k) => typeof (x.dados as Record<string, unknown>)[k] === 'number')).map((x) => ({ ...(x.dados as object), ref: refDe(x.referencia) }) as never),
     dres: [...com('dre_contabil').map((x) => ({ ...(x.dados as object), tipo: 'contabil', ref: refDe(x.referencia) })), ...com('dre_gerencial').map((x) => ({ ...(x.dados as object), tipo: 'gerencial', ref: refDe(x.referencia) }))] as never,
     faturamento: juntarFaturamento(com('faturamento') as unknown as ExtracaoLida[]).map((f) => ({ ano: f.ano, fiscal: f.fiscal, gerencial: f.gerencial, outros: f.outros, mesesFiscal: f.mesesFiscal, mesesGerencial: f.mesesGerencial, ref: refDe(f.refs[0]!) }) as never),
-    extratos: com('extrato').map((x) => ({ ...(x.dados as object), ref: refDe(x.referencia) }) as never),
+    extratos: extratosParaAnalise as never,
     passivo: [...fontesDePassivo.map((x) => ({ ...(x.dados as object), ref: refDe(x.referencia) }) as never), ...passivoDoBalancete],
     endividamento, respostasCliente,
     clientesAbc: com('clientes_abc').flatMap((x) => ((x.dados as { clientes?: { nome: string; valor: number }[] }).clientes ?? []).map((c) => ({ ...c, ref: refDe(x.referencia) }))),

@@ -14,6 +14,7 @@
 import type { ExtracaoLida, ResultadoDaLeitura } from './planilhas.ts';
 import { lerTextoDeDemonstracao } from './planilhas.ts';
 import type { LinhaBalancete } from '../insolvencia/balancete.ts';
+import { consertarTexto, lerPorTipo } from './leitores.ts';
 
 export const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
 
@@ -175,8 +176,13 @@ function lerBalanceteGerencial(arquivo: string, paginas: string[][], out: Result
 // ------------------------------------------------------------------- entrada ---
 
 /** Reconhece o documento pelo conteúdo e extrai o que souber. Nunca inventa: o que não reconhece vira aviso. */
-export function lerDocumentoPdf(arquivo: string, paginas: string[][]): ResultadoDaLeitura {
+export function lerDocumentoPdf(arquivo: string, paginasBrutas: string[][], contexto = ''): ResultadoDaLeitura {
   const out: ResultadoDaLeitura = { extracoes: [], avisos: [] };
+  // Extrato, contrato de crédito, SCR, apólice e licença têm leitor próprio (leitores.ts); o resto segue abaixo.
+  const tipo = lerPorTipo(arquivo, contexto, paginasBrutas, out);
+  if (tipo && out.extracoes.length) return out;
+  out.avisos = [];
+  const paginas = consertarTexto(paginasBrutas);
   if (lerBalanceteGerencial(arquivo, paginas, out)) return out;
   let algum = false;
   paginas.forEach((linhas, i) => {

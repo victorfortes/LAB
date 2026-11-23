@@ -11,6 +11,7 @@ import { pode } from '../estado.js';
 import { dataHoraBR, html, icone, ouvir } from '../util.js';
 import { erroDe, formulario, modal, toast, vazio } from '../ui.js';
 import { paginar } from '../diag_paginar.js';
+import { ocrDoPdf, precisaOcr } from '../ocr.js';
 
 const TIPOS = [['balanco', 'Balanço (por exercício)'], ['dre_contabil', 'DRE contábil'], ['dre_gerencial', 'DRE gerencial'], ['faturamento', 'Faturamento (fiscal x gerencial)'], ['extrato', 'Extrato bancário'], ['passivo_fonte', 'Passivo por fonte'], ['clientes_abc', 'Clientes (curva ABC)'], ['partes_relacionadas', 'Partes relacionadas (nomes)'], ['checklist_respostas', 'Respostas do checklist']];
 const MODELO = {
@@ -39,7 +40,12 @@ export async function gerarComProgresso(ctx, botao) {
           leitor ??= import('../vendor/pdf/pdf-linhas.js');
           const { url } = await api.post(`/api/documentos/${d.id}/link`);
           const bytes = new Uint8Array(await (await fetch(url, { credentials: 'same-origin' })).arrayBuffer());
-          const paginas = await (await leitor).linhasDoPdf(bytes, (p, n) => mostrar(`Lendo arquivo ${feitos + 1} de ${total} · página ${p} de ${n}…`));
+          let paginas = await (await leitor).linhasDoPdf(bytes, (p, n) => mostrar(`Lendo arquivo ${feitos + 1} de ${total} · página ${p} de ${n}…`));
+          // Digitalizado ou com fonte embaralhada: OCR aqui no navegador.
+          if (precisaOcr(paginas)) {
+            const r = await ocrDoPdf(bytes, { aoProgredir: (p, n) => mostrar(`Lendo arquivo ${feitos + 1} de ${total} · reconhecendo texto (OCR) da página ${p} de ${n}…`) });
+            if (r.paginas.flat().join('').length > 80) { paginas = r.paginas; corpo = { ...corpo, ocr: true }; if (r.truncado) avisos.push(`${d.nome}: OCR feito nas primeiras ${r.paginas.length} de ${r.totalPaginas} páginas.`); }
+          }
           corpo = { ...corpo, paginas };
         } catch (e) { corpo = { ...corpo, erro: e.message }; }
       }

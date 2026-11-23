@@ -82,6 +82,8 @@ describe('arquivos', () => {
   });
   test('o CSP não admite script inline nem de terceiros', () => {
     const s = CSP.split('; ').find((d) => d.startsWith('script-src'))!;
-    expect(s).toBe("script-src 'self'");
+    // 'wasm-unsafe-eval' só libera compilar WebAssembly (OCR e RAR no navegador); script inline e de terceiros continuam proibidos.
+    expect(s).toBe("script-src 'self' 'wasm-unsafe-eval'");
+    expect(s).not.toContain("'unsafe-inline'"); expect(s).not.toMatch(/'unsafe-eval'(?!.)|https?:/);
   });
 });

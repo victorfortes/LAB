@@ -1604,9 +1604,9 @@ export function criarApp(ctx: Contexto) {
         exigir(identidade.papeis, 'analise.executar');
         if (metodo === 'GET') return json(await como((db) => diagVersoes.pendentesDeLeitura(db, mDiagLeit[1]!)));
         if (metodo === 'POST') {
-          const corpo = z.object({ documentoId: z.string().uuid().optional(), paginas: z.array(z.array(z.string().max(20_000)).max(20_000)).max(5_000).optional(), erro: z.string().max(500).optional() }).safeParse(await req.json().catch(() => ({})));
+          const corpo = z.object({ documentoId: z.string().uuid().optional(), paginas: z.array(z.array(z.string().max(20_000)).max(20_000)).max(5_000).optional(), erro: z.string().max(500).optional(), ocr: z.boolean().optional() }).safeParse(await req.json().catch(() => ({})));
           if (!corpo.success) return erro('dados inválidos', 400, corpo.error.issues.slice(0, 3));
-          if (corpo.data.documentoId) return json(await como((db) => diagVersoes.lerDocumento(db, mDiagLeit[1]!, corpo.data.documentoId!, deposito, identidade, { paginas: corpo.data.paginas, erro: corpo.data.erro })));
+          if (corpo.data.documentoId) return json(await como((db) => diagVersoes.lerDocumento(db, mDiagLeit[1]!, corpo.data.documentoId!, deposito, identidade, { paginas: corpo.data.paginas, erro: corpo.data.erro, ocr: corpo.data.ocr })));
           return json(await como((db) => diagVersoes.lerProximo(db, mDiagLeit[1]!, deposito, identidade, ctx.limitePdfBytes)));
         }
         return erro('método não permitido', 405);

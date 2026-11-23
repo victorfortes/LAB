@@ -7,7 +7,7 @@
  * executa código nem lê cookie HttpOnly.
  */
 export const CSP = [
-  "default-src 'self'", "script-src 'self'", "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+  "default-src 'self'", "script-src 'self' 'wasm-unsafe-eval'", "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' https://fonts.gstatic.com", "img-src 'self' data: blob: https://*.slack-edge.com https://secure.gravatar.com https://*.gravatar.com", "connect-src 'self' https://*.supabase.co",
   // Visualizar documento e vídeo de boas-vindas sem baixar: o arquivo vira blob: da própria página.
   "frame-src 'self' blob:", "media-src 'self' blob:",

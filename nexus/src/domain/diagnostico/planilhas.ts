@@ -5,8 +5,9 @@
  */
 import { lerXlsx } from '../analise/planilha.ts';
 import { csv, dataBr, valorBr } from '../financeiro/importacao.ts';
+import { lerPlanilhaFinanceira } from './leitores.ts';
 
-export interface ExtracaoLida { tipo: 'balanco' | 'dre_contabil' | 'dre_gerencial' | 'faturamento' | 'extrato' | 'clientes_abc' | 'passivo_fonte' | 'checklist_respostas'; referencia: string; dados: Record<string, unknown> }
+export interface ExtracaoLida { tipo: 'balanco' | 'dre_contabil' | 'dre_gerencial' | 'faturamento' | 'extrato' | 'clientes_abc' | 'passivo_fonte' | 'checklist_respostas' | 'contrato_credito' | 'scr' | 'vigencia' | 'endividamento' | 'qgc' | 'fornecedores_abc' | 'servico_divida' | 'fluxo_projetado' | 'documento' | 'matricula' | 'contrato_social'; referencia: string; dados: Record<string, unknown> }
 export interface ResultadoDaLeitura { extracoes: ExtracaoLida[]; avisos: string[] }
 
 const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
@@ -94,6 +95,15 @@ export function lerPlanilha(arquivo: string, bytes: Uint8Array): ResultadoDaLeit
     const itens = t.linhas.filter((l) => /^\d+\.\s/.test((l[0] ?? '').trim()) && /^\d+\.\s/.test((l[1] ?? '').trim()))
       .map((l) => ({ area: l[0]!.replace(/^\d+\.\s*/, '').trim(), numero: Number(/^(\d+)/.exec(l[1]!.trim())![1]), titulo: l[1]!.replace(/^\d+\.\s*/, '').trim(), resposta: (l[2] ?? '').trim() }));
     if (itens.length >= 5) { out.extracoes.push({ tipo: 'checklist_respostas', referencia: `${arquivo} | ${t.aba}`, dados: { itens } }); t.linhas = []; }
+  }
+  // Endividamento, QGC, curva ABC de fornecedores, serviço da dívida e fluxo de caixa (leitores.ts).
+  const financeira: ResultadoDaLeitura = { extracoes: [], avisos: [] };
+  if (lerPlanilhaFinanceira(arquivo, tabelas.filter((t) => t.linhas.length >= 2), financeira)) {
+    // Reconhecida: o leitor de demonstrações só completa com balanço, DRE e faturamento, sem avisos de layout.
+    const demo: ResultadoDaLeitura = { extracoes: [], avisos: [] };
+    for (const t of tabelas) { if (t.linhas.length < 2) continue; try { lerTabela(arquivo, t.aba, t.linhas, demo); } catch { /* já lida pela leitura financeira */ } }
+    out.extracoes.push(...financeira.extracoes, ...demo.extracoes.filter((x) => ['balanco', 'dre_contabil', 'dre_gerencial', 'faturamento'].includes(x.tipo)));
+    return out;
   }
   for (const t of tabelas) { if (t.linhas.length < 2) continue; try { lerTabela(arquivo, t.aba, t.linhas, out); } catch (e) { out.avisos.push(`${arquivo} | ${t.aba}: falha na leitura (${(e as Error).message})`); } }
   if (!out.extracoes.length && !out.avisos.length) out.avisos.push(`${arquivo}: planilha vazia`);

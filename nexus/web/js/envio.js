@@ -162,8 +162,13 @@ async function processar(it) {
     const prep = await api.post('/api/arquivos/envio', { projetoId, tamanho: it.tamanho, hash, nome: it.nome });
     const campos = it.campos;
     it.estado = 'enviando'; pintarItem(it);
-    if (prep.modo === 'storage') {
-      if (!prep.jaExiste) await xhr('PUT', prep.url, it.file, { 'content-type': it.file.type || 'application/octet-stream', 'x-upsert': 'false' }, (f) => { it.pct = f * 0.97; pintarItem(it); });
+    let modo = prep.modo;
+    if (modo === 'storage' && !prep.jaExiste) {
+      // Se o envio direto falhar (rede, política do navegador), cai no envio pela API sem o cliente perceber.
+      try { await xhr('PUT', prep.url, it.file, { 'content-type': it.file.type || 'application/octet-stream', 'x-upsert': 'false' }, (f) => { it.pct = f * 0.97; pintarItem(it); }); }
+      catch { modo = 'direto'; it.pct = 0; }
+    }
+    if (modo === 'storage') {
       it.estado = 'registrando'; pintarItem(it);
       const r = await api.post(`/api/projetos/${projetoId}/documentos`, { hash, nome: it.nome, tamanho: it.tamanho, ...campos });
       it.nota = r?.desarmado ? 'recebido · script do PDF desativado' : '';
