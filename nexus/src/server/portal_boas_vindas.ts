@@ -26,7 +26,7 @@ export async function estado(db: PoolClient, i: Identidade) {
   const lido = new Map(rows.map((r) => [r.chave, r]));
   const { rows: [cfg] } = await db.query<{ contatos: unknown[]; video_url: string | null }>('SELECT * FROM portal_contatos_oficiais()');
   const manuais = MANUAIS.map((m) => ({ chave: m.chave, lido: (lido.get(m.chave)?.versao ?? 0) >= m.versao, lidoEm: lido.get(m.chave)?.lido_em ?? null }));
-  return { pendente: manuais.some((m) => !m.lido), manuais, contatos: cfg?.contatos?.length ? cfg.contatos : PADRAO, videoUrl: cfg?.video_url ?? '/video/boas-vindas.webm' };
+  return { pendente: manuais.some((m) => !m.lido), manuais, contatos: cfg?.contatos?.length ? cfg.contatos : PADRAO, videoUrl: cfg?.video_url ?? '/video/boas-vindas.webm?v=2311' };
 }
 
 export async function registrarLeitura(db: PoolClient, d: z.infer<typeof EsquemaLeitura>, i: Identidade) {

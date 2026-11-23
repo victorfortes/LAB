@@ -9,7 +9,7 @@ import { avisosDoCliente, onboardingDoCliente } from './avisos_portal.js';
 import { abaManuais, boasVindas } from '../manuais.js';
 import { RECURSOS } from '../recursos.js';
 import { api } from '../api.js';
-import { arquivosDoDrop, enviarDocumentos } from '../envio.js';
+import { arquivosDoDrop, enviarDocumentos } from '../envio.js?v=2311';
 import { imprimirFatura, verFatura } from '../fatura_modelo.js';
 import { estado, pode } from '../estado.js';
 import { anel } from '../fx.js';

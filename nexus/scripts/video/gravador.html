@@ -1,0 +1,58 @@
+<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Gravador</title>
+<style>body{margin:0;background:#000;color:#fff;font:14px sans-serif}canvas{display:block;width:960px;height:540px}#st{padding:8px}</style></head>
+<body><canvas id="c" width="1280" height="720"></canvas><div id="st">pronto</div><button id="go">Gravar</button><button id="prev">Prévia</button>
+<script>
+const c = document.getElementById('c'), g = c.getContext('2d'), W = 1280, H = 720;
+// Logo oficial do escritório (web/img/nga-adv.png, 250x69): servida pelo gravador como /logo.png.
+const LOGO = new Image(); LOGO.src = '/logo.png'; const logoPronta = new Promise((r) => { LOGO.onload = r; LOGO.onerror = r; });
+const logo = (x, y, largura, alinha = 'left') => { const h = largura * 69 / 250; g.drawImage(LOGO, alinha === 'center' ? x - largura / 2 : x, y, largura, h); return h; };
+const AMBAR = '#F0A32E', FUNDO = '#0b1322', CARD = '#131f34', SEP = '#263655', TXT = '#eef2f8', TXT2 = '#9fb0c8', VERDE = '#2EE6A0', AZUL = '#6DD3F5', VERM = '#FF6B6B';
+const ease = (t) => t < 0 ? 0 : t > 1 ? 1 : 1 - Math.pow(1 - t, 3);
+function rr(x, y, w, h, r, fill, stroke) { g.beginPath(); g.roundRect(x, y, w, h, r); if (fill) { g.fillStyle = fill; g.fill(); } if (stroke) { g.strokeStyle = stroke; g.lineWidth = 2; g.stroke(); } }
+function txt(s, x, y, size, cor = TXT, peso = 600, alinha = 'left') { g.font = `${peso} ${size}px -apple-system, "Helvetica Neue", Arial, sans-serif`; g.fillStyle = cor; g.textAlign = alinha; g.fillText(s, x, y); }
+function fundo(t) { const gr = g.createRadialGradient(200, -100, 50, 200, -100, 1100); gr.addColorStop(0, '#1d2d4e'); gr.addColorStop(1, FUNDO); g.fillStyle = gr; g.fillRect(0, 0, W, H);
+  logo(60, 36, 150); }
+function legenda(s, t) { const a = ease(t * 3); g.globalAlpha = a; rr(60, H - 110, W - 120, 64, 16, 'rgba(0,0,0,.45)'); txt(s, W / 2, H - 68, 24, TXT, 600, 'center'); g.globalAlpha = 1; }
+function cursor(x, y, clique) { g.save(); g.translate(x, y); g.fillStyle = '#fff'; g.beginPath(); g.moveTo(0, 0); g.lineTo(0, 26); g.lineTo(7, 20); g.lineTo(12, 31); g.lineTo(17, 29); g.lineTo(12, 18); g.lineTo(21, 18); g.closePath(); g.fill(); g.strokeStyle = '#000'; g.lineWidth = 1.5; g.stroke();
+  if (clique > 0) { g.beginPath(); g.arc(0, 0, 10 + clique * 26, 0, 7); g.strokeStyle = `rgba(240,163,46,${1 - clique})`; g.lineWidth = 3; g.stroke(); } g.restore(); }
+function janela(titulo) { rr(170, 120, 940, 440, 22, CARD, SEP); rr(170, 120, 230, 440, 22, '#0f1a2c'); ['Visão geral', 'Andamento', 'Documentos', 'Atas', 'Faturas', 'Manuais'].forEach((m, i) => { const sel = m === titulo; if (sel) rr(186, 158 + i * 50, 198, 40, 12, 'rgba(240,163,46,.16)'); txt(m, 206, 184 + i * 50, 17, sel ? AMBAR : TXT2, sel ? 700 : 500); }); }
+const ITENS = [['Balancete dos últimos 12 meses', 'Art. 51, II'], ['Relação de credores', 'Art. 51, III'], ['Contrato social atualizado', 'Art. 51, V'], ['Certidões negativas', 'Art. 57']];
+function lista(t, estados, destaque) { txt('Documentos', 430, 172, 26, TXT, 800); txt('O que o escritório precisa, com o motivo de cada pedido', 430, 198, 15, TXT2, 500);
+  ITENS.forEach(([n, f], i) => { const y = 222 + i * 78; const a = ease(t * 2 - i * .25); g.globalAlpha = a; rr(430, y, 650, 64, 14, i === destaque ? 'rgba(240,163,46,.1)' : '#16243c', i === destaque ? AMBAR : SEP);
+    txt(n, 452, y + 28, 18, TXT, 700); txt(f, 452, y + 50, 13.5, TXT2, 500); const [rot, cor] = estados[i]; rr(930, y + 18, 130, 28, 14, cor + '33'); txt(rot, 995, y + 37, 13.5, cor, 700, 'center'); g.globalAlpha = 1; }); }
+const PEND = ['Pendente', '#9fb0c8'], ENV = ['Enviado', AZUL], APR = ['Aprovado', VERDE], COMP = ['Complementar', AMBAR];
+const CENAS = [
+  (t) => { fundo(); const a = ease(t * 1.5); g.globalAlpha = a; logo(W / 2, 150, 300, 'center'); txt('Bem-vindo ao portal', W / 2, 330, 64, TXT, 800, 'center'); txt('do cliente', W / 2, 400, 64, AMBAR, 800, 'center'); txt('Como enviar os seus documentos · 1 minuto', W / 2, 460, 22, TXT2, 500, 'center'); g.globalAlpha = 1; },
+  (t) => { fundo(); janela(t > .25 ? 'Documentos' : 'Visão geral'); if (t > .25) lista((t - .25) * 2, [PEND, PEND, PEND, PEND], -1); const k = ease(t * 3); cursor(500 - 200 * k, 400 - 120 * k + 15, t > .22 && t < .32 ? (t - .22) * 10 : 0); legenda('No menu, abra Documentos', t); },
+  (t) => { fundo(); janela('Documentos'); lista(1, [PEND, PEND, PEND, PEND], 0); const k = ease(t * 2.5); cursor(1000 - 20 * k, 300 - 40 * k, t > .35 && t < .45 ? (t - .35) * 10 : 0);
+    if (t > .42) { const a = ease((t - .42) * 4); g.globalAlpha = a; rr(380, 240, 520, 260, 20, '#0e1830', AMBAR); txt('Escolha o arquivo', 640, 290, 24, TXT, 800, 'center'); rr(440, 320, 400, 70, 14, '#16243c', SEP); txt('📄  balancete_2025.pdf', 470, 364, 19, TXT, 600);
+      rr(440, 420, 400, 12, 6, '#22324f'); rr(440, 420, 400 * ease((t - .55) * 2.2), 12, 6, AMBAR); txt('PDF ou Excel · computador ou celular', 640, 470, 15, TXT2, 500, 'center'); g.globalAlpha = 1; }
+    legenda('Toque no item pendente e escolha o arquivo', t); },
+  (t) => { fundo(); janela('Documentos'); lista(1, [t > .15 ? ENV : PEND, PEND, PEND, PEND], 0);
+    if (t > .3) { const a = ease((t - .3) * 3); g.globalAlpha = a; rr(800, 500, 300, 62, 16, '#0f2a22', VERDE); txt('✓  Equipe avisada', 950, 538, 18, VERDE, 700, 'center'); g.globalAlpha = 1; }
+    legenda('O item passa para Enviado e a equipe é avisada', t); },
+  (t) => { fundo(); janela('Documentos'); lista(1, [t > .3 ? APR : ENV, t > .55 ? COMP : ENV, PEND, PEND], t > .55 ? 1 : 0);
+    if (t > .6) { const a = ease((t - .6) * 3); g.globalAlpha = a; rr(450, 300 + 80, 600, 44, 12, 'rgba(240,163,46,.12)'); txt('Falta a página de assinaturas do contrato.', 470, 328 + 80, 16, AMBAR, 600); g.globalAlpha = 1; }
+    legenda('Aprovado, ou Complementar com a explicação do que falta', t); },
+  (t) => { fundo(); janela('Visão geral'); const a = ease(t * 2.5); g.globalAlpha = a; rr(430, 150, 650, 96, 18, 'rgba(240,163,46,.12)', AMBAR); txt('Novo documento solicitado', 454, 186, 21, AMBAR, 800); txt('Comprovante de residência do sócio · prazo 28/11', 454, 220, 17, TXT, 600); g.globalAlpha = 1;
+    if (t > .45) { const b = ease((t - .45) * 3); g.globalAlpha = b; rr(560, 300, 420, 200, 18, '#f5f7fb'); g.fillStyle = '#0e1a2e'; g.fillRect(560, 300, 420, 46); logo(580, 306, 120); txt('O escritório precisa de um documento', 584, 382, 18, '#14213a', 800); txt('Envie pelo portal do cliente.', 584, 414, 15, '#3a4a66', 500); rr(584, 436, 150, 40, 10, AMBAR); txt('Abrir o portal', 659, 462, 15, '#14213a', 800, 'center'); g.globalAlpha = 1; }
+    legenda('Pedido novo: aparece no portal, com prazo, e chega por e-mail', t); },
+  (t) => { fundo(); const a = ease(t * 2); g.globalAlpha = a; logo(W / 2, 500, 260, 'center'); txt('Dúvidas?', W / 2, 290, 58, TXT, 800, 'center'); txt('Fale com a equipe pelo grupo do seu caso.', W / 2, 350, 26, TXT2, 500, 'center'); rr(W / 2 - 170, 400, 340, 60, 30, AMBAR); txt('Seja bem-vindo à NGA', W / 2, 438, 21, '#14213a', 800, 'center'); g.globalAlpha = 1; },
+];
+async function carregar() { const ctx = new AudioContext(); const bufs = []; for (let i = 1; i <= 7; i++) { const r = await fetch(`seg${i}.m4a`); bufs.push(await ctx.decodeAudioData(await r.arrayBuffer())); } return { ctx, bufs }; }
+const PAUSA = 0.55, INICIO = 0.4;
+async function rodar(gravar) {
+  const st = document.getElementById('st'); st.textContent = 'carregando áudio…'; await logoPronta;
+  const { ctx, bufs } = await carregar();
+  const tempos = []; let t0 = INICIO; for (const b of bufs) { tempos.push([t0, t0 + b.duration + PAUSA]); t0 += b.duration + PAUSA; } const total = t0 + 0.6;
+  const dest = ctx.createMediaStreamDestination(); const base = ctx.currentTime + 0.3;
+  bufs.forEach((b, i) => { const s = ctx.createBufferSource(); s.buffer = b; s.connect(dest); if (!gravar) s.connect(ctx.destination); s.start(base + tempos[i][0]); });
+  let rec, partes = [];
+  if (gravar) { const stream = new MediaStream([...c.captureStream(30).getVideoTracks(), ...dest.stream.getAudioTracks()]); rec = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp9,opus', videoBitsPerSecond: 2_500_000 }); rec.ondataavailable = (e) => e.data.size && partes.push(e.data); rec.start(500); }
+  await new Promise((fim) => { const quadro = () => { const agora = ctx.currentTime - base; if (agora >= total) return fim(); let k = tempos.findIndex(([a, b]) => agora >= a && agora < b); if (k < 0) k = agora < INICIO ? 0 : 6; const [a, b] = tempos[k]; CENAS[k](Math.max(0, (agora - a) / (b - a))); st.textContent = `${agora.toFixed(1)} / ${total.toFixed(1)} s`; requestAnimationFrame(quadro); }; quadro(); });
+  if (gravar) { await new Promise((r) => { rec.onstop = r; rec.stop(); }); const blob = new Blob(partes, { type: 'video/webm' }); const r = await fetch('/salvar', { method: 'POST', body: blob }); st.textContent = `salvo: ${await r.text()} · ${total.toFixed(1)} s`; window.__feito = { bytes: blob.size, total }; }
+}
+document.getElementById('go').onclick = () => rodar(true);
+document.getElementById('prev').onclick = () => rodar(false);
+logoPronta.then(() => CENAS[0](1));
+</script></body></html>

@@ -19,7 +19,7 @@ export function precisaOcr(paginas) {
 /** Dois motores em paralelo (uma página cada), o que corta pela metade o tempo de um documento longo. */
 async function motores() {
   trabalhadores ??= (async () => {
-    const mod = await import('./vendor/ocr/tesseract.js'); const { createWorker } = mod.default ?? mod;
+    const mod = await import('./vendor/ocr/tesseract.js?v=2311'); const { createWorker } = mod.default ?? mod;
     // workerBlobURL: false — o worker vem do próprio site (a política de segurança não aceita blob:).
     const novo = () => createWorker('por', 1, { workerPath: `${PASTA}/worker.min.js`, corePath: `${PASTA}/core`, langPath: `${PASTA}/lang`, workerBlobURL: false });
     return Promise.all([novo(), novo()]);
@@ -29,7 +29,7 @@ async function motores() {
 
 /** Linhas por página de um PDF digitalizado. `maxPaginas` evita travar o navegador com laudos de centenas de páginas. */
 export async function ocrDoPdf(bytes, { maxPaginas = 12, aoProgredir } = {}) {
-  const { abrirParaImagem } = await import('./vendor/pdf/pdf-linhas.js');
+  const { abrirParaImagem } = await import('./vendor/pdf/pdf-linhas.js?v=2311');
   const doc = await abrirParaImagem(bytes); const ws = await motores();
   const total = Math.min(doc.paginas, maxPaginas); const paginas = new Array(total).fill(null).map(() => []); let feitas = 0; let proxima = 1; let puladas = 0; const inicio = Date.now();
   try {

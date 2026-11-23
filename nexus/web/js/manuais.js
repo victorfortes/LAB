@@ -106,7 +106,7 @@ export async function boasVindas(projeto, { forcar = false } = {}) {
 
 /** Aba "Manuais" do portal. */
 export async function abaManuais(projeto) {
-  const st = await api.get('/api/portal/boas-vindas').catch(() => ({ contatos: [], videoUrl: '/video/boas-vindas.webm', manuais: [] }));
+  const st = await api.get('/api/portal/boas-vindas').catch(() => ({ contatos: [], videoUrl: '/video/boas-vindas.webm?v=2311', manuais: [] }));
   const extra = projeto?.whatsapp_grupo_url ? [{ tipo: 'whatsapp', rotulo: 'Grupo do seu caso', valor: projeto.whatsapp_grupo_url }] : [];
   return {
     html: html`<div class="manuais-grade">${MANUAIS.map((m) => html`<button type="button" class="manual-card card glass up" data-manual="${m.chave}"><span class="manual__ico">${icone(m.icone)}</span><b>${m.titulo}</b><small>${m.resumo}</small><em>Ler ${icone('chevron')}</em></button>`)}</div>

@@ -65,7 +65,7 @@ async function abrirZip(arquivo) {
 let unrar;
 async function abrirRar(arquivo) {
   if (arquivo.size > 300 * 1048576) throw new Error('RAR acima de 300 MB: divida em partes');
-  unrar ??= Promise.all([import('./vendor/unrar.js'), fetch('/js/vendor/unrar.wasm').then((r) => r.arrayBuffer())]);
+  unrar ??= Promise.all([import('./vendor/unrar.js?v=2312'), fetch('/js/vendor/unrar.wasm?v=2311').then((r) => r.arrayBuffer())]);
   const [mod, wasmBinary] = await unrar;
   const ex = await mod.createExtractorFromData({ wasmBinary, data: await arquivo.arrayBuffer() });
   const { files } = ex.extract();

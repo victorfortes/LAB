@@ -11,7 +11,7 @@ import { pode } from '../estado.js';
 import { dataHoraBR, html, icone, ouvir } from '../util.js';
 import { erroDe, formulario, modal, toast, vazio } from '../ui.js';
 import { paginar } from '../diag_paginar.js';
-import { ocrDoPdf, precisaOcr } from '../ocr.js';
+import { ocrDoPdf, precisaOcr } from '../ocr.js?v=2311';
 
 const TIPOS = [['balanco', 'Balanço (por exercício)'], ['dre_contabil', 'DRE contábil'], ['dre_gerencial', 'DRE gerencial'], ['faturamento', 'Faturamento (fiscal x gerencial)'], ['extrato', 'Extrato bancário'], ['passivo_fonte', 'Passivo por fonte'], ['clientes_abc', 'Clientes (curva ABC)'], ['partes_relacionadas', 'Partes relacionadas (nomes)'], ['checklist_respostas', 'Respostas do checklist']];
 const MODELO = {
@@ -37,7 +37,7 @@ export async function gerarComProgresso(ctx, botao) {
       let corpo = { documentoId: d.id };
       if (d.ehPdf) {
         try {
-          leitor ??= import('../vendor/pdf/pdf-linhas.js');
+          leitor ??= import('../vendor/pdf/pdf-linhas.js?v=2311');
           const { url } = await api.post(`/api/documentos/${d.id}/link`);
           const bytes = new Uint8Array(await (await fetch(url, { credentials: 'same-origin' })).arrayBuffer());
           let paginas = await (await leitor).linhasDoPdf(bytes, (p, n) => mostrar(`Lendo arquivo ${feitos + 1} de ${total} · página ${p} de ${n}…`));
