@@ -227,12 +227,26 @@ export async function gerar(db: PoolClient, projetoId: string, motivo: 'manual' 
   }
   for (const c of porConta.values()) extratosParaAnalise.push({ banco: c.banco, saldoInicial: c.saldoInicial ?? undefined, linhas: c.linhas, ref: { arquivo: `${c.refs.length} extrato(s) mensal(is)` } });
 
+  // Por ano e tipo, fica a melhor leitura de DRE: um mesmo exercício pode ter sido lido de vários arquivos (ou por
+  // versões anteriores do leitor). Prefere a que traz receita e resultado; depois a de receita não nula; empate, a última.
+  const melhorDre = (tipo: 'contabil' | 'gerencial') => {
+    const porAno = new Map<number, { dados: Record<string, unknown>; ref: ReturnType<typeof refDe>; score: number }>();
+    for (const x of com(tipo === 'contabil' ? 'dre_contabil' : 'dre_gerencial')) {
+      const d = x.dados as { exercicio?: number; receitaBruta?: number | null; resultado?: number | null };
+      const ano = Number(d.exercicio); if (!Number.isFinite(ano)) continue;
+      const score = (d.receitaBruta ? 2 : 0) + (d.resultado !== null && d.resultado !== undefined ? 1 : 0);
+      const atual = porAno.get(ano);
+      if (!atual || score >= atual.score) porAno.set(ano, { dados: { ...d, tipo }, ref: refDe(x.referencia), score });
+    }
+    return [...porAno.values()].map((v) => ({ ...v.dados, ref: v.ref }));
+  };
+
   const relatorio = montarRelatorio({
     leituras,
     projeto: { nome: pj[0].nome, razaoSocial: pj[0].razao, posicao: pj[0].posicao_cliente, cnpj: pj[0].cnpj, segmento: pj[0].segmento }, dataBase: hoje, geradoPor: quem, versao: numero,
     documentos, checklist, portal,
     balancos: com('balanco').filter((x) => ['ativoCirculante', 'ativoNaoCirculante', 'passivoCirculante', 'passivoNaoCirculante', 'patrimonioLiquido'].every((k) => typeof (x.dados as Record<string, unknown>)[k] === 'number')).map((x) => ({ ...(x.dados as object), ref: refDe(x.referencia) }) as never),
-    dres: [...com('dre_contabil').map((x) => ({ ...(x.dados as object), tipo: 'contabil', ref: refDe(x.referencia) })), ...com('dre_gerencial').map((x) => ({ ...(x.dados as object), tipo: 'gerencial', ref: refDe(x.referencia) }))] as never,
+    dres: [...melhorDre('contabil'), ...melhorDre('gerencial')] as never,
     faturamento: juntarFaturamento(com('faturamento') as unknown as ExtracaoLida[]).map((f) => ({ ano: f.ano, fiscal: f.fiscal, gerencial: f.gerencial, outros: f.outros, mesesFiscal: f.mesesFiscal, mesesGerencial: f.mesesGerencial, ref: refDe(f.refs[0]!) }) as never),
     extratos: extratosParaAnalise as never,
     passivo: [...fontesDePassivo.map((x) => ({ ...(x.dados as object), ref: refDe(x.referencia) }) as never), ...passivoDoBalancete],

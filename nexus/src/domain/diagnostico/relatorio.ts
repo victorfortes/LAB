@@ -39,6 +39,11 @@ export interface EntradaDoDiagnostico {
 export const AVISO = 'Leitura automática para revisão profissional. Não conclui sobre viabilidade. Confira vigência e julgados antes de citar qualquer tese.';
 const FORA_PADRAO = ['Relação de empregados', 'Certidões de protesto', 'Extratos de todas as contas bancárias', 'Contrato de locação do imóvel da operação'];
 
+// Documentos de patrimônio dos sócios/grupo que o cliente costuma mandar: bens, IRPF (recibo "RR", declaração "DR"),
+// matrículas, participações. Servem para a seção não dizer "sem documentos" quando o cliente claramente enviou — sem
+// extrair número nenhum deles (segue a regra: o que não foi lido vira item a conferir, não palpite).
+const PATRIMONIO_RE = /bens|patrim[oô]ni|irpf|imposto (de|sobre a) renda|declara[cç][aã]o de ajuste|rendiment|matr[íi]cula|particip[ao]|_(rr|dr)[ ._-]?\d{2,4}|\b(rr|dr) ?20\d{2}/i;
+
 const brl = (n: number) => `${n < 0 ? '-' : ''}R$ ${Math.abs(n).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const semDados = (pedir: string[]) => ({ semDados: true as const, pedir });
 
@@ -103,7 +108,10 @@ export function montarRelatorio(e: EntradaDoDiagnostico) {
     contabilII: balancos.length ? { balancos, ausentes: exerciciosAusentes(e.balancos), assinaturaTardia: e.balancos.filter(assinaturaTardia).map((b) => ({ exercicio: b.exercicio, assinadoEm: b.assinadoEm })) } : semDados(['Balanço patrimonial de cada exercício', 'Balancetes do ano corrente', 'Razão analítico das contas de adiantamento e de sócios']),
     financeiroI: extratos.length ? { extratos } : semDados(['Extratos de todas as contas bancárias dos últimos 12 meses']),
     financeiroII: passivo ? { passivo, abc } : semDados(['Relatório consolidado de endividamento', 'Relatório do passivo fiscal', 'Contratos de financiamento e garantias']),
-    patrimonio: { semDados: !e.socios?.socios.length, socios: e.socios?.socios.length ? e.socios : null, pedir: ['Relação de bens da empresa e dos sócios', 'IRPF dos sócios e avalistas', 'Matrículas imobiliárias atualizadas', 'Organograma e empresas do grupo'], parteRelacionadaPorBanco: extratos.map((x) => ({ banco: x.banco, ...x.grupos.parteRelacionada })) },
+    patrimonio: { semDados: !e.socios?.socios.length, socios: e.socios?.socios.length ? e.socios : null, pedir: ['Relação de bens da empresa e dos sócios', 'IRPF dos sócios e avalistas', 'Matrículas imobiliárias atualizadas', 'Organograma e empresas do grupo'],
+      // Documentos de bens/IRPF já entregues, para a equipe conferir à mão enquanto não há leitor automático desses arquivos.
+      recebidos: e.documentos.filter((d) => PATRIMONIO_RE.test(`${d.area} ${d.nome}`)).map((d) => ({ nome: d.nome, area: d.area })).slice(0, 60),
+      parteRelacionadaPorBanco: extratos.map((x) => ({ banco: x.banco, ...x.grupos.parteRelacionada })) },
     juridico: { ...juridico, aviso: 'Leitura indicativa a partir dos documentos, conferida com a Lei 11.101/2005 na redação da Lei 14.112/2020. Confira os julgados antes de usar em peça.' },
     endividamento: e.endividamento ?? [],
     riscos: [...riscos, ...((e.leituras?.riscos ?? []) as typeof riscos)],

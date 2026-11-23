@@ -134,7 +134,8 @@ function lerDreDoDocumento(arquivo: string, paginas: string[][], out: ResultadoD
     if (/^(resultadodoexercicio|resultadoliquidodoexercicio|lucroliquido|prejuizoliquido|lucrodoexercicio|prejuizodoexercicio|lucroprejuizoliquido)/.test(c)) resultado = /prejuizo/.test(c) && x > 0 ? -x : x;
     if (financeiras === null && /^despesasfinanceiras$/.test(c)) financeiras = Math.abs(x);
   }));
-  if (receita === null && resultado === null) return false;
+  // Sem nenhum número útil (balancete lido como DRE costuma dar receita 0 e resultado vazio): não é DRE.
+  if ((receita === null || receita === 0) && resultado === null) return false;
   const ex = exercicioDo(texto, arquivo); if (!ex) return false;
   // Meses do período: "01/01/2025 a 31/12/2025" ou "Janeiro / 2024 a Dezembro / 2024".
   const t = norm(texto); let meses: number | null = null;
@@ -173,19 +174,24 @@ function lerDre(arquivo: string, pagina: number, linhas: string[], out: Resultad
   const gerencial = linhas.some((l) => /^\s*acumulado\b/i.test(l));
   const ps = linhas.map(partirLinha);
   const rec = achar(ps, /^(receita bruta|receita operacional bruta|3\.1 receita operacional bruta)$/) ?? achar(ps, /receita (operacional )?bruta/);
-  const res = achar(ps, /^(resultado do exercicio|lucro liquido|prejuizo do exercicio|lucro do exercicio|lucro liquido do exercicio|resultado liquido do exercicio|prejuizo liquido do exercicio)$/);
+  // O resultado final do exercício aceita os rótulos reais destes demonstrativos ("(=) PREJUIZO/LUCRO LIQUIDO DO
+  // EXERCICIO", "resultado liquido do exercicio"), inclusive com "*** Total" na frente e espaços na palavra.
+  const res = achar(ps, /(resultado|lucro|prejuizo) (operacional )?liquido do exercicio$|^(resultado do exercicio|lucro do exercicio|prejuizo do exercicio|lucro liquido|prejuizo liquido)$/);
   if (!rec && !res) return false;
-  const ex = exercicioDo(texto, arquivo); if (!ex) return false;
   // Na DRE gerencial o primeiro valor é o acumulado do ano; na contábil, o único.
   const primeiro = (l?: { valores: Valor[] }) => (l ? l.valores[0]!.reais : null);
   let resultado = primeiro(res);
   if (res && resultado !== null && resultado > 0 && /prejuizo/.test(norm(res.rotulo))) resultado = -resultado;
+  const receitaBruta = primeiro(rec);
+  // Sem nenhum número útil não é DRE (evita balancete/demonstração lida como DRE de receita 0 e resultado vazio).
+  if ((receitaBruta === null || receitaBruta === 0) && resultado === null) return false;
+  const ex = exercicioDo(texto, arquivo); if (!ex) return false;
   // Meses cobertos: na gerencial, os meses com receita; na contábil, a data do encerramento.
   let meses: number | null = null;
   if (gerencial && rec) meses = rec.valores.slice(1).filter((v) => v.reais !== 0).length || null;
   const enc = /exercicio em \d{2}\/(\d{2})\/\d{4}/.exec(t); if (!gerencial && enc) meses = Number(enc[1]);
   out.extracoes.push({ tipo: gerencial ? 'dre_gerencial' : 'dre_contabil', referencia: `${arquivo} | página ${pagina}`, dados: {
-    exercicio: ex, receitaBruta: primeiro(rec), resultado, meses,
+    exercicio: ex, receitaBruta, resultado, meses,
     despesasFinanceiras: Math.abs(primeiro(achar(ps, /(despesas financeiras|resultado financeiro)$/)) ?? 0) || null,
   } });
   return true;

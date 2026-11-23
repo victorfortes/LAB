@@ -132,7 +132,9 @@ export function lerTextoDeDemonstracao(arquivo: string, paginas: string[][]): Re
       const v = nums.map((m) => m[0]).slice(-anos.length);
       tabela.push([rotulo, ...Array(anos.length - v.length).fill(''), ...v]);
     }
-    if (tabela.length > 2) { try { lerTabela(arquivo, aba, tabela, out); } catch (e) { out.avisos.push(`${arquivo} | ${aba}: falha na leitura (${(e as Error).message})`); } }
+    // A página vira tabela e passa pelo mesmo reconhecedor; os avisos por página (layout/cabeçalho) são descartados
+    // em favor do único aviso-resumo abaixo, para um PDF de muitas páginas (balancete) não encher os limites.
+    if (tabela.length > 2) { const tmp: ResultadoDaLeitura = { extracoes: [], avisos: [] }; try { lerTabela(arquivo, aba, tabela, tmp); } catch { /* vira o aviso-resumo abaixo */ } out.extracoes.push(...tmp.extracoes); }
   });
   if (!out.extracoes.length) out.avisos.push(`${arquivo}: PDF lido, mas sem balanço ou DRE reconhecível (procurei uma linha de exercícios e contas como "Ativo circulante" e "Receita bruta").`);
   // Leitura de PDF é menos firme que planilha: o diagnóstico mostra a origem para conferência.

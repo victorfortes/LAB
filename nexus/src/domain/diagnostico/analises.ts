@@ -101,7 +101,9 @@ export function mesesRepetidos(serie: readonly { mes: string; valor: number }[])
 // -------------------------------------------------------- contrapartes ---
 
 export type GrupoContraparte = 'fomento' | 'tributos' | 'cartorio' | 'parte_relacionada' | 'outros';
-const FOMENTO = /(factoring|\bfidc\b|securitiza|\bsecurit\b|fomento|direitos credit|fundo de investimentos? em direitos|\bf\.i\.d\.c\b)/i;
+// Fomento como aparece no extrato brasileiro: além de factoring/FIDC/securitizadora, o desconto de duplicatas e
+// cheques (borderô) e a antecipação/cessão de recebíveis — a forma mais comum de antecipar faturamento.
+const FOMENTO = /(factoring|\bfidc\b|securitiza|\bsecurit\b|fomento|direitos credit|fundo de investimentos? em direitos|\bf\.i\.d\.c\b|border[ôo]|desconto de (duplicata|cheque|titulo|border)|desc(?:\.|onto)? (?:de )?(?:dupl|tit|chq|cheq)|antecipa[cç][aã]o de receb|cess[aã]o de receb|antecip.{0,6}receb)/i;
 const TRIBUTOS = /\b(darf|gps|fgts|receita federal|simples nacional|das\b|inss|pgfn|sefaz|icms)\b/i;
 const CARTORIO = /\b(cart[oó]rio|protesto|tabelionato|ieptb)\b/i;
 

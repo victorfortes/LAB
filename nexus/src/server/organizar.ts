@@ -21,7 +21,10 @@ export async function organizarDocumentos(db: PoolClient, projetoId: string, ide
   let itensCriados = 0;
   const n = (await db.query<{ n: number }>('SELECT count(*)::int AS n FROM requisitos WHERE projeto_id = $1', [projetoId])).rows[0]?.n ?? 0;
   if (!n) {
-    for (const [i, r] of modeloDe(projeto.tipo).entries()) {
+    // Tipo sem modelo próprio (consultivo, contencioso) não pode deixar o diagnóstico "0 de 0": usa o checklist de RJ/RE,
+    // o mais completo e o da maioria dos casos de devedor.
+    const modelo = modeloDe(projeto.tipo); const base = modelo.length ? modelo : modeloDe('recuperacao_judicial');
+    for (const [i, r] of base.entries()) {
       await db.query(`INSERT INTO requisitos (organizacao_id, projeto_id, categoria, titulo, fundamento, obrigatorio, ordem, atribuicao) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
         [projeto.organizacao_id, projetoId, r.categoria, r.titulo, r.fundamento ?? null, r.obrigatorio, i, r.atribuicao ?? null]);
       itensCriados++;
